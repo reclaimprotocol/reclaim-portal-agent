@@ -1,0 +1,23 @@
+{
+  "5819165": {
+    "extra_allowed_subdomains": ["duls"],
+    "extra_allowed_root_domains": ["uod.ac.in"],
+    "note": "DU uses both du.ac.in and uod.ac.in. DULS (DU Library System) is a DU-specific acronym; generic distance-learning acronyms (SOL, NCWEB) are handled globally in ALLOWED_FUNCTIONAL_LABELS."
+  },
+  "664001": {
+    "extra_effective_domains": ["hpushimla.in"],
+    "notes": "HP University Shimla runs student portals on hpushimla.in (separate from primary hpuniv.ac.in)."
+  },
+  "664197": {
+    "state": "Punjab",
+    "exact_shortnames": ["pup", "punjabiuniversity", "punjabi-university"],
+    "extra_effective_domains": ["punjabiuniversity.ac.in", "pupexamination.ac.in", "cdoepunjabiuniversity.in"],
+    "notes": "Punjabi University Patiala. Shortname 'pup' = Punjabi University Patiala. SheerID-listed pbi.ac.in is stale."
+  },
+  "663894": {
+    "state": "Bihar",
+    "exact_shortnames": ["pu", "patna-university"],
+    "extra_effective_domains": ["bihar-ums.com"],
+    "notes": "Patna University. Shortname is 'pu' only — NOT 'pup' (that's Punjabi University Patiala)."
+  }
+}

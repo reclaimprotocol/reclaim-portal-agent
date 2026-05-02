@@ -1,0 +1,27 @@
+[project]
+name = "reclaim-portal-agent"
+version = "0.1.0"
+description = "CLI agent that discovers university student login portals and analyzes their T&Cs for data-usage restrictions."
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "google-api-python-client>=2.140.0",
+    "google-auth>=2.34.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.1",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.0",
+    "beautifulsoup4>=4.12.3",
+    "click>=8.1.7",
+    "tenacity>=8.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*"]
