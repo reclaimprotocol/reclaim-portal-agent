@@ -1249,6 +1249,21 @@ def host_belongs_to_org(
                     f"platform {plat} tenant '{prefix}' ∈ {check_source} "
                     f"{sorted(check_set)}"
                 )
+            # Fix 1 — asymmetric substring fallback. When the tenant
+            # prefix EXTENDS one of this OrgID's shortnames (e.g.
+            # `bujhansiadm.samarth.edu.in` for an OrgID whose auto-
+            # shortname is `bujhansi`), accept. Length floor 4 mirrors
+            # R6 so that 2-3-char auto-shortnames (`du`, `iit`) can't
+            # admit unrelated tenants like `dauniv` / `iitkgp`. Only
+            # the `shortname ∈ prefix` direction is checked — the
+            # reverse (`prefix ∈ shortname`) would let a short tenant
+            # like `pup.samarth.ac.in` match a longer shortname.
+            for s in check_set:
+                if len(s) >= 4 and s in prefix:
+                    return True, (
+                        f"platform {plat} tenant '{prefix}' substring-match "
+                        f"shortname '{s}' ∈ {check_source} {sorted(check_set)}"
+                    )
             return False, (
                 f"platform {plat} tenant '{prefix}' ∉ {check_source} "
                 f"{sorted(check_set)}"
@@ -1567,14 +1582,17 @@ def gemini_search(
         return []
 
     prompt = (
-        f"Find all student-facing login portal URLs for "
-        f"{university_name} in India "
-        f"(official website: {primary_domain}). "
-        f"Include: student portal, ERP login, LMS/Moodle, "
-        f"exam portal, library portal, fee portal. "
-        f"Do NOT include: admission portals, staff-only pages, "
-        f"admin login, or URLs from other universities. "
-        f"Return ONLY a JSON array of full URLs, nothing else, "
+        f"Find the student LOGIN portal URLs for {university_name} "
+        f"in India (official domain: {primary_domain}). "
+        f"I need URLs where enrolled students can actually LOG IN — "
+        f"pages with a username/password form. "
+        f"Include: student ERP login, LMS/Moodle login, exam portal "
+        f"login, fee payment login, library login. "
+        f"Do NOT include: homepages, news pages, PDF documents, "
+        f"admission/application forms, staff/admin login, or any page "
+        f"without a login form. Do NOT include URLs from other "
+        f"universities. "
+        f"Return ONLY a JSON array of login page URLs, nothing else, "
         f"no explanation, no markdown. "
         f'Example: ["https://erp.xyz.ac.in/login", '
         f'"https://lms.xyz.ac.in/student"]'
@@ -1641,6 +1659,104 @@ def gemini_search(
     return valid
 
 
+def gemini_search_broad(
+    orgid: str,
+    university_name: str,
+    primary_domain: str,
+    *,
+    http_timeout: float = 30.0,
+) -> list[str]:
+    """Cascade retry-2 — Gemini search with a broader prompt.
+
+    Used only by `discovery._retry_gemini_broad` when the main
+    pipeline returned 0 portals. Asks for the *student-facing
+    system homepage* rather than a login URL, which recovers
+    universities whose actual login surface is one click in from a
+    portal homepage that DDG / sibling-walk / probes missed.
+
+    Same OpenRouter call shape as `gemini_search`; only the prompt
+    differs. Disabled / no API key / network failure → returns [].
+    """
+    if not GEMINI_SEARCH_ENABLED or not OPENROUTER_API_KEY:
+        return []
+
+    prompt = (
+        f"What is the official student portal or ERP system "
+        f"website for {university_name} in India "
+        f"(domain: {primary_domain})? "
+        f"I just need the main URL of whatever system students "
+        f"use to access their academic information — grades, "
+        f"attendance, fees, exam results. "
+        f"Return ONLY a JSON array of URLs, nothing else, no "
+        f"explanation, no markdown. "
+        f'Example: ["https://erp.xyz.ac.in", '
+        f'"https://student.xyz.ac.in"]'
+    )
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/reclaimprotocol",
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=http_timeout,
+        )
+        data = response.json()
+    except Exception as err:
+        logger.warning(
+            "[%s] Gemini broad search failed: %s", orgid, err,
+        )
+        return []
+
+    if isinstance(data, dict) and "error" in data:
+        logger.warning(
+            "[%s] OpenRouter error (broad): %s", orgid, data["error"],
+        )
+        return []
+    try:
+        text = data["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, TypeError, AttributeError):
+        logger.warning(
+            "[%s] Gemini broad response missing choices/content: %r",
+            orgid, data,
+        )
+        return []
+
+    text = re.sub(r"```json|```", "", text).strip()
+    match = re.search(r"\[.*?\]", text, re.DOTALL)
+    if not match:
+        logger.warning(
+            "[%s] Gemini broad response had no JSON array", orgid,
+        )
+        return []
+    try:
+        urls = json.loads(match.group())
+    except json.JSONDecodeError as err:
+        logger.warning(
+            "[%s] Gemini broad JSON parse failed: %s (raw=%r)",
+            orgid, err, match.group()[:200],
+        )
+        return []
+    if not isinstance(urls, list):
+        return []
+    valid = [
+        u for u in urls
+        if isinstance(u, str)
+        and u.startswith(("http://", "https://"))
+        and len(u) < 500
+    ]
+    logger.info(
+        "[%s] Gemini broad search: %d valid URLs", orgid, len(valid),
+    )
+    return valid
+
+
 def gemini_subdomain_search(
     orgid: str,
     university_name: str,
@@ -1671,16 +1787,19 @@ def gemini_subdomain_search(
         return []
 
     prompt = (
-        f"What subdomains and related platform domains does "
-        f"{university_name} in India use for student-facing "
-        f"services like ERP, LMS, exam portal, fee portal, "
-        f"library portal? "
-        f"Official website: {primary_domain}. "
-        f"Include both subdomains of {primary_domain} AND "
-        f"any separate platform domains the university uses "
-        f"(e.g. custom ERP domains, third-party platforms). "
-        f"Do NOT include admission portals or govt portals. "
-        f"Return ONLY a JSON array of hostnames, nothing else. "
+        f"What hostnames does {university_name} in India "
+        f"(official domain: {primary_domain}) use for enrolled-"
+        f"student services like ERP, LMS, exam portal, fee "
+        f"payment, library? "
+        f"Include both subdomains of {primary_domain} AND any "
+        f"separate platform domains the university uses (custom "
+        f"ERP domains, third-party platforms like knimbus.com / "
+        f"samarth.ac.in / edumarshal.com). "
+        f"Do NOT include admission portals, government portals, "
+        f"news/marketing subdomains, or hostnames belonging to "
+        f"other universities. "
+        f"Return ONLY a JSON array of hostnames (no https://, no "
+        f"paths), nothing else, no explanation, no markdown. "
         f'Example: ["erp.xyz.ac.in", "lms.xyz.ac.in", '
         f'"xyzuniv.knimbus.com"]'
     )

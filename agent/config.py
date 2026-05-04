@@ -34,10 +34,22 @@ JS_RENDERING_TIMEOUT_SECONDS: int = 15
 # tuning is possible without code edits. `load_dotenv` runs above so
 # the .env value is honoured.
 TOTAL_DISCOVERY_BUDGET_SECONDS: int = int(
-    os.environ.get("TOTAL_DISCOVERY_BUDGET_SECONDS", "150")
+    os.environ.get("TOTAL_DISCOVERY_BUDGET_SECONDS", "300")
 )
 TOTAL_TC_BUDGET_SECONDS: int = int(
     os.environ.get("TOTAL_TC_BUDGET_SECONDS", "60")
+)
+
+# Fix 5 — phase budget for the serial JS-render loop. The total
+# discovery budget covers everything; this caps just the time spent
+# inside the deferred Playwright render loop (each render can take
+# 8-15s on slow hosts; at MAX_JS_RENDER_CANDIDATES=20 a worst-case
+# OrgID can otherwise spend 5 minutes here). When the deadline
+# trips, remaining queued renders are skipped and the loop exits;
+# already-validated candidates from the parallel HTTP phase are
+# unaffected.
+JS_RENDER_BUDGET_SECONDS: int = int(
+    os.environ.get("JS_RENDER_BUDGET_SECONDS", "40")
 )
 
 
@@ -426,6 +438,7 @@ URL_ADMISSION_PATH_KEYWORDS: tuple[str, ...] = (
     # New-student-specific
     "/newreg", "/new_reg", "/newregistration", "/new_registration",
     "/freshreg", "/fresh_reg", "/freshregistration",
+    "/freshers", "/fresher",
     "/newstudent", "/new_student", "/new-student",
     "/newuser", "/new_user", "/new-user",
     "/newapplicant", "/new_applicant",
@@ -449,6 +462,15 @@ URL_ADMISSION_HOST_KEYWORDS: tuple[str, ...] = (
     "apply", "enroll", "enrolment",
     "newadmission", "freshregistration",
     "onlineadmission",
+    # Substring host match. `register` will also match
+    # `registrar.<uni>.ac.in` (records-management subdomain) — same
+    # false-positive risk class as `apply` matching hypothetical
+    # `apple…` hosts. Downstream content/audience checks normally
+    # rescue real student portals; if a `registrar` subdomain ever
+    # surfaces as a true student portal, drop `register` from this
+    # list or path-restrict the host check.
+    "registration", "register",
+    "freshers", "fresher",
 )
 
 # `/register` / `/registration` URL exception. If the path *also*
@@ -785,6 +807,50 @@ SAMARTH_FUNCTIONAL_PREFIXES: tuple[str, ...] = (
     "distance-", "online-",
     "portal-", "student-", "students-",
     "app-",
+)
+
+
+# Stage A — Samarth tenant pattern probes. For every OrgID, generate
+# candidate URLs against `samarth.edu.in` matching the common tenant
+# naming conventions Indian universities use. Each pattern is
+# `.format(shortname=..., acronym=...)`:
+#   * `shortname` — leftmost label of a configured root domain (auto-
+#     derived via `extract_shortname_candidates`) OR an entry from the
+#     OrgID's `exact_shortnames` override.
+#   * `acronym` — `compute_acronym(name).lower()` (e.g. "BUJ" for
+#     Bundelkhand University Jhansi). Falls back to `shortname[:3]`
+#     when the acronym is shorter than 3 chars / None.
+#
+# Generated URLs hit `/index.php/site/login` (Samarth's canonical
+# login surface). Live tenants pass rule-C in
+# `passes_login_signal_gate` since samarth.edu.in is on
+# `KNOWN_SHARED_PLATFORM_PATTERNS` — so no static login form is
+# required. Dead tenants 404/timeout and drop naturally during
+# validation. Reduces the need for per-OrgID `seed_urls` /
+# `exact_shortnames` overrides for Samarth-hosted universities (e.g.
+# `bujhansiadm.samarth.edu.in` for Bundelkhand is now found
+# organically).
+SAMARTH_TENANT_PATTERNS: tuple[str, ...] = (
+    "{shortname}",            # bujhansi.samarth.edu.in
+    "{shortname}univ",        # bujhansiuniv.samarth.edu.in
+    "{shortname}university",  # bujhansiuniversity.samarth.edu.in
+    "{acronym}",              # buj.samarth.edu.in
+)
+
+
+# Stage A — Samarth admin-tenant suffix list for the Option B peer
+# filter. After validation, a Samarth tenant whose label ends in one
+# of these suffixes is dropped IFF a peer tenant with the suffix
+# stripped is also live in the same OrgID's validated set:
+#   `doonuniversity.samarth.edu.in`    (peer, kept)
+#   `doonuniversityadm.samarth.edu.in` (admin sibling — dropped)
+# When no peer exists, the admin tenant IS the student portal and is
+# kept (e.g. `bujhansiadm.samarth.edu.in` for Bundelkhand Jhansi
+# where `bujhansi.samarth.edu.in` returns 404). The check runs in
+# `discovery._drop_samarth_admin_tenants_with_live_peer` after
+# `_dedupe(all_validated)` and before category inference.
+SAMARTH_ADMIN_TENANT_SUFFIXES: tuple[str, ...] = (
+    "adm", "admin", "mgmt", "staff",
 )
 
 

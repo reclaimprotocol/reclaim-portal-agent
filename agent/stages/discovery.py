@@ -55,8 +55,11 @@ from ..anthropic_client import AnthropicClient
 from ..config import (
     AFFILIATED_DOMAIN_TOKENS,
     GEMINI_SEARCH_ENABLED,
+    JS_RENDER_BUDGET_SECONDS,
     KNOWN_SHARED_PLATFORM_PATTERNS,
     OPENROUTER_API_KEY,
+    SAMARTH_ADMIN_TENANT_SUFFIXES,
+    SAMARTH_TENANT_PATTERNS,
     SIBLING_COUNT_AFFILIATED_FILTER_THRESHOLD,
     TOTAL_DISCOVERY_BUDGET_SECONDS,
     host_in_instance_blocklist,
@@ -858,6 +861,57 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         )
         rule_candidates.extend(f_path.result())
         rule_candidates.extend(f_sub.result())
+
+    # Samarth tenant pattern probes. Generates candidate URLs for
+    # `{tenant}.samarth.edu.in/index.php/site/login` covering the
+    # common tenant naming conventions (`{shortname}`,
+    # `{shortname}adm`, `{shortname}univ`, …). Validation runs them
+    # like any other candidate: dead tenants 404/timeout and drop;
+    # live tenants pass rule-C since samarth.edu.in is in
+    # KNOWN_SHARED_PLATFORM_PATTERNS, and the consolidate-time
+    # strict tenant gate (R3/R4 in `host_belongs_to_org`) keeps
+    # cross-OrgID isolation. The earlier "no `<shortname>.samarth`-
+    # style guessing" rule applied to the legacy path/subdomain
+    # probes only — these probes are explicitly allowed because
+    # they're scoped to the SheerID-known shortname/acronym set
+    # for THIS OrgID.
+    samarth_shortnames: set[str] = set()
+    for s in shortname_candidates:
+        if s and len(s) >= 2:
+            samarth_shortnames.add(s.lower())
+    for s in exact_shortnames:
+        if s and len(s) >= 2:
+            samarth_shortnames.add(s.lower())
+    samarth_acronym = (acronym or "").lower()
+    samarth_added = 0
+    for s in sorted(samarth_shortnames):
+        eff_acronym = samarth_acronym or s[:3]
+        for pattern in SAMARTH_TENANT_PATTERNS:
+            try:
+                tenant = pattern.format(shortname=s, acronym=eff_acronym)
+            except (KeyError, IndexError):
+                continue
+            if not tenant or "{" in tenant:
+                continue
+            url = f"https://{tenant}.samarth.edu.in/index.php/site/login"
+            rule_candidates.append(Candidate(
+                url=url,
+                category="Student Portal",
+                discovery_source="rule:samarth-probe",
+                discovery_reasoning=(
+                    f"samarth tenant pattern {pattern!r} "
+                    f"(shortname={s}, acronym={eff_acronym})"
+                ),
+            ))
+            samarth_added += 1
+    if samarth_added:
+        logger.info(
+            "[%s] samarth tenant probes: +%d candidates "
+            "(shortnames=%s, acronym=%r)",
+            orgid, samarth_added, sorted(samarth_shortnames),
+            samarth_acronym,
+        )
+
     rule_candidates = _dedupe(rule_candidates)
     logger.info(
         "[%s] phase=probes took=%.1fs candidates=%d",
@@ -1475,6 +1529,15 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
 
     all_validated = _dedupe(all_validated)
 
+    # Option B — drop Samarth admin tenants when a live non-admin peer
+    # is present in the validated set. Doon: drops
+    # `doonuniversityadm.samarth.edu.in` because
+    # `doonuniversity.samarth.edu.in` is also live; BU Jhansi: keeps
+    # `bujhansiadm.samarth.edu.in` because there is no peer.
+    all_validated = _drop_samarth_admin_tenants_with_live_peer(
+        all_validated, orgid,
+    )
+
     # ---- Category inference + ERP gate -------------------------------------
     recategorised: list[Candidate] = []
     for c in all_validated:
@@ -1566,6 +1629,47 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         logger.info(
             "[%s] force_accept_seed_urls merged %d forced seed(s); total=%d",
             orgid, len(forced_seed_candidates), len(consolidated),
+        )
+
+    # Zero-portal retry cascade. When consolidation returned 0 portals
+    # AND the main discovery budget hasn't already tripped, run three
+    # progressive lightweight retries (DDG fresh queries → Gemini
+    # broader prompt → homepage anchor crawl) before accepting failure.
+    # Each retry's URLs go through the SAME pre-filter → validate →
+    # consolidate path as the main pipeline (no parallel validation
+    # logic). The cascade stops the first time a retry yields ≥1
+    # consolidated portal. Capped by `_CASCADE_BUDGET_SECONDS` total
+    # wall-clock.
+    if not consolidated and not budget.tripped:
+        consolidate_kwargs = dict(
+            allowed_domains=owned_domains,
+            extra_allowed_subdomains=extra_allowed_labels,
+            extra_allowed_root_domains=consolidate_extra_roots,
+            shortname_candidates=shortname_candidates,
+            acronym_candidates=acronym_candidates,
+            primary_domain=primary,
+            extra_effective_domains=extra_effective_domains,
+            state=org_state,
+            exact_shortnames=exact_shortnames,
+            portal_anchored_hosts=portal_anchored_hosts,
+            orgid=orgid,
+        )
+        consolidated = _run_zero_portal_retry_cascade(
+            orgid=orgid,
+            university_name=name,
+            primary_domain=primary,
+            config=config,
+            effective_domains=effective_domains,
+            blocked_urls=blocked_urls,
+            consolidate_kwargs=consolidate_kwargs,
+            js_renderer=js_renderer,
+            link_follow_budget=link_follow_budget,
+            budget=budget,
+        )
+    elif not consolidated and budget.tripped:
+        logger.info(
+            "[%s] 0 portals but budget tripped — skipping retry cascade",
+            orgid,
         )
 
     logger.info(
@@ -1953,9 +2057,24 @@ def _validate_candidates(
                 len(dropped),
                 [c.url for c, _ in dropped[:5]],
             )
+        # Fix 5 — phase budget for the serial JS-render loop. Capped
+        # independently of the total discovery budget so an OrgID with
+        # many SPA candidates can't consume the whole run on Playwright
+        # alone. When the deadline is hit, the remaining queued
+        # renders are skipped; the loop exits and the rest of
+        # `_validate_candidates` (link-follow, post-filter) still runs.
+        js_phase_deadline = time.monotonic() + JS_RENDER_BUDGET_SECONDS
         for c, pending in pending_js:
             if budget is not None and budget.expired():
                 budget.trip(orgid, "js-render", len(out))
+                break
+            if time.monotonic() >= js_phase_deadline:
+                remaining = len(pending_js) - pending_js.index((c, pending))
+                logger.warning(
+                    "[%s] js-render phase budget %ds exhausted — "
+                    "skipping %d remaining render(s)",
+                    orgid, JS_RENDER_BUDGET_SECONDS, remaining,
+                )
                 break
             final_url = pending.final_url
             logger.info(
@@ -2998,6 +3117,439 @@ def _priority_subset_for_tight_budget(
             seen.add(key)
             out.append(c)
     return out
+
+
+_SAMARTH_ADMIN_FILTER_ROOTS: tuple[str, ...] = (
+    "samarth.edu.in", "samarth.ac.in",
+)
+
+
+def _drop_samarth_admin_tenants_with_live_peer(
+    candidates: list[Candidate], orgid: str,
+) -> list[Candidate]:
+    """Option B — drop a Samarth admin-suffix tenant
+    (`<x>adm.samarth.edu.in`, `<x>admin.*`, `<x>mgmt.*`,
+    `<x>staff.*`) IFF the bare peer `<x>.samarth.<root>` is also in
+    the validated set. Some universities only have an admin-suffix
+    tenant and it serves as the student portal (Bundelkhand Jhansi
+    uses `bujhansiadm.samarth.edu.in` because `bujhansi.samarth.edu.in`
+    returns 404). Suffix list lives in
+    `SAMARTH_ADMIN_TENANT_SUFFIXES`. Symmetric across both Samarth
+    roots — the peer must share the same root.
+    """
+    live: dict[str, set[str]] = {
+        r: set() for r in _SAMARTH_ADMIN_FILTER_ROOTS
+    }
+    for c in candidates:
+        host = urlsplit(c.url).netloc.lower().split(":")[0]
+        for root in _SAMARTH_ADMIN_FILTER_ROOTS:
+            if host.endswith("." + root):
+                tenant = host[: -(len(root) + 1)]
+                if tenant:
+                    live[root].add(tenant)
+                break
+
+    out: list[Candidate] = []
+    for c in candidates:
+        host = urlsplit(c.url).netloc.lower().split(":")[0]
+        dropped = False
+        for root in _SAMARTH_ADMIN_FILTER_ROOTS:
+            if not host.endswith("." + root):
+                continue
+            tenant = host[: -(len(root) + 1)]
+            for suffix in SAMARTH_ADMIN_TENANT_SUFFIXES:
+                if not (tenant.endswith(suffix) and len(tenant) > len(suffix)):
+                    continue
+                peer = tenant[: -len(suffix)]
+                if peer and peer in live[root]:
+                    logger.info(
+                        "[%s] REJECTED %s: samarth admin tenant '%s' "
+                        "with live non-admin peer '%s.%s'",
+                        orgid, c.url, tenant, peer, root,
+                    )
+                    dropped = True
+                    break
+            break  # host matched this root; don't re-check the other
+        if not dropped:
+            out.append(c)
+    return out
+
+
+# ---- Zero-portal retry cascade ----------------------------------------
+#
+# Runs only when the main pipeline returned 0 consolidated portals AND
+# `budget.tripped` is False. Three progressive retries (DDG fresh
+# queries → Gemini broader prompt → homepage anchor crawl) feed URLs
+# into the existing pre-filter → validate → consolidate path; the
+# first retry that yields ≥1 portal wins and the cascade stops.
+#
+# Cascade has its own `_CASCADE_BUDGET_SECONDS` wall-clock budget
+# separate from `TOTAL_DISCOVERY_BUDGET_SECONDS`. The main `budget`
+# object is still passed to the inner `_validate_candidates` calls so
+# the cascade respects the *combined* time available — main budget
+# expiring mid-cascade just terminates the inner validations early.
+
+_CASCADE_BUDGET_SECONDS: int = 60
+
+_CASCADE_DDG_QUERY_TEMPLATES: tuple[str, ...] = (
+    "{name} student login",
+    "{name} ERP portal",
+    "{primary} student portal",
+    "site:{primary} login",
+)
+
+# Anchor-text and href-substring sets used by the homepage-crawl
+# retry. Broader than the main-pipeline `_LOGIN_LINK_TEXTS` /
+# `_LOGIN_HREF_TOKENS` because the cascade is the last-chance pass —
+# we explicitly want to catch cross-host anchors to known shared
+# platforms (Edumarshal / Samarth / Knimbus / CampusPro).
+_CASCADE_PORTAL_LINK_TEXTS: frozenset[str] = frozenset({
+    "student portal", "student login", "erp", "lms",
+    "moodle", "e-learning", "elearning", "login",
+    "sign in", "student", "exam portal", "fee portal",
+    "library portal", "result", "e-governance",
+    "e-gov", "egov", "academics portal", "ums",
+    "student corner", "my portal", "my account",
+})
+
+_CASCADE_PORTAL_HREF_TOKENS: frozenset[str] = frozenset({
+    "login", "signin", "erp", "lms", "portal",
+    "student", "moodle", "ums", "fee", "exam",
+    "result", "library", "egov", "elearning",
+    "edumarshal", "samarth", "knimbus", "campuspro",
+})
+
+_CASCADE_HOMEPAGE_LINK_CAP: int = 20
+
+
+def _extract_portal_links_from_html(
+    html: str, base_url: str, orgid: str,
+) -> list[str]:
+    """Cascade retry-3 helper. Returns up to
+    `_CASCADE_HOMEPAGE_LINK_CAP` absolute URLs whose anchor text or
+    href contains a portal indicator. Wider sets than the main-
+    pipeline `extract_login_links_from_html` — intentionally picks
+    up cross-host anchors to known shared platforms.
+    """
+    if not html:
+        return []
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        logger.debug("[%s] cascade-extract parse failed: %s", orgid, e)
+        return []
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        href = (a["href"] or "").strip()
+        if not href or href.startswith(
+            ("#", "mailto:", "javascript:", "tel:")
+        ):
+            continue
+        full_url = urljoin(base_url, href)
+        if not full_url.startswith("http"):
+            continue
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+
+        text = (a.get_text(separator=" ") or "").lower().strip()
+        href_lower = href.lower()
+        text_match = any(kw in text for kw in _CASCADE_PORTAL_LINK_TEXTS)
+        href_match = any(tok in href_lower for tok in _CASCADE_PORTAL_HREF_TOKENS)
+        if text_match or href_match:
+            found.append(full_url)
+            if len(found) >= _CASCADE_HOMEPAGE_LINK_CAP:
+                break
+    return found
+
+
+def _retry_ddg_search(
+    orgid: str,
+    university_name: str,
+    primary_domain: str,
+    *,
+    http_timeout: float,
+    user_agent: str,
+    max_results_per_query: int,
+) -> list[str]:
+    """Cascade retry-1 — fresh DDG queries via
+    `discovery_rules._ddg_html_search`. Queries chosen for angles
+    not already covered by `run_searches`. Runs the queries in
+    parallel; merges and dedupes URL results."""
+    queries = []
+    for tmpl in _CASCADE_DDG_QUERY_TEMPLATES:
+        try:
+            q = tmpl.format(name=university_name, primary=primary_domain)
+        except (KeyError, IndexError):
+            continue
+        if q and "{" not in q:
+            queries.append(q)
+    if not queries:
+        return []
+
+    def _run(q: str) -> list[str]:
+        try:
+            return discovery_rules._ddg_html_search(
+                q,
+                http_timeout=http_timeout,
+                user_agent=user_agent,
+                max_results=max_results_per_query,
+            )
+        except Exception as err:
+            logger.warning(
+                "[%s] retry-1 DDG query %r failed: %s", orgid, q, err,
+            )
+            return []
+
+    seen: set[str] = set()
+    out: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(4, len(queries))) as exe:
+        for urls in exe.map(_run, queries):
+            for u in urls:
+                if u and u not in seen:
+                    seen.add(u)
+                    out.append(u)
+    logger.info(
+        "[%s] retry-1: DDG found %d unique candidate URL(s)",
+        orgid, len(out),
+    )
+    return out
+
+
+def _retry_gemini_broad(
+    orgid: str,
+    university_name: str,
+    primary_domain: str,
+) -> list[str]:
+    """Cascade retry-2 — Gemini search with the broader prompt.
+    Implementation lives in `discovery_rules.gemini_search_broad`."""
+    urls = discovery_rules.gemini_search_broad(
+        orgid, university_name, primary_domain,
+    )
+    logger.info(
+        "[%s] retry-2: Gemini broad found %d candidate URL(s)",
+        orgid, len(urls),
+    )
+    return urls
+
+
+def _retry_homepage_crawl(
+    orgid: str,
+    primary_domain: str,
+    *,
+    http_timeout: float,
+    user_agent: str,
+) -> list[str]:
+    """Cascade retry-3 — fetch the university homepage and extract
+    portal-shaped anchor URLs. Reuses
+    `discovery_rules.fetch_homepage_for_sibling_walk` for the fetch
+    so DNS / non-2xx handling is consistent with the main pipeline."""
+    fetched = discovery_rules.fetch_homepage_for_sibling_walk(
+        primary_domain,
+        http_timeout=http_timeout,
+        user_agent=user_agent,
+    )
+    if fetched is None:
+        logger.info(
+            "[%s] retry-3: homepage fetch failed for %s",
+            orgid, primary_domain,
+        )
+        return []
+    homepage_url, homepage_html = fetched
+    urls = _extract_portal_links_from_html(
+        homepage_html, homepage_url, orgid,
+    )
+    logger.info(
+        "[%s] retry-3: homepage crawl on %s found %d candidate link(s)",
+        orgid, primary_domain, len(urls),
+    )
+    return urls
+
+
+def _run_cascade_step(
+    *,
+    urls: list[str],
+    source_tag: str,
+    discovery_reasoning: str,
+    config: Any,
+    domains: list[str],
+    blocked_urls: frozenset[str],
+    consolidate_kwargs: dict[str, Any],
+    js_renderer: "JSRenderer | None",
+    link_follow_budget: _LinkFollowBudget,
+    budget: _DiscoveryBudget,
+    orgid: str,
+) -> list[tuple[Candidate, int]]:
+    """Common path for each cascade retry: wrap URLs as Candidates,
+    run them through `_pre_validation_filter` →
+    `_validate_candidates` → `recategorise` →
+    `consolidate_candidates`. Returns the consolidated
+    `(Candidate, score)` list (possibly empty)."""
+    if not urls:
+        return []
+    initial = [
+        Candidate(
+            url=u,
+            category="Student Portal",
+            discovery_source=source_tag,
+            discovery_reasoning=discovery_reasoning,
+        )
+        for u in urls
+    ]
+    pre = _pre_validation_filter(
+        initial, domains=domains, orgid=orgid, blocked_urls=blocked_urls,
+    )
+    if not pre:
+        return []
+    validated = _validate_candidates(
+        pre,
+        domains=domains,
+        http_timeout=config.http_timeout_seconds,
+        user_agent=config.user_agent,
+        orgid=orgid,
+        js_renderer=js_renderer,
+        js_suspicion_threshold=config.js_rendering_suspicion_threshold,
+        link_follow_budget=link_follow_budget,
+        budget=budget,
+    )
+    if not validated:
+        return []
+    # Apply the same recategorise + ERP-admin gate the main pipeline
+    # runs before consolidation.
+    recat: list[Candidate] = []
+    for c in validated:
+        fallback = "Other" if c.category == "ERP" else c.category
+        new_cat = discovery_rules.infer_category(c.url, fallback=fallback)
+        if new_cat == "ERP" and c.is_admin_audience:
+            continue
+        if new_cat != c.category:
+            recat.append(replace(c, category=new_cat))
+        else:
+            recat.append(c)
+    if not recat:
+        return []
+    return discovery_rules.consolidate_candidates(recat, **consolidate_kwargs)
+
+
+def _run_zero_portal_retry_cascade(
+    *,
+    orgid: str,
+    university_name: str,
+    primary_domain: str,
+    config: Any,
+    effective_domains: list[str],
+    blocked_urls: frozenset[str],
+    consolidate_kwargs: dict[str, Any],
+    js_renderer: "JSRenderer | None",
+    link_follow_budget: _LinkFollowBudget,
+    budget: _DiscoveryBudget,
+) -> list[tuple[Candidate, int]]:
+    """Orchestrate the three retry steps. Returns the first non-empty
+    consolidated list, or `[]` if all retries fail / cascade budget
+    is exhausted."""
+    cascade_t0 = time.monotonic()
+    cascade_deadline = cascade_t0 + _CASCADE_BUDGET_SECONDS
+    logger.info(
+        "[%s] 0 portals after consolidation — starting retry cascade "
+        "(budget %ds)",
+        orgid, _CASCADE_BUDGET_SECONDS,
+    )
+
+    consolidated: list[tuple[Candidate, int]] = []
+
+    # Retry 1 — DDG fresh queries
+    if time.monotonic() < cascade_deadline:
+        logger.info("[%s] retry-1: DDG search", orgid)
+        urls = _retry_ddg_search(
+            orgid, university_name, primary_domain,
+            http_timeout=config.http_timeout_seconds,
+            user_agent=config.user_agent,
+            max_results_per_query=config.discovery_max_results_per_query,
+        )
+        consolidated = _run_cascade_step(
+            urls=urls,
+            source_tag="cascade:retry-1-ddg",
+            discovery_reasoning="zero-portal cascade retry-1: DDG",
+            config=config, domains=effective_domains,
+            blocked_urls=blocked_urls,
+            consolidate_kwargs=consolidate_kwargs,
+            js_renderer=js_renderer,
+            link_follow_budget=link_follow_budget,
+            budget=budget, orgid=orgid,
+        )
+        logger.info(
+            "[%s] retry-1: validated %d portal(s)",
+            orgid, len(consolidated),
+        )
+
+    # Retry 2 — Gemini broader prompt
+    if not consolidated and time.monotonic() < cascade_deadline:
+        logger.info("[%s] retry-2: Gemini broader prompt", orgid)
+        urls = _retry_gemini_broad(orgid, university_name, primary_domain)
+        consolidated = _run_cascade_step(
+            urls=urls,
+            source_tag="cascade:retry-2-gemini-broad",
+            discovery_reasoning=(
+                "zero-portal cascade retry-2: Gemini broader prompt"
+            ),
+            config=config, domains=effective_domains,
+            blocked_urls=blocked_urls,
+            consolidate_kwargs=consolidate_kwargs,
+            js_renderer=js_renderer,
+            link_follow_budget=link_follow_budget,
+            budget=budget, orgid=orgid,
+        )
+        logger.info(
+            "[%s] retry-2: validated %d portal(s)",
+            orgid, len(consolidated),
+        )
+
+    # Retry 3 — homepage anchor crawl
+    if not consolidated and time.monotonic() < cascade_deadline:
+        logger.info("[%s] retry-3: homepage link crawl", orgid)
+        urls = _retry_homepage_crawl(
+            orgid, primary_domain,
+            http_timeout=config.http_timeout_seconds,
+            user_agent=config.user_agent,
+        )
+        consolidated = _run_cascade_step(
+            urls=urls,
+            source_tag="cascade:retry-3-homepage-crawl",
+            discovery_reasoning=(
+                "zero-portal cascade retry-3: homepage anchor crawl"
+            ),
+            config=config, domains=effective_domains,
+            blocked_urls=blocked_urls,
+            consolidate_kwargs=consolidate_kwargs,
+            js_renderer=js_renderer,
+            link_follow_budget=link_follow_budget,
+            budget=budget, orgid=orgid,
+        )
+        logger.info(
+            "[%s] retry-3: validated %d portal(s)",
+            orgid, len(consolidated),
+        )
+
+    cascade_elapsed = time.monotonic() - cascade_t0
+    if not consolidated:
+        if time.monotonic() >= cascade_deadline:
+            logger.warning(
+                "[%s] retry cascade budget %ds exhausted in %.1fs — "
+                "0 portals", orgid, _CASCADE_BUDGET_SECONDS, cascade_elapsed,
+            )
+        else:
+            logger.warning(
+                "[%s] retry cascade exhausted in %.1fs — "
+                "genuinely 0 portals found", orgid, cascade_elapsed,
+            )
+    else:
+        logger.info(
+            "[%s] retry cascade recovered %d portal(s) in %.1fs",
+            orgid, len(consolidated), cascade_elapsed,
+        )
+    return consolidated
 
 
 def _dedupe(candidates: list[Candidate]) -> list[Candidate]:
