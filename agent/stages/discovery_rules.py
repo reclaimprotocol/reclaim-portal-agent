@@ -29,6 +29,7 @@ The stage runs in four distinct phases:
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import ssl
@@ -41,18 +42,35 @@ import urllib3
 from bs4 import BeautifulSoup
 
 from ..config import (
+    AMBIGUOUS_SHORTNAMES,
     DUCKDUCKGO_TIMEOUT_SECONDS,
+    EXPLICIT_NON_STUDENT_FIELD_SIGNALS,
+    GEMINI_SEARCH_ENABLED,
+    KNOWN_ADMISSION_PLATFORMS,
     KNOWN_SHARED_PLATFORM_PATTERNS,
     LMS_HOST_TOKENS,
     LMS_THIRD_PARTY_HOSTS,
     LOGIN_LINK_TEXT_PATTERNS,
+    MODERATE_ADMISSION_SIGNALS,
     NON_STUDENT_LOGIN_PATH_KEYWORDS,
     NON_STUDENT_LOGIN_PATH_PENALTY,
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODEL,
+    SAMARTH_FUNCTIONAL_PREFIXES,
     STATE_PLATFORM_HINTS,
+    STRONG_ADMISSION_SIGNALS,
+    STUDENT_CONTEXT_SIGNALS,
+    STUDENT_CONTEXT_SIGNALS_NEEDED,
+    STUDENT_IDENTITY_FIELD_SIGNALS,
+    STUDENT_LOGIN_COUNTER_SIGNALS,
     STUDENT_LOGIN_PATH_BOOST,
     STUDENT_LOGIN_PATH_KEYWORDS,
     STUDENT_LOGIN_SAME_HOST_PROBES,
     SUBDOMAIN_PROBE_LIST,
+    TITLE_ADMISSION_PHRASES,
+    URL_ADMISSION_HOST_KEYWORDS,
+    URL_ADMISSION_PATH_KEYWORDS,
+    URL_ADMISSION_REGISTER_EXEMPT_TOKENS,
     host_in_external_blocklist,
 )
 from requests.adapters import HTTPAdapter
@@ -152,6 +170,27 @@ class Candidate:
     has_login_text: bool = False
     has_student_signal: bool = False
     js_rendered: bool = False
+    # Bug 1 — explicit "this is a non-student-audience login" signal
+    # derived from `classify_login_audience(body)`. Set on every accept
+    # path that has body access; used by the ERP gate in `discovery.run`
+    # to drop ONLY ERPs that openly identify as admin/staff (e.g. an
+    # ASP.NET form whose control names are `AdminLogin$Password` or a
+    # `<title>UNIVERSITY ADMIN LOGIN</title>`). Defaults False so
+    # candidates without body access (rule-C bypass with empty static
+    # HTML) aren't penalised.
+    is_admin_audience: bool = False
+    # Fix 2 — set when validation accepted via
+    # `passes_login_signal_gate` rule-C (host on
+    # `KNOWN_SHARED_PLATFORM_PATTERNS`). Causes the consolidate-time
+    # membership re-check (Bug 30 strict) to skip this candidate.
+    # NOTE: this LOOSENS cross-OrgID disambiguation for Samarth /
+    # state-platform tenants — a foreign-tenant URL that surfaced via
+    # search and passed rule-C at validation will no longer be filtered
+    # at consolidation. The strict R3/R4 check at admission time
+    # (sibling-walk filter, DDG-origin re-check) is the remaining
+    # cross-uni guard. Pair this flag with curated `exact_shortnames`
+    # in `domain_overrides.json` for OrgIDs that share platform space.
+    rule_c_bypass: bool = False
 
 
 # --- discovery inputs -----------------------------------------------------
@@ -334,6 +373,128 @@ def parse_domains(raw: str) -> list[str]:
 _SESSION_ID_PATH_RE = re.compile(r";jsessionid=[^/?#]*", re.IGNORECASE)
 
 
+_DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
+
+# Tracking / referral query parameters stripped during URL normalisation.
+# These never identify a different resource — they're for analytics or
+# attribution. Stripping makes dedup keys agree across discovery sources
+# (homepage anchor, DDG, forum link, etc.) that surface the same login
+# URL with different attribution tags.
+#
+# Conservative on potentially-meaningful keys: `from`, `source`, `via`
+# CAN be returnto-style params on some sites (e.g. `/login?from=/dash`)
+# but Indian-uni login URLs in our corpus don't use them that way; the
+# upside (stable dedup) outweighs the rare loss of returnto context.
+TRACKING_QUERY_PARAMS: frozenset[str] = frozenset({
+    "ref", "referrer",
+    "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+    "fbclid", "gclid", "msclkid", "mc_cid", "mc_eid",
+    "source", "from", "via",
+})
+
+
+def _strip_tracking_params(query: str) -> str:
+    """Drop `TRACKING_QUERY_PARAMS` keys from the `?...` query string,
+    preserving order and any non-tracking params. Empty result returns
+    "". Case-insensitive on the key name.
+    """
+    if not query:
+        return ""
+    kept_pairs: list[str] = []
+    for pair in query.split("&"):
+        if not pair:
+            continue
+        key, _eq, _val = pair.partition("=")
+        if key.lower() in TRACKING_QUERY_PARAMS:
+            continue
+        kept_pairs.append(pair)
+    return "&".join(kept_pairs)
+
+
+def _strip_default_port(scheme: str, netloc: str) -> str:
+    """Drop ``:80`` from http URLs and ``:443`` from https URLs. Other
+    explicit ports are preserved (e.g. ``:8443`` stays put). The hostname
+    is also lowercased — netloc is the only canonical-form lever the URL
+    spec gives us.
+    """
+    s = (scheme or "").lower()
+    if not netloc:
+        return netloc
+    host_part = netloc.lower()
+    if ":" in host_part:
+        host, _, port = host_part.rpartition(":")
+        if port.isdigit() and int(port) == _DEFAULT_PORTS.get(s, -1):
+            return host
+    return host_part
+
+
+def normalize_url(url: str) -> str:
+    """Bug B canonicalisation. Beyond `strip_session_ids`, also:
+      * lowercase the host and drop the default port (``:80`` for http,
+        ``:443`` for https) — `sist.knimbus.com:443/...` → `sist.knimbus.com/...`,
+      * strip the fragment (``#/?signin=true`` → empty) — fragments are
+        client-side state, never identify a different resource.
+    Path and query are preserved as-is. Idempotent.
+
+    `urlsplit` returns a 5-tuple `(scheme, netloc, path, query, fragment)`
+    — there is no `params` field (that's `urlparse`'s 6-tuple). Passing
+    6 values to `urlunsplit` raises `ValueError: too many values to
+    unpack`.
+    """
+    if not url:
+        return url
+    cleaned = strip_session_ids(url)
+    p = urlsplit(str(cleaned))
+    netloc = _strip_default_port(p.scheme, p.netloc)
+    # Strip tracking / referral params (`?ref=worldsitelink`,
+    # `utm_*`, `fbclid`, `gclid`, …) so dedup keys agree across
+    # discovery sources that decorate the URL with different
+    # attribution tags.
+    query = _strip_tracking_params(p.query or "")
+    return urlunsplit((p.scheme.lower(), netloc, p.path, query, ""))
+
+
+def canonicalize_url(url: str) -> str:
+    """Bug B — full URL canonicalisation: strip session IDs / default
+    port / fragment, then apply any `KNOWN_SHARED_PLATFORM_PATTERNS`
+    canonical_path rewrite. The single helper called by validation
+    accept-paths so dedup keys, stored URLs, and sheet output all agree
+    on the canonical form.
+    """
+    return canonical_url_for_known_platform(normalize_url(url))
+
+
+def canonical_url_for_known_platform(url: str) -> str:
+    """Bug B — when `url`'s host is on a `KNOWN_SHARED_PLATFORM_PATTERNS`
+    entry whose pattern has a ``canonical_path`` field, replace the URL's
+    path/query with the canonical form. Used for platforms whose
+    unauthenticated-redirect target differs from their bookmarkable
+    login URL (e.g. knimbus.com tenants redirect
+    ``/portal/v2/default/login`` → ``/portal/v2/default/landingPage#/?signin=true``).
+    Returns the URL unchanged when no pattern matches or no
+    ``canonical_path`` is set.
+    """
+    if not url:
+        return url
+    p = urlsplit(str(url))
+    host = (p.netloc or "").lower().split(":")[0]
+    if not host:
+        return url
+    for pattern, meta in KNOWN_SHARED_PLATFORM_PATTERNS.items():
+        if not (host == pattern or host.endswith("." + pattern)):
+            continue
+        canonical_path = meta.get("canonical_path") if isinstance(meta, dict) else None
+        if not canonical_path:
+            return url
+        # Preserve scheme + netloc; drop query and fragment along with
+        # the original path. The platform pattern guarantees the
+        # canonical path is the right login surface for every tenant.
+        # `urlunsplit` is 5-tuple (scheme, netloc, path, query, fragment).
+        netloc = _strip_default_port(p.scheme, p.netloc)
+        return urlunsplit((p.scheme.lower(), netloc, canonical_path, "", ""))
+    return url
+
+
 def strip_session_ids(url: str) -> str:
     """Remove `;jsessionid=...` from path and `jsessionid=...` from query.
 
@@ -368,6 +529,33 @@ _NOSCRIPT_RE = re.compile(r"<noscript[^>]*>(.*?)</noscript>", re.IGNORECASE | re
 _SCRIPT_SRC_RE = re.compile(r"<script[^>]*\bsrc\s*=", re.IGNORECASE)
 
 
+_LOGIN_PATH_TOKENS_FOR_SUSPICION: tuple[str, ...] = ("/login", "/signin", "/auth")
+
+# Section 1 — host subdomain labels that indicate "this host serves a
+# student-facing portal". When the leftmost subdomain matches one of
+# these AND the URL is at the root path AND the static body is small
+# (<2000 bytes), the page is overwhelmingly likely to be a React/Vue
+# SPA shell whose login form arrives only after JS hydration. Single
+# strong signal pushes Playwright unconditionally.
+_LOGIN_SUBDOMAIN_INDICATORS: frozenset[str] = frozenset({
+    "student", "students", "studentportal",
+    "erp", "ums", "sis", "sim", "mis",
+    "portal", "myportal",
+    "lms", "elearn", "elearning", "moodle",
+    "exam", "exams", "examportal",
+    "result", "results",
+    "fee", "fees", "feeportal",
+    "library", "lib",
+    "placement", "tnp",
+    "signin", "signon", "auth",
+})
+
+# Path shapes considered "the root" for login-subdomain detection.
+_ROOT_PATH_SHAPES_FOR_SUSPICION: frozenset[str] = frozenset({
+    "", "/", "/index.html", "/index.htm", "/index.php", "/home",
+})
+
+
 def js_shell_suspicion_score(url: str, body: str) -> int:
     """Heuristic score for whether a static page is actually a JS shell.
 
@@ -378,6 +566,15 @@ def js_shell_suspicion_score(url: str, body: str) -> int:
         * "JavaScript disabled" exact phrase in body.
         * "Please enable JavaScript" (or close variant) in body.
 
+      Strong+ (+3 — single signal hits threshold alone):
+        * Bug A — body length < 2000 chars AND URL path contains
+          ``/login`` / ``/signin`` / ``/auth``. A tiny page at a
+          login-ish URL is almost always a JS-rendered SPA shell
+          (e.g. `erp.sathyabama.ac.in/account/login` — 1170-char body,
+          no static `<form>`, login form arrives only after hydration).
+          +3 so the SPA-marker `<div id="root">` regex doesn't have to
+          additionally match for Playwright to fire.
+
       Medium (+1):
         * A `<noscript>` block whose content mentions "enable" or "javascript".
         * Body has fewer than 500 chars but ≥3 `<script src=...>` tags
@@ -386,8 +583,8 @@ def js_shell_suspicion_score(url: str, body: str) -> int:
           `[ng-app]`, `[data-vue-root]`).
 
     A page therefore needs at least one strong + one medium indicator
-    (or two strong) to trigger Playwright. Avoids spinning up Chromium
-    for every slightly-empty page.
+    (or two strong, or one tiny-body-at-login) to trigger Playwright.
+    Avoids spinning up Chromium for every slightly-empty page.
     """
     if not body:
         return 0
@@ -403,6 +600,36 @@ def js_shell_suspicion_score(url: str, body: str) -> int:
         or "this site requires javascript" in lower
     ):
         score += 2
+
+    # Strong+ (Bug A) — tiny body at a login-shaped URL. Bumped to +3
+    # so the single signal alone clears the threshold (= 3). Otherwise
+    # SPA shells whose mount markers don't match the regex set
+    # (e.g. `<div id="erp-app">` instead of `<div id="app">`) score
+    # only +2 here and never escalate to Playwright.
+    parsed = urlsplit(url) if url else None
+    path_lower = ((parsed.path or "") if parsed else "").lower()
+    if len(body) < 2000:
+        if any(tok in path_lower for tok in _LOGIN_PATH_TOKENS_FOR_SUSPICION):
+            score += 3
+
+    # Strong+ (Section 1) — login-shaped subdomain at root path with a
+    # tiny static body. `student.mitapps.in/` returns a 44-byte React
+    # shell — none of the static-content signals fire (no <noscript>,
+    # no SPA mount marker visible in 44 bytes, body too small for
+    # script-tag heuristic). The leftmost subdomain label tells us
+    # what the host IS (student / erp / portal / …) regardless of
+    # body content; +3 single-signal escalation pushes Playwright,
+    # which then hydrates the React app and either sees the form
+    # directly or the `_try_click_login_button` path follows the
+    # login button to the real URL (e.g. /itxlogin).
+    if parsed is not None and len(body) < 2000:
+        host = (parsed.netloc or "").lower().split(":")[0]
+        leftmost = host.split(".", 1)[0] if "." in host else host
+        if (
+            leftmost in _LOGIN_SUBDOMAIN_INDICATORS
+            and (path_lower.rstrip("/") or path_lower) in _ROOT_PATH_SHAPES_FOR_SUSPICION
+        ):
+            score += 3
 
     # Medium: <noscript> block that explicitly mentions enable / javascript.
     ns_match = _NOSCRIPT_RE.search(body)
@@ -701,6 +928,9 @@ def run_searches(
         except Exception as err:
             logger.warning("DDG search failed for %r: %s", query, err)
             return []
+        # Bug 1 — log every DDG query at INFO with raw URL count so
+        # zero-result OrgIDs are debuggable without enabling DEBUG.
+        logger.info("DDG query: %r → %d urls", query, len(urls))
         return [
             Candidate(
                 url=url,
@@ -718,6 +948,61 @@ def run_searches(
         futures = [exe.submit(_run, q, c) for q, c in queries]
         for f in as_completed(futures):
             out.extend(f.result())
+
+    # Bug 1 — broader fallback when the standard queries returned
+    # nothing. Run two extra queries:
+    #   1. Name-only "<name> student portal login" (no extra
+    #      domain pinning).
+    #   2. `site:<domain> login` for each owned domain — limits
+    #      results to the domain's own pages, useful when the
+    #      university name is ambiguous (multiple MITs / IIITs).
+    # Each fallback query is logged the same way so operators can
+    # see what was actually sent.
+    if not out:
+        fallback_queries: list[tuple[str, str]] = []
+        if university_name:
+            fallback_queries.append((
+                f"{university_name} student portal login",
+                "Student Portal",
+            ))
+        for d in domains:
+            if not d:
+                continue
+            fallback_queries.append((f"site:{d} login", "Student Portal"))
+        if fallback_queries:
+            logger.info(
+                "DDG search returned 0 candidates; trying %d broader fallback queries",
+                len(fallback_queries),
+            )
+            with ThreadPoolExecutor(
+                max_workers=min(max_workers, len(fallback_queries))
+            ) as exe:
+                futures = [exe.submit(_run, q, c) for q, c in fallback_queries]
+                for f in as_completed(futures):
+                    out.extend(f.result())
+
+    # Google fallback when DDG (primary + broader) returns 0. DDG misses
+    # many smaller Indian universities that Google indexes, e.g. St.
+    # Xavier's Ranchi (`www.sxcran.org/Student/login`). Best-effort: the
+    # `googlesearch-python` dep is optional and rate-limited, so we run a
+    # single representative query and swallow any errors.
+    if not out and university_name:
+        google_query = f"{university_name} student portal login"
+        logger.info(
+            "DDG returned 0 candidates after fallback; trying Google search: %r",
+            google_query,
+        )
+        google_urls = _google_search(google_query, max_results=max_results_per_query)
+        logger.info("Google query: %r → %d urls", google_query, len(google_urls))
+        for url in google_urls:
+            out.append(
+                Candidate(
+                    url=url,
+                    category="Student Portal",
+                    discovery_source="rule",
+                    discovery_reasoning=f"google search: {google_query}",
+                )
+            )
     return out
 
 
@@ -741,6 +1026,73 @@ def host_is_known_shared_platform(host: str) -> bool:
 _SAMARTH_PLATFORM_ROOTS: tuple[str, ...] = ("samarth.edu.in", "samarth.ac.in")
 
 
+_HOMEPAGE_PATH_SHAPES: frozenset[str] = frozenset({
+    "", "/index.html", "/index.htm", "/index.php", "/home",
+    "/default.aspx", "/default.htm", "/default.html",
+})
+
+
+def _is_university_homepage(url: str, primary_domain: str) -> bool:
+    """Section 9 — true iff `url` resolves to the bare university
+    homepage of `primary_domain` (or its `www.` variant). The homepage
+    itself is never a student portal — when rule-B fired and link-
+    follow couldn't upgrade to a real login URL, the homepage URL
+    sticks around and would otherwise leak into the final result.
+    Used by `consolidate_candidates` to drop those leftover homepages.
+
+    A URL counts as "homepage" when the host equals `primary_domain`
+    or `www.<primary_domain>` AND the path is one of the canonical
+    "root" shapes (empty, `/index.html`, `/home`, etc.) — slash and
+    case insensitive.
+    """
+    if not primary_domain:
+        return False
+    p = urlsplit(url or "")
+    host = (p.netloc or "").lower().split(":")[0]
+    primary_n = primary_domain.lower().lstrip(".")
+    if host != primary_n and host != f"www.{primary_n}":
+        return False
+    path = (p.path or "").rstrip("/").lower()
+    return path in _HOMEPAGE_PATH_SHAPES
+
+
+def _host_needs_strict_tenant_check(host: str, state: str | None) -> bool:
+    """Section 4 — true iff `host` is on a Samarth or state-platform
+    root, where cross-OrgID disambiguation matters. Used by
+    `consolidate_candidates` to decide whether a `rule_c_bypass`
+    candidate should still run through the strict R3/R4 tenant check.
+
+    Returns True when host is on:
+      * any of `_SAMARTH_PLATFORM_ROOTS` — every Samarth tenant looks
+        like a known platform but belongs to ONE specific OrgID; we
+        must verify the prefix matches `exact_shortnames` /
+        `auto_shortnames`.
+      * any entry of `STATE_PLATFORM_HINTS.values()` — same dynamic
+        for `bihar-ums.com`, `digitaluniversity.ac`, etc.
+
+    Returns False when host is on a "neutral" multi-tenant platform
+    (knimbus.com / cognibot.in / myloft.xyz) that doesn't share
+    wildcard semantics — these are safe to admit via rule-C alone.
+    `state` is unused here (kept for forward-compat with possible
+    state-aware refinements).
+    """
+    del state  # currently unused; reserved for future per-state logic
+    if not host:
+        return False
+    h = host.lower().lstrip(".").split(":")[0]
+    for root in _SAMARTH_PLATFORM_ROOTS:
+        if h == root or h.endswith("." + root):
+            return True
+    for st_hosts in STATE_PLATFORM_HINTS.values():
+        for plat in st_hosts:
+            plat_n = plat.lower().lstrip(".")
+            if not plat_n:
+                continue
+            if h == plat_n or h.endswith("." + plat_n):
+                return True
+    return False
+
+
 def host_belongs_to_org(
     host: str,
     *,
@@ -749,19 +1101,46 @@ def host_belongs_to_org(
     state: str | None,
     exact_shortnames: list[str],
     portal_anchored_hosts: set[str] | frozenset[str],
+    domains: list[str] | tuple[str, ...] = (),
+    auto_shortnames: list[str] | tuple[str, ...] | set[str] | frozenset[str] = (),
 ) -> tuple[bool, str]:
     """Bug 30 — strict per-OrgID host membership rule.
 
-    A candidate host belongs to OrgID X iff at least one of these holds:
+    A candidate host belongs to OrgID X iff at least one of these holds
+    (in order; first hit wins, foreign-state reject runs first):
 
-    (1) Host == primary or any `extra_effective_domain` for X
-    (2) Host is a subdomain of any `extra_effective_domain` for X
+    (R0) Bug 43 — host is on a *foreign* state-platform root (any entry
+        of `STATE_PLATFORM_HINTS[other_state]`) → REJECT. Stops a
+        Tamil-Nadu uni from accepting `nou.bihar-ums.com`.
+    (1) Host == primary, any SheerID-listed `domains` entry, or any
+        `extra_effective_domain` for X.
+    (2) Host is a subdomain of any of those (Bug 41 — previously only
+        primary + extras were checked; multi-domain SheerID rows like
+        Sathyabama (`sathyabamauniversity.ac.in` primary +
+        `sathyabama.ac.in` secondary) would otherwise reject
+        `feeportal.sathyabama.ac.in`).
     (3) Host is on a state-platform domain (STATE_PLATFORM_HINTS[X.state])
         AND the institutional subdomain prefix is in X's `exact_shortnames`
+        (after stripping a known functional prefix — see Bug 31; falls
+        back to `auto_shortnames` when no `exact_shortnames` is set —
+        see Bug 1).
     (4) Host is on samarth.edu.in / samarth.ac.in AND the tenant subdomain
         prefix is in X's `exact_shortnames`
+        (after stripping a known functional prefix — see Bug 31; falls
+        back to `auto_shortnames` when no `exact_shortnames` is set —
+        see Bug 1).
     (5) Host was reached by following a portal-pattern outbound anchor on
-        the verified primary homepage (Bug 22 portal-anchored sibling)
+        the verified primary homepage (Bug 22 portal-anchored sibling).
+    (6) Shortname-in-domain. Any shortname in
+        `exact_shortnames ∪ auto_shortnames` (≥4 chars) appears at the
+        start of the host's eTLD+1 leftmost label OR as a `.<name>.`
+        label inside the full host. Catches abbreviated sibling
+        domains like `ccsuforms.in` (`ccsu`) and `jnvuiums.in` (`jnvu`)
+        even when no override exists, because `auto_shortnames` is the
+        leftmost-label set extracted from configured domains.
+    (7) Bug 41 — host matches `KNOWN_SHARED_PLATFORM_PATTERNS` (knimbus,
+        cognibot, …, EXCLUDING state-platforms which are gated by
+        rule R0). Cross-state contamination is already handled by R0.
 
     Rules (3) and (4) are GATES: when the host is on one of these
     ambiguous platform roots, the strict shortname match is required and
@@ -780,21 +1159,45 @@ def host_belongs_to_org(
     owned: list[str] = []
     if primary_n:
         owned.append(primary_n)
+    # Bug 41 — every SheerID-listed domain (not just `domains[0]`) goes
+    # into the owned set. Without this, a multi-domain SheerID row's
+    # secondary-domain subdomains fall through to "shortname/state
+    # mismatch" and the whole university returns zero portals.
+    for d in domains or ():
+        d_n = (d or "").lower().lstrip(".")
+        if d_n and d_n not in owned:
+            owned.append(d_n)
     for d in extra_effective_domains or []:
         d_n = (d or "").lower().lstrip(".")
         if d_n and d_n not in owned:
             owned.append(d_n)
     exact_lower = {s.lower() for s in (exact_shortnames or []) if s}
 
-    # Rules (3) + (4): platform-tenant gates. When host is on a
-    # state-platform or samarth root, the strict shortname check is
-    # authoritative — we don't fall through to (1)/(2). This keeps a
-    # state-platform listed in `extra_effective_domains` (e.g. bihar-ums.com
-    # for Patna) from trivially admitting every tenant subdomain.
-    state_doms: tuple[str, ...] = (
+    # ---- R0: Bug 43 foreign-state-platform reject ------------------
+    # Build the set of state-platform hosts that DO belong to this
+    # OrgID's state (so we don't reject our own platform).
+    own_state_doms: tuple[str, ...] = (
         STATE_PLATFORM_HINTS.get(state, ()) if state else ()
     )
-    platform_roots = tuple(d.lower().lstrip(".") for d in state_doms) + _SAMARTH_PLATFORM_ROOTS
+    own_state_set = {d.lower().lstrip(".") for d in own_state_doms}
+    for st_hosts in STATE_PLATFORM_HINTS.values():
+        for plat in st_hosts:
+            plat_n = plat.lower().lstrip(".")
+            if not plat_n or plat_n in own_state_set:
+                continue
+            if h == plat_n or h.endswith("." + plat_n):
+                return False, (
+                    f"foreign state-platform host {plat_n!r}: OrgID's "
+                    f"state {state!r} doesn't include this platform"
+                )
+
+    # ---- R3 + R4: own-state + samarth tenant gates ----------------
+    # When host is on a state-platform or samarth root, the strict
+    # shortname check is authoritative — we don't fall through to
+    # (1)/(2). This keeps a state-platform listed in
+    # `extra_effective_domains` (e.g. bihar-ums.com for Patna) from
+    # trivially admitting every tenant subdomain.
+    platform_roots = tuple(d.lower().lstrip(".") for d in own_state_doms) + _SAMARTH_PLATFORM_ROOTS
 
     for plat in platform_roots:
         if not plat:
@@ -807,39 +1210,285 @@ def host_belongs_to_org(
             # for multi-label prefixes (e.g. `student.pu.bihar-ums.com`)
             # the rightmost label of the prefix is the institution. We
             # check both the full prefix and the rightmost label so single-
-            # and multi-label tenants both work.
+            # and multi-label tenants both work. Bug 31 — also try
+            # stripping a known functional prefix (`lms-`, `exam-`, …)
+            # from the full prefix so `lms-ccsuniversity` matches an
+            # `exact_shortname` of `ccsuniversity`.
             tokens: set[str] = {prefix}
             if "." in prefix:
                 tokens.add(prefix.split(".")[-1])
-            if not exact_lower:
+            for fp in SAMARTH_FUNCTIONAL_PREFIXES:
+                if prefix.startswith(fp) and len(prefix) > len(fp):
+                    tokens.add(prefix[len(fp):])
+            # Bug 1 — when the OrgID has no curated `exact_shortnames`,
+            # fall back to `auto_shortnames` (the leftmost-label set
+            # extracted from configured domains). VNSGU's
+            # `vnsgu.samarth.edu.in` has tenant prefix "vnsgu", which
+            # matches auto_shortname "vnsgu" derived from `vnsgu.ac.in`.
+            # OrgIDs that DO set `exact_shortnames` keep the strict
+            # cross-uni disambiguator (Patna `{"pu"}` still rejects
+            # `pup.samarth.ac.in`). Source label included in the
+            # accept reason so logs show which set authorised the
+            # tenant.
+            check_set: set[str] = set(exact_lower)
+            check_source = "exact_shortnames"
+            if not check_set:
+                check_set = {
+                    (s or "").lower().strip()
+                    for s in (auto_shortnames or [])
+                    if s
+                }
+                check_source = "auto_shortnames"
+            if not check_set:
                 return False, (
-                    f"platform {plat} tenant '{prefix}': no exact_shortnames "
-                    f"configured for this OrgID"
+                    f"platform {plat} tenant '{prefix}': no exact_shortnames or "
+                    f"auto_shortnames available for this OrgID"
                 )
-            if any(t in exact_lower for t in tokens):
+            if any(t in check_set for t in tokens):
                 return True, (
-                    f"platform {plat} tenant '{prefix}' ∈ exact_shortnames "
-                    f"{sorted(exact_lower)}"
+                    f"platform {plat} tenant '{prefix}' ∈ {check_source} "
+                    f"{sorted(check_set)}"
                 )
             return False, (
-                f"platform {plat} tenant '{prefix}' ∉ exact_shortnames "
-                f"{sorted(exact_lower)}"
+                f"platform {plat} tenant '{prefix}' ∉ {check_source} "
+                f"{sorted(check_set)}"
             )
 
-    # Rules (1) + (2): owned domain equality / subdomain.
+    # ---- R1 + R2: owned domain equality / subdomain ---------------
     for d in owned:
         if h == d:
             return True, f"owned domain {d}"
         if h.endswith("." + d):
             return True, f"subdomain of owned {d}"
 
-    # Rule (5): portal-anchored sibling host (Bug 22). The host appeared
-    # on the primary homepage as a strict portal-pattern anchor — already
-    # a verified university link.
+    # ---- R5: portal-anchored sibling host (Bug 22) -----------------
+    # The host appeared on the primary homepage as a strict portal-
+    # pattern anchor — already a verified university link.
     if portal_anchored_hosts and h in portal_anchored_hosts:
         return True, "portal-anchored sibling on primary homepage"
 
+    # ---- R6: shortname-in-domain (sibling acceptance) --------------
+    # Indian universities frequently register secondary domains using a
+    # 3-5 char abbreviation of the institutional name (e.g. `ccsu` for
+    # Chaudhary Charan Singh University → `ccsuforms.in`; `jnvu` for
+    # Jai Narain Vyas University → `jnvuiums.in`). When ANY of the
+    # OrgID's shortnames — operator-curated `exact_shortnames` OR
+    # auto-derived from configured-domain leftmost labels — appears at
+    # the start of the host's eTLD+1 leftmost label OR as a label
+    # somewhere in the full host, accept.
+    #
+    # Length floor of 4 avoids 3-char acronyms (e.g. "pup", "iit")
+    # admitting unrelated domains by accident. Operator-curated
+    # `exact_shortnames` shorter than 4 still drive the strict R3/R4
+    # platform-tenant gates above; only R6 (the broad sibling rule)
+    # enforces the length floor.
+    #
+    # Fix 3 — auto-derived shortnames in `AMBIGUOUS_SHORTNAMES`
+    # (mit / iiit / nit / bit / …) are excluded from the R6 set.
+    # These are common Indian-uni acronyms shared across many
+    # institutions; matching them would admit other-institution
+    # domains. Operator-curated `exact_shortnames` are NEVER filtered
+    # by AMBIGUOUS_SHORTNAMES — when an operator explicitly lists
+    # "mit" they're saying "I want this match for THIS OrgID".
+    sibling_shortnames: set[str] = set(exact_lower)
+    if auto_shortnames:
+        sibling_shortnames.update(
+            (s or "").lower().strip()
+            for s in auto_shortnames
+            if s and (s or "").lower().strip() not in AMBIGUOUS_SHORTNAMES
+        )
+    if sibling_shortnames:
+        base = _registrable_base(h)
+        base_label = base.split(".", 1)[0] if base else ""
+        for s in sibling_shortnames:
+            if len(s) < 4:
+                continue
+            if base_label.startswith(s):
+                return True, (
+                    f"shortname-in-domain: '{s}' prefix of base label "
+                    f"'{base_label}' (host '{h}')"
+                )
+            if ("." + s + ".") in h:
+                return True, (
+                    f"shortname-in-domain: '.{s}.' substring in host '{h}'"
+                )
+
+    # ---- R7: Bug 41 — known shared platform ------------------------
+    # `KNOWN_SHARED_PLATFORM_PATTERNS` covers verified multi-tenant
+    # platforms (knimbus library, cognibot LMS, samarth, …). State-
+    # platforms (bihar-ums) are already filtered by R0; samarth tenants
+    # are already gated by R4 (shortname required). Anything left here
+    # is a "stable platform identity" — rule-C in
+    # `passes_login_signal_gate` will further validate the URL itself.
+    if host_is_known_shared_platform(h):
+        return True, "known shared platform host"
+
     return False, "shortname/state mismatch"
+
+
+# Multi-part TLD suffixes for `_registrable_base`. Mirrors `_MULTIPART_TLDS`
+# in tc_finder.py. Anything not listed falls back to last-2-parts.
+_REGISTRABLE_MULTIPART_TLDS: frozenset[str] = frozenset({
+    "ac.in", "co.in", "edu.in", "gov.in", "org.in", "net.in", "nic.in",
+    "ac.uk", "co.uk", "gov.uk", "org.uk",
+    "ac.za", "co.za",
+})
+
+
+def _registrable_base(host: str) -> str:
+    """Best-effort eTLD+1 (or eTLD+2 for known multi-part suffixes).
+    Used by `host_belongs_to_org` rule (6) to extract the leftmost
+    registrable label for shortname-prefix matching."""
+    parts = host.lower().lstrip(".").split(".")
+    if len(parts) <= 2:
+        return ".".join(parts)
+    last2 = ".".join(parts[-2:])
+    if last2 in _REGISTRABLE_MULTIPART_TLDS and len(parts) >= 3:
+        return ".".join(parts[-3:])
+    return last2
+
+
+# ============================================================ admission detection
+#
+# Comprehensive admission-portal detection — replaces the older
+# `("admission", "apply")` substring check in `discovery._is_admission_url`.
+# See `agent/config.py` for the full rationale; this function is the
+# single decision surface for "is this URL an applicant-facing admission
+# portal?" used by both the URL-only pre-fetch filter (sibling-walk and
+# pre-validation) and the post-fetch content gate (validate_candidate).
+#
+# The four layers run in order of cost; the first hit wins:
+#
+#   1. URL substring (host or path) — `html=None` skips layers 2-3 and
+#      runs only this + layer 4. Cheap; called pre-fetch.
+#   2. Page text content scoring (strong / moderate / counter signals).
+#   3. <title> / <h1> phrase match.
+#   4. Known admission-platform host blocklist.
+#
+# Layers 1-3 honour an exception for `/register` and `/registration`
+# paths that also carry a counter token like "student" / "login" /
+# "signin" / "existing" — those are typically existing-student login
+# entry points labeled as a "registration portal".
+
+
+def _matched_url_admission_token(parsed: Any) -> str:
+    """Layer 1 helper. Returns the matching token (path or host) when
+    the URL looks like an admission endpoint, or "" otherwise. The
+    `/register`-style exception is applied here.
+    """
+    host = (parsed.netloc or "").lower().split(":")[0]
+    path = (parsed.path or "").lower()
+    register_tokens_in_path = {"/register", "/registration"}
+    has_register = any(t in path for t in register_tokens_in_path)
+    has_exempt = any(t in path for t in URL_ADMISSION_REGISTER_EXEMPT_TOKENS)
+    for kw in URL_ADMISSION_PATH_KEYWORDS:
+        if kw in path:
+            # `/register` / `/registration` skipped if path has
+            # student/login/signin/existing — likely an enrolled-
+            # student entry, not new-applicant signup.
+            if kw in register_tokens_in_path and has_exempt:
+                continue
+            return f"path={kw!r}"
+    # `/register` already handled in the loop above. For host tokens we
+    # don't apply the same exception — a host literally named
+    # "admission" is never an enrolled-student portal regardless of
+    # whatever path it serves.
+    del has_register
+    for kw in URL_ADMISSION_HOST_KEYWORDS:
+        if kw in host:
+            return f"host={kw!r}"
+    return ""
+
+
+def _matched_known_admission_platform(host: str) -> str:
+    """Layer 4 helper. Returns the matching platform domain or ""."""
+    if not host:
+        return ""
+    h = host.lower().lstrip(".").split(":")[0]
+    for entry in KNOWN_ADMISSION_PLATFORMS:
+        if h == entry or h.endswith("." + entry):
+            return entry
+    return ""
+
+
+def _matched_admission_title_phrase(title_h1_text: str) -> str:
+    """Layer 3 helper. Returns the matching phrase or "". Honours the
+    `login` + `existing` exception (probable enrolled-student login)."""
+    if not title_h1_text:
+        return ""
+    s = title_h1_text.lower()
+    for phrase in TITLE_ADMISSION_PHRASES:
+        if phrase in s:
+            if "login" in s and "existing" in s:
+                return ""
+            return phrase
+    return ""
+
+
+def is_admission_portal(url: str, html: str | None) -> tuple[bool, str]:
+    """Decide whether (url, html) is an applicant-facing admission portal.
+
+    Returns ``(is_admission, reason)``. Callers should log the reason on
+    rejection — `discovery._maybe_reject_admission` is the canonical
+    log site.
+
+    Pass ``html=None`` for a URL-only check (Layer 1 + Layer 4 only).
+    With HTML, Layers 2 and 3 run as well.
+    """
+    parsed = urlsplit(url or "")
+    host = (parsed.netloc or "").lower().split(":")[0]
+
+    # Layer 1 — URL substring match.
+    tok = _matched_url_admission_token(parsed)
+    if tok:
+        return True, f"URL admission token {tok}"
+
+    # Layer 4 — known admission-platform host blocklist.
+    plat = _matched_known_admission_platform(host)
+    if plat:
+        return True, f"known admission platform host {plat!r}"
+
+    # Layer 2 + Layer 3 require HTML.
+    if not html:
+        return False, ""
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Layer 3 — title + H1 phrase match (cheap; no full-body parse).
+    title_text = (soup.title.string or "") if soup.title else ""
+    h1_texts = [h.get_text(" ", strip=True) for h in soup.find_all("h1")[:5]]
+    title_h1 = (title_text + " | " + " | ".join(h1_texts))
+    phrase = _matched_admission_title_phrase(title_h1)
+    if phrase:
+        return True, f"title/h1 admission phrase {phrase!r}"
+
+    # Layer 2 — full visible-text scoring.
+    text = soup.get_text(" ", strip=True).lower()
+    if not text:
+        return False, ""
+
+    matched_strong: list[str] = [s for s in STRONG_ADMISSION_SIGNALS if s in text]
+    if matched_strong:
+        return True, f"strong admission signal {matched_strong[0]!r}"
+
+    matched_moderate: list[str] = [s for s in MODERATE_ADMISSION_SIGNALS if s in text]
+    matched_counter: list[str] = [s for s in STUDENT_LOGIN_COUNTER_SIGNALS if s in text]
+
+    if len(matched_moderate) >= 2 and not matched_counter:
+        sample = matched_moderate[:3]
+        return True, (
+            f"moderate admission signals ×{len(matched_moderate)} "
+            f"(no counter-signals): {sample}"
+        )
+
+    if len(matched_moderate) >= 4:
+        sample = matched_moderate[:3]
+        return True, (
+            f"high admission signal count ×{len(matched_moderate)} "
+            f"(despite ×{len(matched_counter)} counter-signals): {sample}"
+        )
+
+    return False, ""
 
 
 def _ddg_html_search(
@@ -883,6 +1532,279 @@ def _unwrap_ddg_link(href: str) -> str | None:
     if parsed.scheme in ("http", "https") and parsed.netloc:
         return normalised
     return None
+
+
+def gemini_search(
+    orgid: str,
+    university_name: str,
+    primary_domain: str,
+    shortname: str,
+    *,
+    http_timeout: float = 30.0,
+) -> list[str]:
+    """Primary discovery search — Gemini Pro via OpenRouter.
+
+    Returns the raw URL strings Gemini surfaces. The caller is
+    responsible for wrapping these into `Candidate` objects and routing
+    them through the standard membership / pre-filter / validation /
+    consolidation pipeline (no shortcut — Gemini is treated like any
+    other search engine, just with higher recall on smaller Indian
+    universities that DDG under-indexes).
+
+    Disabled / no API key / network failure → returns []. The caller
+    should fall back to DDG when this happens.
+
+    The prompt deliberately uses the FULL `university_name` (not the
+    `shortname`) so that ambiguous shortnames like MIT / NIT / IIIT
+    auto-disambiguate from the long form ("MIT ADT University Pune"
+    vs "MIT University Shillong"). `shortname` is accepted in the
+    signature for future use but is not interpolated into the prompt.
+    """
+    if not GEMINI_SEARCH_ENABLED or not OPENROUTER_API_KEY:
+        logger.debug(
+            "[%s] Gemini search disabled or no API key", orgid,
+        )
+        return []
+
+    prompt = (
+        f"Find all student-facing login portal URLs for "
+        f"{university_name} in India "
+        f"(official website: {primary_domain}). "
+        f"Include: student portal, ERP login, LMS/Moodle, "
+        f"exam portal, library portal, fee portal. "
+        f"Do NOT include: admission portals, staff-only pages, "
+        f"admin login, or URLs from other universities. "
+        f"Return ONLY a JSON array of full URLs, nothing else, "
+        f"no explanation, no markdown. "
+        f'Example: ["https://erp.xyz.ac.in/login", '
+        f'"https://lms.xyz.ac.in/student"]'
+    )
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/reclaimprotocol",
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=http_timeout,
+        )
+        data = response.json()
+    except Exception as err:
+        logger.warning("[%s] Gemini search failed: %s", orgid, err)
+        return []
+
+    if isinstance(data, dict) and "error" in data:
+        logger.warning("[%s] OpenRouter error: %s", orgid, data["error"])
+        return []
+    try:
+        text = data["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, TypeError, AttributeError):
+        logger.warning(
+            "[%s] Gemini response missing choices/content: %r",
+            orgid, data,
+        )
+        return []
+
+    logger.info("[%s] Gemini raw response: %s", orgid, text[:300])
+
+    # Strip markdown fences (```json ... ```) and pull out the JSON
+    # array. Gemini occasionally wraps the array in prose despite the
+    # "no explanation" instruction; the regex handles that.
+    text = re.sub(r"```json|```", "", text).strip()
+    match = re.search(r"\[.*?\]", text, re.DOTALL)
+    if not match:
+        logger.warning("[%s] Gemini response had no JSON array", orgid)
+        return []
+    try:
+        urls = json.loads(match.group())
+    except json.JSONDecodeError as err:
+        logger.warning(
+            "[%s] Gemini JSON parse failed: %s (raw=%r)",
+            orgid, err, match.group()[:200],
+        )
+        return []
+    if not isinstance(urls, list):
+        return []
+    valid = [
+        u for u in urls
+        if isinstance(u, str)
+        and u.startswith(("http://", "https://"))
+        and len(u) < 500
+    ]
+    logger.info("[%s] Gemini search: %d valid URLs", orgid, len(valid))
+    return valid
+
+
+def gemini_subdomain_search(
+    orgid: str,
+    university_name: str,
+    primary_domain: str,
+    *,
+    http_timeout: float = 30.0,
+) -> list[str]:
+    """Phase 3 Gemini expansion — ask OpenRouter Gemini for the
+    subdomains and related platform domains the university uses for
+    student-facing services. Returns clean hostnames (NOT full URLs).
+
+    Triggered by the orchestrator when the homepage-anchor sibling
+    walk yielded few hosts (or when the search phase produced 0
+    candidates). Higher recall than the anchor walk for universities
+    whose student services live on a *separate* platform domain
+    (e.g. Patliputra: ppup.ac.in homepage doesn't link to
+    ppuponline.in, but Gemini knows they belong to the same
+    institution).
+
+    The prompt asks for HOSTNAMES, not URLs — different signal from
+    `gemini_search` which requests full login URLs. Both can fire
+    in the same run.
+
+    Disabled / no API key / network failure → returns []. Caller
+    must treat the return as advisory.
+    """
+    if not GEMINI_SEARCH_ENABLED or not OPENROUTER_API_KEY:
+        return []
+
+    prompt = (
+        f"What subdomains and related platform domains does "
+        f"{university_name} in India use for student-facing "
+        f"services like ERP, LMS, exam portal, fee portal, "
+        f"library portal? "
+        f"Official website: {primary_domain}. "
+        f"Include both subdomains of {primary_domain} AND "
+        f"any separate platform domains the university uses "
+        f"(e.g. custom ERP domains, third-party platforms). "
+        f"Do NOT include admission portals or govt portals. "
+        f"Return ONLY a JSON array of hostnames, nothing else. "
+        f'Example: ["erp.xyz.ac.in", "lms.xyz.ac.in", '
+        f'"xyzuniv.knimbus.com"]'
+    )
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/reclaimprotocol",
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=http_timeout,
+        )
+        data = response.json()
+    except Exception as err:
+        logger.warning(
+            "[%s] Gemini subdomain search failed: %s", orgid, err,
+        )
+        return []
+
+    if isinstance(data, dict) and "error" in data:
+        logger.warning(
+            "[%s] OpenRouter subdomain error: %s",
+            orgid, data["error"],
+        )
+        return []
+    try:
+        text = data["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, TypeError, AttributeError):
+        logger.warning(
+            "[%s] Gemini subdomain response missing choices/content: %r",
+            orgid, data,
+        )
+        return []
+
+    logger.info("[%s] Gemini subdomain raw: %s", orgid, text[:200])
+
+    text = re.sub(r"```json|```", "", text).strip()
+    match = re.search(r"\[.*?\]", text, re.DOTALL)
+    if not match:
+        logger.warning(
+            "[%s] Gemini subdomain response had no JSON array",
+            orgid,
+        )
+        return []
+    try:
+        hosts = json.loads(match.group())
+    except json.JSONDecodeError as err:
+        logger.warning(
+            "[%s] Gemini subdomain JSON parse failed: %s (raw=%r)",
+            orgid, err, match.group()[:200],
+        )
+        return []
+    if not isinstance(hosts, list):
+        return []
+
+    valid: list[str] = []
+    for h in hosts:
+        if not isinstance(h, str):
+            continue
+        cleaned = (
+            h.strip()
+            .lower()
+            .replace("https://", "")
+            .replace("http://", "")
+            .rstrip("/")
+        )
+        # Defensive: strip path/query/fragment in case Gemini
+        # returned full URLs despite the "hostnames only" prompt.
+        for sep in ("/", "?", "#"):
+            if sep in cleaned:
+                cleaned = cleaned.split(sep, 1)[0]
+        if not (3 < len(cleaned) < 200):
+            continue
+        if "." not in cleaned:
+            continue
+        if cleaned in valid:
+            continue
+        valid.append(cleaned)
+
+    logger.info(
+        "[%s] Gemini subdomain search: %d hosts found: %s",
+        orgid, len(valid), valid,
+    )
+    return valid
+
+
+def _google_search(query: str, *, max_results: int) -> list[str]:
+    """Best-effort Google search fallback. Lazy-imports
+    `googlesearch-python` so the agent runs without the dependency
+    installed; callers must treat any return value as advisory and
+    swallow exceptions.
+
+    Used only when DDG (primary + broader fallback) returns zero
+    results, which happens for many smaller Indian universities whose
+    portals Google indexes but DDG does not (e.g. St. Xavier's Ranchi,
+    `www.sxcran.org/Student/login`).
+    """
+    try:
+        from googlesearch import search as _gsearch  # type: ignore
+    except Exception as err:
+        logger.info(
+            "Google search fallback skipped (googlesearch-python not "
+            "available): %s",
+            err,
+        )
+        return []
+    urls: list[str] = []
+    try:
+        for url in _gsearch(query, num_results=max_results, lang="en"):
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                if url not in urls:
+                    urls.append(url)
+            if len(urls) >= max_results:
+                break
+    except Exception as err:
+        logger.warning("Google search failed for %r: %s", query, err)
+        return []
+    return urls
 
 
 # =========================================================== path probes
@@ -1314,11 +2236,27 @@ _STRICT_LOGIN_ANCHOR_TEXTS: frozenset[str] = frozenset({
     "login", "log in", "log-in",
     "sign in", "sign-in", "signin",
     "student login", "user login", "member login",
+    # Fix 1 — landing-page CTA wording. Some universities (JNVU's
+    # `jnvuiums.in`, several Samarth tenants) hide the login behind a
+    # generic "View Detail" / "Click here" / "Access Portal" button on
+    # a card, not a literal "Login" anchor. The destination still has
+    # to pass the path-token check (`/login`, `login.aspx`, …) below,
+    # so the broader text set can't admit non-login link-follows.
+    "view detail", "view details",
+    "click here",
+    "go to portal", "go to login", "go to login portal",
+    "access portal", "access login",
+    "open portal", "open login",
+    "proceed to login", "continue to login",
 })
 
 # Path tokens the destination URL must contain (case-insensitive substring).
+# Fix 1 — added `loginpage` (matches `/Loginpage.aspx`, `/loginpage_col.aspx`)
+# and `/account/login` / `/portal/login` patterns observed in the JNVU
+# and CCSU corpora.
 _STRICT_LOGIN_PATH_TOKENS: tuple[str, ...] = (
-    "/login", "login.aspx", "/signin",
+    "/login", "login.aspx", "loginpage", "/signin",
+    "/account/login", "/portal/login",
 )
 
 # Bug 20 — non-student / student audience keywords matched against the
@@ -1337,6 +2275,16 @@ NON_STUDENT_AUDIENCE_KEYWORDS_IN_TITLE: tuple[str, ...] = (
     "alumni login", "alumni portal",
     "back office", "backoffice",
     "internal portal", "intranet",
+    # Fix 3 — exam/staff role pages observed on JNVU's IUMS
+    # (`erp.jnvuiums.in/Dispatch/ExaminerLoginPage.aspx`,
+    # `LoginAff.aspx`, `ExamFormLogin_Practical.aspx`). These are
+    # staff/admin pages, never enrolled-student logins.
+    "examiner login", "examiner portal",
+    "practical examiner",
+    "affiliation",
+    "college affiliation",
+    "dispatch",
+    "college portal login",
 )
 
 STUDENT_AUDIENCE_KEYWORDS: tuple[str, ...] = (
@@ -1402,14 +2350,21 @@ def has_strict_login_form(html: str, *, final_url: str) -> tuple[bool, str]:
 def find_strict_login_anchor_target(
     html: str, *, base_url: str,
 ) -> tuple[str, str] | None:
-    """Bug 19 — strict rule B candidate. Find the first `<a>` whose visible
-    text full-matches one of `_STRICT_LOGIN_ANCHOR_TEXTS` and whose href
-    resolves to a URL with a `_STRICT_LOGIN_PATH_TOKENS` path token.
+    """Bug 19 / Fix 1 — strict rule B candidate. Find the first `<a>` whose
+    href resolves to a URL with a ``_STRICT_LOGIN_PATH_TOKENS`` path
+    token AND either:
+
+      * the visible text full-matches one of ``_STRICT_LOGIN_ANCHOR_TEXTS``
+        (the original Bug 19 strict rule), OR
+      * the href path itself contains a ``_STRICT_LOGIN_PATH_TOKENS``
+        token (Fix 1) — anchor text becomes irrelevant when the
+        destination URL is unambiguously login-shaped. This is what
+        catches "View Detail" / "Click here" / icon-only buttons on
+        cards that link to ``/Loginpage.aspx``.
 
     Returns (absolute_url, anchor_text) for the first hit, or None.
-
     The caller must still fetch the destination and run rule A on it
-    before accepting — this function only reports that the page DOES point
+    before accepting; this function only reports that the page points
     at something login-shaped.
     """
     if not html:
@@ -1417,18 +2372,28 @@ def find_strict_login_anchor_target(
     soup = BeautifulSoup(html, "html.parser")
     for anchor in soup.find_all("a", href=True):
         href = (anchor.get("href") or "").strip()
-        text = anchor.get_text(strip=True)
-        if not href or not text:
+        if not href:
             continue
-        if text.lower() not in _STRICT_LOGIN_ANCHOR_TEXTS:
-            continue
+        text = anchor.get_text(strip=True) or ""
         try:
             abs_url = urljoin(base_url, href)
         except Exception:
             continue
         path = (urlsplit(abs_url).path or "").lower()
-        if not any(tok in path for tok in _STRICT_LOGIN_PATH_TOKENS):
+        path_is_login_shaped = any(tok in path for tok in _STRICT_LOGIN_PATH_TOKENS)
+        if not path_is_login_shaped:
             continue
+        # Path is login-shaped. Accept the anchor if either:
+        #   (a) the visible text matches a strict login phrase, or
+        #   (b) the path itself is unambiguously login-shaped — admit
+        #       any anchor pointing at it regardless of text.
+        text_lower = text.lower()
+        text_matches = text_lower in _STRICT_LOGIN_ANCHOR_TEXTS
+        if not text_matches:
+            # Fall through (b): path is login-shaped enough on its own.
+            # Use a synthetic text label when the anchor was empty
+            # (icon-only buttons) so the caller has something to log.
+            return abs_url, text or "<no-text>"
         return abs_url, text
     return None
 
@@ -1523,6 +2488,144 @@ def classify_login_audience(html: str) -> str:
     if name_tokens & _STUDENT_FORM_NAME_TOKENS:
         return "student"
     return "ambiguous"
+
+
+# ============================================================ login-form audience
+#
+# Bug 40 — `classify_login_audience` (above) inspects the page chrome
+# (title / h1-h3 / control-name tokens) for staff/admin/employee
+# signals. That catches "Staff Login" / `AdminLogin$Password` style
+# pages but misses exam-form / fee-challan / admission-application
+# pages whose chrome is generic ("Login - University X") and whose
+# only tell is the *form fields themselves*.
+#
+# `classify_login_form_audience` reads the form. The decision rules:
+#
+#   1. Find the *primary identifier field* — first <input> whose type
+#      is not password/hidden/submit/button/reset/checkbox/radio/file/
+#      image. Collect its placeholder, aria-label, name, id, title;
+#      its `<label for="id">` text; and its parent's text (truncated
+#      to 100 chars, the user-spec window).
+#   2. If that primary-field text matches any
+#      EXPLICIT_NON_STUDENT_FIELD_SIGNAL ("from no" / "challan no" /
+#      "application no" / …) → return "non_student". This is decisive
+#      regardless of what other fields are on the page.
+#   3. Scan ALL <label> texts + every input's identifying attributes
+#      for a STUDENT_IDENTITY_FIELD_SIGNAL ("enrollment number" /
+#      "roll number" / "username" / "user id" / etc.). One hit →
+#      "student".
+#   4. Fall back to the body text — count STUDENT_CONTEXT_SIGNALS
+#      ("student" / "semester" / "academic" / "department" / …).
+#      ≥ STUDENT_CONTEXT_SIGNALS_NEEDED hits → "student".
+#   5. Otherwise → "non_student" with reason
+#      "no student identity field or context".
+
+_NON_INPUT_TYPES_FOR_PRIMARY: frozenset[str] = frozenset({
+    "password", "hidden", "submit", "button", "reset",
+    "image", "file", "checkbox", "radio",
+})
+
+_PRIMARY_FIELD_NEARBY_CHARS: int = 100
+
+
+def _primary_identifier_field_text(soup: BeautifulSoup) -> str:
+    """Return the lowercased text used to identify the primary
+    (non-password) input field: its identifying attributes plus its
+    matched `<label for=...>` text plus a short window of its parent's
+    text. Empty string when no eligible input exists."""
+    primary = None
+    for inp in soup.find_all("input"):
+        t = (inp.get("type") or "text").strip().lower()
+        if t in _NON_INPUT_TYPES_FOR_PRIMARY:
+            continue
+        primary = inp
+        break
+    if primary is None:
+        return ""
+
+    bits: list[str] = []
+    for attr in ("placeholder", "aria-label", "name", "id", "title"):
+        v = primary.get(attr)
+        if v:
+            bits.append(str(v))
+    pid = primary.get("id")
+    if pid:
+        for lbl in soup.find_all("label", attrs={"for": pid}):
+            t = lbl.get_text(" ", strip=True)
+            if t:
+                bits.append(t)
+    # Parent-text window: most templates wrap "<label>Foo</label><input>"
+    # or "<td>Foo</td><td><input></td>"; the parent's full text contains
+    # the label even when no `for=` attribute links them. Truncate to
+    # the user-spec ~100 char window so we don't pick up unrelated
+    # neighbours.
+    if primary.parent is not None:
+        ptxt = primary.parent.get_text(" ", strip=True)
+        if ptxt:
+            bits.append(ptxt[:_PRIMARY_FIELD_NEARBY_CHARS])
+
+    return " ".join(bits).lower()
+
+
+def classify_login_form_audience(html: str) -> tuple[str, str]:
+    """Bug 40 — examine the login form's *fields* for student-identity vs
+    non-student-identity signals. Distinct from `classify_login_audience`
+    which inspects page chrome.
+
+    Returns ``(verdict, reason)``:
+
+      * ``"non_student"`` — primary identifier field is "From No." /
+        "Challan No." / "Application No." / etc. (an
+        EXPLICIT_NON_STUDENT_FIELD_SIGNAL). Caller should REJECT.
+      * ``"student"`` — any field label / placeholder matches a
+        STUDENT_IDENTITY_FIELD_SIGNAL, or ≥2 STUDENT_CONTEXT_SIGNALS
+        appear in the body. Caller may KEEP.
+      * ``"non_student"`` (with reason "no student identity field or
+        context") — neither student-identity field nor enough body
+        context. Caller should REJECT.
+      * ``"ambiguous"`` — body empty / no parseable HTML. Caller
+        should fall back to other signals.
+    """
+    if not html:
+        return "ambiguous", "no body"
+    soup = BeautifulSoup(html, "html.parser")
+
+    primary_text = _primary_identifier_field_text(soup)
+
+    # Step 3 — primary-field non-student check (decisive).
+    if primary_text:
+        for sig in EXPLICIT_NON_STUDENT_FIELD_SIGNALS:
+            if sig in primary_text:
+                return "non_student", f"primary identifier field {sig!r}"
+
+    # Step 4 — student-identity field anywhere on the form.
+    label_bits: list[str] = []
+    for lbl in soup.find_all("label"):
+        t = lbl.get_text(" ", strip=True)
+        if t:
+            label_bits.append(t)
+    for inp in soup.find_all("input"):
+        for attr in ("placeholder", "aria-label", "name", "id", "title"):
+            v = inp.get(attr)
+            if v:
+                label_bits.append(str(v))
+    label_blob = " ".join(label_bits).lower()
+    for sig in STUDENT_IDENTITY_FIELD_SIGNALS:
+        if sig in label_blob:
+            return "student", f"student-identity field signal {sig!r}"
+
+    # Step 5 — fall back to body text scan.
+    body_text = soup.get_text(" ", strip=True).lower()
+    if not body_text:
+        return "ambiguous", "empty body text"
+    matched_ctx = [c for c in STUDENT_CONTEXT_SIGNALS if c in body_text]
+    if len(matched_ctx) >= STUDENT_CONTEXT_SIGNALS_NEEDED:
+        return "student", (
+            f"student context signals ×{len(matched_ctx)}: "
+            f"{matched_ctx[:3]}"
+        )
+
+    return "non_student", "no student identity field or context"
 
 
 def passes_login_signal_gate(
@@ -1900,19 +3003,71 @@ def consolidate_candidates(
     # sibling-walk filter ran.
     membership_filtered: list[Candidate] = []
     for c in candidates:
+        # Fix 2 — rule-C bypass: candidates accepted via known-shared-
+        # platform rule at validation time skip the consolidate
+        # membership re-check entirely. The strict R3/R4 check still
+        # ran at admission time (sibling-walk filter, DDG-origin
+        # re-check), so a foreign-tenant URL that doesn't match the
+        # OrgID's shortnames was already rejected before reaching
+        # validation. This bypass primarily helps OrgIDs whose
+        # explicit Samarth tenant is known but the auto-derived
+        # shortname / exact_shortname disambiguation is borderline.
+        #
+        # Section 4 refinement — rule-C bypass is SCOPED to platforms
+        # that don't need cross-OrgID disambiguation. Samarth /
+        # state-platform tenants (bihar-ums, digitaluniversity, …)
+        # share a wildcard root across many institutions, so they
+        # always need the strict R3/R4 tenant check at consolidate.
+        # Without this gate, foreign-tenant URLs that pass rule-C at
+        # validation (because the host IS on a known platform) leak
+        # into the wrong OrgID's row (`dauniv.samarth.edu.in` →
+        # SOL DU). Knimbus / Cognibot / MyLoft tenants don't share
+        # wildcard roots that way, so they keep the bypass.
         host = _host_of(c.url)
+        # Section 9 — drop bare-homepage candidates that survived
+        # rule-B but link-follow couldn't upgrade. The homepage URL
+        # itself is never a student portal; if it weren't supposed to
+        # be a candidate, link-follow would have replaced its URL
+        # with the real login destination by now.
+        if (
+            _is_university_homepage(c.url, primary or "")
+            and not c.has_password_input
+        ):
+            logger.info(
+                "[%s] consolidate: drop %s — university homepage with "
+                "no direct login form (rule-B link-follow didn't upgrade)",
+                orgid, c.url,
+            )
+            continue
+        if c.rule_c_bypass and not _host_needs_strict_tenant_check(host, state):
+            membership_filtered.append(c)
+            continue
         ok, reason = host_belongs_to_org(
             host,
             primary=primary,
+            domains=allowed_domains,
             extra_effective_domains=extra_eff_doms,
             state=state,
             exact_shortnames=exact_short,
             portal_anchored_hosts=pa_hosts,
+            auto_shortnames=shortnames,
         )
         if not ok:
-            logger.warning(
-                "[%s] membership REJECTED %s: %s", orgid, host, reason,
-            )
+            # Mirror the discovery.py log-level split: WARNING is
+            # reserved for real cross-state contamination (state
+            # explicitly known + mismatched). When this OrgID has no
+            # state set, every state-platform host trips R0 and we
+            # don't want to spam the console with WARNINGs for noise
+            # we can't fix without a state override.
+            if reason.startswith("foreign state-platform") and not state:
+                logger.debug(
+                    "[%s] membership skip %s: %s (state unknown)",
+                    orgid, host, reason,
+                )
+            else:
+                logger.warning(
+                    "[%s] membership REJECTED %s: %s", orgid, host, reason,
+                )
             continue
         membership_filtered.append(c)
 

@@ -18,6 +18,118 @@
     "state": "Bihar",
     "exact_shortnames": ["pu", "patna-university"],
     "extra_effective_domains": ["bihar-ums.com"],
-    "notes": "Patna University. Shortname is 'pu' only — NOT 'pup' (that's Punjabi University Patiala)."
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://pu.bihar-ums.com/login"
+    ],
+    "notes": "Patna University. Shortname is 'pu' only — NOT 'pup' (that's Punjabi University Patiala). pu.bihar-ums.com is now in KNOWN_INSTANCE_BLOCKLIST (so non-Patna OrgIDs don't pick it up via DDG); force_accept_seed_urls=true is required so Patna's own seed URL bypasses the pre-filter blocklist check. Bihar UMS subdomains other than pu.bihar-ums.com that legitimately belong to Patna can be added to seed_urls similarly."
+  },
+  "5411058": {
+    "exact_shortnames": ["ccsuniversity", "ccsu"],
+    "extra_effective_domains": ["ccsuniversity.ac.in", "ccsuforms.in"],
+    "notes": "Chaudhary Charan Singh University. Samarth tenants on both samarth.edu.in and samarth.ac.in including the lms- functional prefix (Bug 31). Fee portal lives on the abbreviated sibling domain ccsuforms.in (Bug 33)."
+  },
+  "4816187": {
+    "tc_domain": "sathyabama.ac.in",
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://erp.sathyabama.ac.in/account/login",
+      "https://feeportal.sathyabama.ac.in/account/login",
+      "https://sist.knimbus.com/portal/v2/default/login",
+      "https://placement.sathyabama.ac.in/login"
+    ],
+    "notes": "Sathyabama. All university portals are JS-rendered SPAs that redirect to a homepage when unauthenticated, so static heuristics can't validate them. Force-accept the curated seed URLs and probe sathyabama.ac.in directly for T&C."
+  },
+  "10207980": {
+    "seed_urls": ["https://portal.lnct.ac.in/"],
+    "notes": "LNCT Bhopal student portal. The LNCT group has many sibling campus domains (lnctrishiraj.ac.in, lnctu.ac.in, lncte.ac.in, lnctworldschools.com, lnctuj.com) that surface as siblings via DDG; with MAX_SIBLING_ROOTS_TO_PROBE=3 these no longer eat the discovery budget. seed_url guarantees portal.lnct.ac.in is validated even when the budget is tight."
+  },
+  "4816763": {
+    "exact_shortnames": ["vnsgu", "vnsgurec"],
+    "extra_effective_domains": ["vnsgu.net"],
+    "blocked_urls": [
+      "https://osm.vnsguapps.in/login",
+      "https://osm.vnsguapps.in/"
+    ],
+    "seed_urls": [
+      "https://vnsgu.net/",
+      "https://oes.vnsguapps.in/login"
+    ],
+    "notes": "Veer Narmad South Gujarat University (Surat). Real student portals: vnsgu.net (primary), oes.vnsguapps.in (Online Exam System), and the Samarth tenants vnsgu / lms-vnsgu / vnsgurec (admitted via R3/R4 with exact_shortnames + Bug 31 lms- prefix strip). osm.vnsguapps.in is the On-Screen Marking portal — examiner/evaluator only, NOT a student login — explicitly blocked. DO NOT add vnsguapps.in to extra_effective_domains: vnsguapps.in has wildcard DNS that responds to most SUBDOMAIN_PROBE_LIST names, causing ~626 DNS failures and a budget blowup. The two seed_urls are the only vnsguapps.in URLs we want."
+  },
+  "10253961": {
+    "exact_shortnames": ["mitadt", "mituniversity"],
+    "extra_effective_domains": ["mituniversity.ac.in", "mitapps.in"],
+    "tc_domain": "mituniversity.ac.in",
+    "force_accept_seed_urls": true,
+    "blocked_urls": [
+      "https://erp.mituniversityindia.edu.in/site/userlogin"
+    ],
+    "seed_urls": [
+      "https://student.mitapps.in/itxlogin",
+      "https://oes.mitapps.in/login"
+    ],
+    "notes": "MIT ADT University Pune (Maharashtra). Real student portals: student.mitapps.in/itxlogin (React SPA — root path returns a 44-byte HTML shell that fails the static hard gate) and oes.mitapps.in/login (Online Exam System — HEAD 500, GET 200). force_accept_seed_urls=true ships these directly past validation; otherwise the SPA shell would be rejected before Playwright runs. mituniversityindia.edu.in is MIT University Shillong (Meghalaya) — different institution; parent domain is in KNOWN_INSTANCE_BLOCKLIST. T&C lookup pinned to mituniversity.ac.in (the SheerID primary)."
+  },
+  "10490577": {
+    "exact_shortnames": ["soldu", "sol"],
+    "extra_effective_domains": ["sol.du.ac.in"],
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://web.sol.du.ac.in/student-login"
+    ],
+    "notes": "School of Open Learning, Delhi University. Distinct OrgID from the main DU entry (5819165). Samarth tenants soldu.samarth.ac.in / soldu.samarth.edu.in admit cleanly via R3/R4 with exact_shortnames=['soldu', ...] (otherwise the auto-derived 'du' wouldn't match 'soldu'). Student portal at web.sol.du.ac.in/student-login returns 403 to crawler-shaped User-Agent strings, so the seed URL can't be validated by the static fetcher — force_accept_seed_urls=true skips validation and emits the URL directly. The Bar-Code/Roll-No labels added to STUDENT_IDENTITY_FIELD_SIGNALS still help on any other SOL-style portal that surfaces organically."
+  },
+  "5878908": {
+    "seed_urls": [
+      "https://erp.mmumullana.org/",
+      "https://onlinelms.mmumullana.org/"
+    ],
+    "notes": "Maharishi Markandeshwar University (Mullana). erp.mmumullana.org is the student ERP (shared admin+student system, neutral login title — kept by the relaxed ERP gate, Bug 1). onlinelms.mmumullana.org has a JS modal login: js_renderer's modal-click fallback opens it before validation."
+  },
+  "663980": {
+    "exact_shortnames": ["gju"],
+    "extra_effective_domains": [
+      "gjuonline.ac.in",
+      "ddegjust.ac.in"
+    ],
+    "seed_urls": [
+      "https://gjust.knimbus.com/portal/v2/default/login"
+    ],
+    "notes": "GJUST Hisar (Haryana). gjuonline.ac.in is GJUST's online portal. ddegjust.ac.in is distance ed. gjum.samarth.edu.in is a DIFFERENT university (GJUM Moradabad, UP) — do NOT include. Shortname 'gjum' is excluded from exact_shortnames so the consolidate-membership re-check correctly rejects gjum.* hosts as cross-university contamination."
+  },
+  "664213": {
+    "tc_domain": "jnvu.edu.in",
+    "exact_shortnames": ["jnvu"],
+    "extra_effective_domains": ["jnvuiums.in", "jnvu.online"],
+    "blocked_urls": [
+      "https://jnvu.online/Login.aspx",
+      "https://erp.jnvuiums.in/Loginpage_Emp.aspx",
+      "https://erp.jnvuiums.in/LoginAff.aspx",
+      "https://erp.jnvuiums.in/Dispatch/ExaminerLoginPage.aspx",
+      "https://erp.jnvuiums.in/CollegePortal/ExamFormLogin_Practical.aspx"
+    ],
+    "seed_urls": [
+      "https://erp.jnvuiums.in/Loginpage.aspx",
+      "https://erp.jnvuiums.in/Loginpage_Col.aspx"
+    ],
+    "notes": "Jai Narain Vyas University (Jodhpur). Student portals: studentportal.jnvuiums.in, erp.jnvuiums.in/Loginpage.aspx (University IUMS), erp.jnvuiums.in/Loginpage_Col.aspx (College IUMS). All other erp.jnvuiums.in/* login pages are admin/staff (Employee, Affiliation, Examiner, Practical-Examiner) and are blocked. jnvu.online/Login.aspx is the central staff/admin login and is blocked. T&C lookup pinned to jnvu.edu.in (SheerID primary)."
+  },
+  "3840805": {
+    "tc_domain": "sxcran.ac.in",
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://www.sxcran.org/Student/login.aspx"
+    ],
+    "notes": "St. Xavier's College Ranchi. Student portal lives on sxcran.org (.NET ASPX); T&C / PrivacyPolicy lives on the separate ac.in domain (sxcran.ac.in/Admission/PrivacyPolicy), so tc_domain is pinned to sxcran.ac.in. Force-accept the .aspx seed so it survives host-dedup as the canonical URL even when same_host_probes also synthesises /Student/Login, /Account/Login, etc. on the same host."
+  },
+  "3832673": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://erp.mait.ac.in/maithelix2/",
+      "https://app.edumarshal.com/"
+    ],
+    "extra_effective_domains": ["mait.ac.in"],
+    "notes": "MAIT (Maharaja Agrasen Institute of Technology). ERP at erp.mait.ac.in/maithelix2/ (the maithelix2 path is the active login surface — /MAITSTUDENT/ and /maithelix/ are dead). app.edumarshal.com is the third-party platform reached via mait.ac.in homepage Portals → ERP link; edumarshal.com is in KNOWN_SHARED_PLATFORM_PATTERNS so rule-C accepts it without a static login form."
   }
 }

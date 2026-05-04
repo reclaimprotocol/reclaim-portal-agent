@@ -28,8 +28,40 @@ DOMAIN_OVERRIDES_PATH = ROOT / "domain_overrides.json"
 HTTP_TIMEOUT_SECONDS: int = 8
 DUCKDUCKGO_TIMEOUT_SECONDS: int = 12
 JS_RENDERING_TIMEOUT_SECONDS: int = 15
-TOTAL_DISCOVERY_BUDGET_SECONDS: int = 90
-TOTAL_TC_BUDGET_SECONDS: int = 60
+# Fix 1 — bumped from 90s. Multi-campus college groups (LNCT,
+# Manipal, Amity, Symbiosis) routinely hit 100-120s Stage A even with
+# the MAX_SIBLING_ROOTS_TO_PROBE=3 cap. Env-overridable so per-batch
+# tuning is possible without code edits. `load_dotenv` runs above so
+# the .env value is honoured.
+TOTAL_DISCOVERY_BUDGET_SECONDS: int = int(
+    os.environ.get("TOTAL_DISCOVERY_BUDGET_SECONDS", "150")
+)
+TOTAL_TC_BUDGET_SECONDS: int = int(
+    os.environ.get("TOTAL_TC_BUDGET_SECONDS", "60")
+)
+
+
+# --- Stage A search engine selection (Gemini Pro via OpenRouter) ---------
+#
+# When `GEMINI_SEARCH_ENABLED=true` AND `OPENROUTER_API_KEY` is set, the
+# discovery search phase asks Gemini for the university's portal URLs
+# first; DDG only runs when Gemini returns zero candidates (or is
+# disabled, or the OpenRouter call errors). Gemini's index covers the
+# long tail of smaller Indian universities (St. Xavier's Ranchi,
+# Patliputra, …) that DDG misses.
+#
+# Read from env directly (rather than threaded through `Config`) because
+# `gemini_search` in `discovery_rules` reads them at call time — same
+# pattern as the budget / timeout constants above. Disabling is a
+# zero-cost no-op: when the key is missing the function returns []
+# immediately and the orchestrator falls through to DDG.
+OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL: str = os.getenv(
+    "OPENROUTER_MODEL", "google/gemini-2.0-flash-001"
+)
+GEMINI_SEARCH_ENABLED: bool = os.getenv(
+    "GEMINI_SEARCH_ENABLED", "true"
+).lower() == "true"
 
 
 # --- Known shared-platform short-circuit ---------------------------------
@@ -44,7 +76,18 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
     "digitaluniversity.ac": {"category": "Student Portal", "validated": True},
     "digitaluniversity.ac.in": {"category": "Student Portal", "validated": True},
     "myloft.xyz": {"category": "Library", "validated": True},
-    "knimbus.com": {"category": "Library", "validated": True},
+    # Bug B — knimbus.com tenants (`<inst>.knimbus.com`) follow a
+    # documented login URL shape `/portal/v2/default/login` but the
+    # platform's wildcard router redirects unauthenticated requests to
+    # `/portal/v2/default/landingPage#/?signin=true`. The redirect
+    # destination is uglier and not a stable bookmarkable URL —
+    # `canonical_path` tells the URL-normalisation layer to rewrite the
+    # stored path back to the login form.
+    "knimbus.com": {
+        "category": "Library",
+        "validated": True,
+        "canonical_path": "/portal/v2/default/login",
+    },
     "cognibot.in": {"category": "LMS/Moodle", "validated": True},
     # Bihar state-government UMS — university subdomains like
     # `pu.bihar-ums.com/login` (Patna University). Hard verification still
@@ -52,6 +95,14 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
     # from the off-domain filter so an organically-discovered URL gets
     # validated rather than dropped.
     "bihar-ums.com": {"category": "Student Portal", "validated": True},
+    # Edumarshal — third-party multi-tenant ERP used by many Indian
+    # colleges (MAIT and similar). Tenants are reached via either the
+    # bare `app.edumarshal.com` / `beta.edumarshal.com` shells or
+    # institution-prefixed subdomains. The `endswith` match in
+    # `host_is_known_shared_platform` covers all of them with a single
+    # entry; rule-C accepts the host without requiring a static login
+    # form (the platform is JS-rendered).
+    "edumarshal.com": {"category": "Student Portal", "validated": True},
 }
 
 
@@ -61,28 +112,117 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
 # specificity (T&C-specific → privacy → disclaimer) plus CMS variants for
 # DU/NIC-built sites and older Indian-uni "/disclaimer.html" patterns.
 UNIVERSITY_TC_FALLBACK_PATHS: tuple[str, ...] = (
-    # T&C-specific
+    # ---- Terms and conditions variants ------------------------------
+    # Hyphenated, underscored, no-separator, with `.html` / `.php`
+    # extensions. Indian-uni CMS templates (Drupal, WordPress, Joomla,
+    # NIC-built sites, hand-rolled PHP) all pick a different shape.
+    "/terms-and-conditions",
+    "/terms-and-conditions.html",
+    "/terms-and-conditions.php",
+    "/terms-conditions",
+    "/terms-conditions.html",
+    "/terms-conditions.php",
+    "/terms-condition",
+    "/terms-condition.html",       # GLS University pattern
+    "/terms-condition.php",
+    "/terms_conditions",
+    "/terms_conditions.html",
+    "/terms_and_conditions",
+    "/terms_and_conditions.html",
+    "/terms-of-use",
+    "/terms-of-use.html",
+    "/terms-of-service",
+    "/terms-of-service.html",
+    "/terms",
+    "/terms.html",
+    "/terms.php",
+    "/tos",
+    "/tnc",
+    "/tnc.html",
+    "/tnc.php",
+    "/t-and-c",
+    "/t-and-c.html",
     "/en/page/terms-condition",
     "/en/page/terms-conditions",
-    "/terms-and-conditions",
-    "/terms-of-use",
-    "/terms",
-    "/tos",
-    # Privacy
-    "/en/page/privacy-policy",
+
+    # ---- Privacy policy variants ------------------------------------
     "/privacy-policy",
+    "/privacy-policy.html",
+    "/privacy-policy.php",
+    "/privacy_policy",
+    "/privacy_policy.html",
+    "/privacy-statement",
+    "/privacy-statement.html",
     "/privacy",
-    # Disclaimer
-    "/en/page/disclaimer",
+    "/privacy.html",
+    "/privacy.php",
+    "/en/page/privacy-policy",
+
+    # ---- Disclaimer variants ----------------------------------------
     "/disclaimer",
-    # CMS-specific patterns (DU, NIC-built sites)
+    "/disclaimer.html",
+    "/disclaimer.php",
+    "/disclaimers",
+    "/disclaimers.html",
+    "/website-disclaimer",
+    "/website-disclaimer.html",
+    "/site-disclaimer",
+    "/legal-disclaimer",
+    "/en/page/disclaimer",
+
+    # ---- Website / web / general policies ---------------------------
+    # Indian government NIC-template sites typically expose a "Website
+    # Policy" page that bundles disclaimer + copyright + privacy.
+    "/website-policy",
+    "/website-policy.html",
+    "/website-policies",
+    "/website-policies.html",
+    "/web-policy",
+    "/web-policy.html",
+    "/policies",
+    "/policy",
+
+    # ---- Legal / copyright ------------------------------------------
+    "/legal",
+    "/legal.html",
+    "/legal-notice",
+    "/legal-notice.html",
+    "/copyright",
+    "/copyright.html",
+    "/copyright-policy",
+    "/copyright-policy.html",
+    "/hyperlinking-policy",
+    "/hyperlinking-policy.html",
+
+    # ---- NIC / govt template query-string forms ---------------------
+    # Older Indian-uni CMS sites encode the page as a query parameter
+    # against `index.php` or the bare root.
     "/index.php?page=disclaimer",
     "/index.php?page=privacy-policy",
     "/index.php?page=terms",
-    # Older Indian uni patterns
-    "/disclaimer.html",
-    "/privacy.html",
-    "/terms.html",
+    "/index.php?page=tnc",
+    "/?page=disclaimer",
+    "/?page=terms",
+
+    # ---- Common CMS prefixes (`/p/` `/page/` `/pages/`) -------------
+    "/p/terms-and-conditions",
+    "/p/disclaimer",
+    "/p/privacy-policy",
+    "/page/terms-and-conditions",
+    "/page/disclaimer",
+    "/page/privacy-policy",
+    "/pages/terms-and-conditions",
+    "/pages/disclaimer",
+    "/pages/privacy-policy",
+
+    # ---- University-specific common patterns ------------------------
+    "/about/disclaimer",
+    "/about/terms",
+    "/about/privacy",
+    "/about-us/disclaimer",
+    "/info/disclaimer",
+    "/info/terms",
+    "/important-links/disclaimer",
 )
 
 # Words/abbreviations we expect in a T&C page's <title> or <h1>. The body
@@ -169,11 +309,71 @@ TC_URL_ERROR_QUERY_PARAMS: tuple[str, ...] = (
 
 # PDF validation thresholds for T&C documents served as application/pdf.
 TC_PDF_MIN_TEXT_LEN: int = 500
-TC_PDF_REQUIRED_KEYWORDS: tuple[str, ...] = (
-    "terms", "conditions", "privacy", "disclaimer",
-    "agreement", "as is", "liability", "governance",
+
+# Stage C — Bug 38 phrase-based PDF validation. Single-word matches
+# ("terms", "agreement", "liability") accept too many non-T&C documents
+# (AICTE approval letters that happen to mention "agreement", annual
+# reports that mention "liability"). Phrases are far harder to hit
+# incidentally — a document carrying ≥ TC_PDF_PHRASES_NEEDED of these
+# is overwhelmingly likely to be a T&C / privacy / disclaimer doc.
+# Substring (case-insensitive) match against extracted PDF text.
+TC_PDF_REQUIRED_PHRASES: tuple[str, ...] = (
+    "terms and conditions",
+    "terms of use",
+    "terms of service",
+    "privacy policy",
+    "disclaimer",
+    "website policy",
+    "intellectual property",
+    "liability",
+    "as is",
+    "without warranty",
+    "governing law",
+    "unauthorized use",
+    "all rights reserved",
 )
-TC_PDF_KEYWORDS_NEEDED: int = 2
+TC_PDF_PHRASES_NEEDED: int = 2
+
+# Stage C — Bug 38 PDF body rejection signals. If the first
+# `TC_PDF_REJECTION_HEAD_CHARS` of extracted PDF text contain any of
+# these substrings, the PDF is treated as a non-T&C document
+# (accreditation, prospectus, recruitment notice, …) and rejected even
+# if it later mentions T&C phrases incidentally. The head-only window
+# avoids rejecting genuine T&Cs that happen to reference an annual
+# report in a citation list at the end. Lowercased before matching.
+TC_PDF_REJECTION_SIGNALS: tuple[str, ...] = (
+    "aicte approval",
+    "all india council for technical education",
+    "accreditation",
+    "naac grade",
+    "nirf ranking",
+    "annual report",
+    "prospectus",
+    "fee structure",
+    "syllabus",
+    "examination schedule",
+    "admit card",
+    "result notification",
+    "tender notice",
+    "recruitment notice",
+)
+TC_PDF_REJECTION_HEAD_CHARS: int = 1000
+
+# Stage C — Bug 38 URL-path rejection patterns. Applied pre-fetch in the
+# strict validation gate: if the candidate URL's lowercase path contains
+# any of these substrings, reject without making the HTTP request. This
+# is the cheapest filter on the AICTE / accreditation / prospectus PDF
+# noise that Indian-uni footers commonly link to. Substring match —
+# case-insensitive against the URL path component only (queries are
+# allowed to contain these tokens incidentally).
+TC_URL_REJECTION_PATTERNS: tuple[str, ...] = (
+    "aicte", "naac", "nirf",
+    "approval", "accreditation",
+    "prospectus", "syllabus",
+    "result", "admitcard",
+    "tender", "recruitment",
+    "annual-report", "annual_report",
+)
 
 
 # Paranoid mode — when True, every URL that passes the strict validator
@@ -194,6 +394,349 @@ SHARED_PLATFORM_DOMAINS: frozenset[str] = frozenset({
     "digitaluniversity.ac.in", "digitaluniversity.ac",
     "myloft.xyz", "knimbus.com",
 })
+
+
+# Stage A — admission-portal detection. Admission portals are aimed at
+# *prospective* applicants (new-student registration, online application
+# forms, prospectus, fee payment for application). The agent's target is
+# *enrolled* student logins, so admission portals must be filtered out.
+#
+# Detection runs in 4 layers (see `discovery_rules.is_admission_portal`):
+#
+#   Layer 1 — URL only (path/host substring). Cheap, runs pre-fetch in
+#     the candidate-gathering phase to save HTTP calls. The `/register`
+#     and `/registration` paths get a counter-signal exception so an
+#     "existing student registration" page isn't mis-rejected.
+#   Layer 2 — page text content. Strong signals (single match enough),
+#     moderate signals (need ≥2), and counter signals (enrolled-student
+#     features) that disable the moderate path.
+#   Layer 3 — title / <h1> phrase match. Fast — runs before the full
+#     body parse — and decisive when the page openly identifies as an
+#     admission portal in its primary phrase.
+#   Layer 4 — known admission-platform host blocklist (JoSAA, KCET,
+#     state CETs, NTA portals, …). These are central admission systems
+#     for many universities and are never enrolled-student portals.
+
+URL_ADMISSION_PATH_KEYWORDS: tuple[str, ...] = (
+    # Direct admission words
+    "/admission", "/admissions",
+    "/apply", "/application", "/applications",
+    "/enroll", "/enrollment", "/enrolment",
+    "/register", "/registration",  # see counter-signal exception below
+    # New-student-specific
+    "/newreg", "/new_reg", "/newregistration", "/new_registration",
+    "/freshreg", "/fresh_reg", "/freshregistration",
+    "/newstudent", "/new_student", "/new-student",
+    "/newuser", "/new_user", "/new-user",
+    "/newapplicant", "/new_applicant",
+    "/firstyear", "/first_year", "/first-year",
+    "/signup", "/sign_up", "/sign-up",
+    "/createaccount", "/create_account", "/create-account",
+    # Indian-uni specific
+    "/ugadm", "/pgadm", "/phadm",
+    "/ugregistration", "/pgregistration",
+    "/prospectus",
+    "/onlineadmission", "/online_admission", "/online-admission",
+    "/admform", "/adm_form", "/adm-form",
+    "/counselling", "/counseling",
+    "/merit", "/meritlist", "/merit_list",
+    "/allotment",
+    "/document_verification", "/docverification",
+)
+
+URL_ADMISSION_HOST_KEYWORDS: tuple[str, ...] = (
+    "admission", "admissions",
+    "apply", "enroll", "enrolment",
+    "newadmission", "freshregistration",
+    "onlineadmission",
+)
+
+# `/register` / `/registration` URL exception. If the path *also*
+# contains any of these tokens, the URL-layer reject is skipped and
+# the page proceeds to content evaluation — the destination is likely
+# an existing-student login surface, not new-applicant signup.
+URL_ADMISSION_REGISTER_EXEMPT_TOKENS: tuple[str, ...] = (
+    "student", "login", "signin", "existing",
+)
+
+# Layer 2 — page text signals. Single match of any STRONG signal is
+# enough to reject. Substring (case-insensitive) match against the full
+# page text extracted via BeautifulSoup `get_text()`.
+STRONG_ADMISSION_SIGNALS: tuple[str, ...] = (
+    "new student registration",
+    "fresh student registration",
+    "first year registration",
+    "new applicant registration",
+    "online admission form",
+    "admission application form",
+    "apply for admission",
+    "start your application",
+    "new user registration",
+    "register as new user",
+    "create new account",
+    "not yet registered? register",
+    "don't have an account? register",
+    "prospective student",
+    "applicant login",
+    "candidate registration",
+    "new candidate",
+    # Bug 40 — exam-form / generic-form registration phrases. Indian
+    # universities sometimes expose a form-registration page (exam
+    # form, fee form, scholarship form) with a password input; the
+    # field is "Form No." not student id, and the page invites the
+    # user to "click here to apply" rather than to log in.
+    "apply for new form",
+    "click here to apply",
+    "apply for form",
+    "new form registration",
+    "form submission",
+    "submit application",
+)
+
+# Need ≥2 of these to reject (and zero counter-signals), OR ≥4 even
+# with counter-signals.
+MODERATE_ADMISSION_SIGNALS: tuple[str, ...] = (
+    "father's name", "father name",
+    "mother's name", "mother name",
+    "date of birth",
+    "upload photo", "upload photograph",
+    "upload signature",
+    "upload documents", "upload certificate",
+    "qualifying examination",
+    "year of passing",
+    "board of examination", "board name",
+    "category general", "category obc", "category sc", "category st",
+    "general/obc/sc/st",
+    "application fee",
+    "application number",
+    "entrance exam", "entrance test",
+    "merit list",
+    "counselling",
+    "seat allotment",
+    "document verification",
+    "fresh registration",
+    "new registration",
+    "apply now",
+    "start application",
+    "10th marks", "12th marks",
+    "hsc marks", "ssc marks",
+    "passing year",
+    "stream arts science commerce",
+    "domicile",
+    "income certificate",
+    "caste certificate",
+)
+
+# Counter-signals — features that only an enrolled-student portal would
+# expose. Suppress the moderate-signal reject when present (a single
+# strong signal still rejects regardless).
+STUDENT_LOGIN_COUNTER_SIGNALS: tuple[str, ...] = (
+    "enrollment number",
+    "enrolment number",
+    "roll number",
+    "university roll no",
+    "student id",
+    "student code",
+    "registration number",  # already-enrolled student's reg number
+    "already registered",
+    "existing student",
+    "forgot password",
+    "change password",
+    "fee receipt",
+    "admit card download",
+    "exam form",
+    "result",
+    "attendance",
+    "timetable", "time table",
+    "library",
+    "hostel",
+    "scholarship",
+    "back paper", "backlog",
+)
+
+# Layer 3 — <title> / <h1> phrases. Match → reject (without parsing
+# full body), with one exception: if the same title contains both
+# "login" AND "existing", proceed to the full content check (it's
+# probably an existing-student login labeled as a "registration
+# portal").
+TITLE_ADMISSION_PHRASES: tuple[str, ...] = (
+    "admission portal",
+    "admissions portal",
+    "online admission",
+    "admission form",
+    "new registration",
+    "student registration",
+    "applicant portal",
+    "candidate portal",
+    "apply online",
+    "application portal",
+    "admission management",
+    "admission system",
+    "college admission",
+    "university admission",
+)
+
+# Layer 4 — known central admission platforms. Hosts that match
+# (host == entry or host.endswith("." + entry)) are rejected outright.
+KNOWN_ADMISSION_PLATFORMS: tuple[str, ...] = (
+    "wbnsouadmissions.com",
+    "josaa.nic.in",
+    "csab.nic.in",
+    "upseat.in",
+    "kcet.karnataka.gov.in",
+    "tgeapcet.nic.in",
+    "mahacet.org",
+    "jeemain.nta.nic.in",
+    "neet.nta.nic.in",
+)
+
+
+# Stage A — Fix 3 hard-blocked instance hosts. Specific tenant subdomains
+# of state-platforms or other multi-tenant systems that surface in
+# Stage A search results for unrelated OrgIDs (e.g. Bihar UMS state-
+# platform tenants like `nou.bihar-ums.com` for Nalanda Open University).
+# Bug 43's foreign-state reject already filters these for non-Bihar
+# OrgIDs, but the explicit per-host blocklist is a belt-and-suspenders
+# guard that runs *before* any HTTP fetch and applies regardless of
+# OrgID state — so they never enter the candidate queue at all.
+#
+# Match is exact host equality OR strict subdomain
+# (`host == entry or host.endswith("." + entry)`).
+KNOWN_INSTANCE_BLOCKLIST: tuple[str, ...] = (
+    "nou.bihar-ums.com",     # Nalanda Open University
+    "jpv.bihar-ums.com",     # Jai Prakash Vishwavidyalaya
+    "ppu.bihar-ums.com",     # Patliputra University
+    "ppuponline.in",         # Patliputra University online portal
+    # Patna University. Belongs ONLY to OrgID 663894 (Patna). Listed
+    # here so other OrgIDs that surface it via DDG (SOL DU, GJUST,
+    # Sathyabama, …) reject it at pre-filter. The blocklist runs
+    # *before* `host_belongs_to_org`, so OrgID 663894 itself can't
+    # reach this URL through `extra_effective_domains` matching either
+    # — Patna's override now uses `force_accept_seed_urls` to inject
+    # `pu.bihar-ums.com/login` directly past pre-filter.
+    "pu.bihar-ums.com",
+    # MIT University Shillong (Meghalaya). Surfaces in DDG results for
+    # other MIT-named institutions (MIT ADT Pune, MIT Manipal, …)
+    # because R6's startswith-on-base-label matches "mituniversity"
+    # against "mituniversityindia". One blocklist entry suffices —
+    # `host_in_instance_blocklist` matches subdomains via endswith,
+    # so `erp.mituniversityindia.edu.in` is also rejected.
+    "mituniversityindia.edu.in",
+)
+
+
+# Stage A — auto-derived shortnames that are too generic to drive R6
+# (shortname-in-domain) matching. These are common Indian college
+# acronyms shared across many institutions: MIT (ADT, Shillong,
+# Manipal, Muzaffarpur), IIIT (Hyderabad, Bangalore, …), NIT
+# (Trichy, Surathkal, Warangal, …), etc.
+#
+# When an OrgID's auto-derived shortname (leftmost label of a
+# configured domain) appears here, R6 does NOT use it — even though
+# its length passes the ≥4 floor. Operator-curated `exact_shortnames`
+# in `domain_overrides.json` are NEVER filtered by this list (the
+# operator is presumed to know the disambiguator); the filter only
+# applies to the auto-derived set.
+#
+# Note: this does NOT prevent prefix-leak when an OrgID's own
+# auto-shortname is a prefix of ANOTHER institution's name (e.g.
+# "mituniversity" prefix of "mituniversityindia"). Use
+# `KNOWN_INSTANCE_BLOCKLIST` for those host-specific conflicts.
+AMBIGUOUS_SHORTNAMES: frozenset[str] = frozenset({
+    "mit",     # MIT ADT, MIT Shillong, MIT Manipal, MIT Muzaffarpur, …
+    "iet",     # Institute of Engineering & Technology — many colleges
+    "iiit",    # multiple IIITs (Hyderabad, Bangalore, Allahabad, …)
+    "nit",     # multiple NITs (Trichy, Surathkal, Warangal, …)
+    "bit",     # multiple BITs (Mesra, Sindri, Durg, …)
+    "sit",     # multiple SITs (Tumkur, Pune, …)
+    "git",     # multiple GITs
+})
+
+
+def host_in_instance_blocklist(host: str) -> bool:
+    """True iff `host` equals or is a subdomain of any
+    `KNOWN_INSTANCE_BLOCKLIST` entry."""
+    if not host:
+        return False
+    h = host.lower().lstrip(".")
+    for entry in KNOWN_INSTANCE_BLOCKLIST:
+        if h == entry or h.endswith("." + entry):
+            return True
+    return False
+
+
+# Stage A — Bug 40 login-form audience check. After a candidate page
+# clears the existing strict gate (`passes_login_signal_gate` rule-A:
+# real login form on the page), examine the form's *primary identifier*
+# field. The agent's target is enrolled-student logins, so a form whose
+# primary identifier asks for "From No.", "Application No.",
+# "Challan No." etc. is something else (exam-form registration, fee
+# challan, admission application) even when it has a password input
+# and a `/login.php` URL.
+#
+# `discovery_rules.classify_login_form_audience(html)` is the decision
+# surface. It returns `"non_student"` to reject and `"student"` to keep.
+
+# Field labels / placeholders / nearby text whose presence on a form
+# indicates an enrolled-student login. ANY one of these found in the
+# combined label+placeholder+aria-label+name+id text → keep.
+STUDENT_IDENTITY_FIELD_SIGNALS: tuple[str, ...] = (
+    "enrollment number", "enrolment number",
+    "roll number", "roll no", "roll no.",
+    "student id", "student code", "student no",
+    "registration number", "reg no", "reg. no",
+    "university id", "university roll",
+    "admission number",
+    "scholar number",
+    "prn number", "prn no",
+    "form number",
+    "username",
+    "user id", "user name",
+    "mobile number",
+    "email",
+    "employee id",
+    # Bug 1 — additional Indian-uni labels observed on the SOL DU
+    # student portal (`web.sol.du.ac.in/student-login`) and similar
+    # legacy CMS-built forms.
+    "bar code", "barcode",
+    "sol roll", "sol id",
+    "id card", "id no",
+    # Section 8 — exam / hall-ticket / seat / library labels
+    # observed across more Indian-uni portals.
+    "exam roll",
+    "htno", "hall ticket no", "hall ticket number",
+    "seat no", "seat number",
+    "lib id", "library id",
+    "admission no", "scholar no",
+)
+
+# Field labels matched only against the *primary* identifier field
+# (first non-password / non-hidden / non-submit input). When the
+# primary field carries one of these → reject outright. These are
+# never used to identify an enrolled student.
+EXPLICIT_NON_STUDENT_FIELD_SIGNALS: tuple[str, ...] = (
+    "from no",
+    "form no",
+    "challan no", "challan number",
+    "application no", "application number",
+    "token no", "token number",
+    "dd number", "demand draft",
+    "transaction id", "transaction number",
+)
+
+# Body-content fallback signals. When the form's labels match neither
+# STUDENT_IDENTITY_FIELD_SIGNALS nor EXPLICIT_NON_STUDENT_FIELD_SIGNALS
+# (i.e. a generic "Login" + password page), look for ≥2 of these in
+# the visible page text. A real student portal almost always says
+# "student" / mentions "semester" / "department" / "course" somewhere.
+STUDENT_CONTEXT_SIGNALS: tuple[str, ...] = (
+    "student", "students",
+    "enrolled", "enrollment", "enrolment",
+    "academic", "semester", "session",
+    "college", "department",
+    "faculty", "programme", "course",
+)
+STUDENT_CONTEXT_SIGNALS_NEEDED: int = 2
 
 
 # Stage A — Bug 29/30 state-platform hints. State-government UMS / DU
@@ -217,6 +760,32 @@ STATE_PLATFORM_HINTS: dict[str, tuple[str, ...]] = {
         "mkcl.org",
     ),
 }
+
+
+# Stage A — Bug 31 functional prefixes on platform-tenant subdomains.
+# Indian Samarth / state-platform deployments often expose a single
+# institution under multiple tenants discriminated by a *function* prefix —
+# e.g. `lms-ccsuniversity.samarth.ac.in` (LMS) and `ccsuniversity.samarth.edu.in`
+# (Student Portal) both belong to Chaudhary Charan Singh University.
+# Strict membership in `host_belongs_to_org` rule (4) checks the literal
+# tenant prefix against `exact_shortnames`, which would reject the LMS
+# tenant. Stripping a known functional prefix before that check lets the
+# strict gate accept both tenants without loosening the cross-university
+# safety guarantee.
+SAMARTH_FUNCTIONAL_PREFIXES: tuple[str, ...] = (
+    "lms-",
+    "elearn-", "elearning-",
+    "exam-", "examination-",
+    "result-", "results-",
+    "fee-", "fees-",
+    "lib-", "library-",
+    "admission-", "admissions-", "adm-",
+    "cdoe-", "cde-", "ide-", "dde-", "sol-", "idol-",
+    "ug-", "pg-",
+    "distance-", "online-",
+    "portal-", "student-", "students-",
+    "app-",
+)
 
 
 # Stage A — Bug 24 EXTERNAL_DOMAIN_BLOCKLIST. When walking outbound links
@@ -260,6 +829,30 @@ EXTERNAL_DOMAIN_BLOCKLIST: tuple[str, ...] = (
     # NPTEL / SWAYAM are Govt-of-India MOOC hubs — universities link to
     # them but they're not the university's portal.
     "nptel.ac.in", "swayam.gov.in", "swayamprabha.gov.in",
+    # Section 11 — additional external services that surface in DDG
+    # results for many universities but are never the university's
+    # own portal:
+    "t.co",                  # Twitter URL shortener
+    "wixsite.com",           # Wix-hosted promotional sites
+    "irins.org",             # India Research Information System
+    "samadhaan.ugc.ac.in",   # UGC grievance portal
+    "ugc.ac.in",             # UGC general
+    "aicte-india.org",       # AICTE
+    "cert-in.org.in",        # CERT-In
+    "digilocker.gov.in",     # DigiLocker
+    "careers360.com",        # Careers360 review aggregator
+)
+
+
+# Section 11 — affiliated-college filter trigger. When the sibling-walk
+# surfaces more than this many host candidates, an additional filter
+# removes hosts whose domain name contains "college" / "school" /
+# "institute" — at that count we're almost certainly looking at a
+# parent-university (DU / Mumbai / VTU) whose homepage links to many
+# affiliated college websites, none of which are this OrgID's portal.
+SIBLING_COUNT_AFFILIATED_FILTER_THRESHOLD: int = 20
+AFFILIATED_DOMAIN_TOKENS: tuple[str, ...] = (
+    "college", "school", "institute",
 )
 
 
@@ -363,6 +956,32 @@ STUDENT_LOGIN_SAME_HOST_PROBES: tuple[str, ...] = (
     "/Student/Login",
     "/StudentLogin",
     "/student-login",
+    # Fix B — additional login-path variants observed in the corpus.
+    # `/account/login` is Sathyabama's ERP path; `/portal/v2/default/login`
+    # is the Knimbus tenant pattern; the rest are common .NET / Django /
+    # Rails / generic CMS layouts.
+    "/account/login",
+    "/account/studentlogin",
+    "/Account/Login",
+    "/Account/StudentLogin",
+    "/accounts/login",
+    "/user/login",
+    "/users/login",
+    "/auth/login",
+    "/auth/student",
+    "/secure/login",
+    "/portal/login",
+    "/portal/v2/default/login",
+    # Section 3 — React/SPA / Indian-uni custom paths. `/itxlogin` is
+    # MIT ADT's student.mitapps.in entry point; the rest are common
+    # React-app prefixes that show up across portals where the root
+    # serves an SPA shell and the actual login lives at a sub-path.
+    "/itxlogin",
+    "/app/login",
+    "/app/signin",
+    "/app/student",
+    "/web/login",
+    "/ui/login",
 )
 
 
@@ -489,8 +1108,16 @@ def _load_domain_overrides(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def load_config() -> Config:
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    enable_claude_fallback = os.environ.get("ENABLE_CLAUDE_FALLBACK", "false").lower() in ("1", "true", "yes", "on")
+    tc_analyzer_mode = os.environ.get("TC_ANALYZER_MODE", "keyword").lower()
+    if (enable_claude_fallback or tc_analyzer_mode == "claude") and not anthropic_api_key:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is required when ENABLE_CLAUDE_FALLBACK=True "
+            "or TC_ANALYZER_MODE=claude. Add it to your .env file."
+        )
     return Config(
-        anthropic_api_key=_require("ANTHROPIC_API_KEY"),
+        anthropic_api_key=anthropic_api_key,
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7"),
         google_sheet_id=_require("GOOGLE_SHEET_ID"),
         universities_tab=os.environ.get("UNIVERSITIES_TAB_NAME", "Universities"),
@@ -503,7 +1130,18 @@ def load_config() -> Config:
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         portal_confidence_threshold=int(os.environ.get("PORTAL_CONFIDENCE_THRESHOLD", "60")),
         http_timeout_seconds=int(os.environ.get("HTTP_TIMEOUT_SECONDS", str(HTTP_TIMEOUT_SECONDS))),
-        user_agent=os.environ.get("USER_AGENT", "reclaim-portal-agent/0.1"),
+        # Browser-like default User-Agent. Many Indian-uni portals
+        # (web.sol.du.ac.in, similar) return HTTP 403 to anything that
+        # looks like a Python crawler ("python-requests/X" or our old
+        # "reclaim-portal-agent/0.1"). Spoofing a current Chrome-on-
+        # Mac string fixes the 403-class without per-URL overrides.
+        # Override via .env if needed.
+        user_agent=os.environ.get(
+            "USER_AGENT",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36",
+        ),
         discovery_model=os.environ.get("DISCOVERY_MODEL", "claude-sonnet-4-6"),
         discovery_claude_max_uses=int(os.environ.get("DISCOVERY_CLAUDE_MAX_USES", "5")),
         discovery_max_results_per_query=int(os.environ.get("DISCOVERY_MAX_RESULTS_PER_QUERY", "8")),
@@ -512,6 +1150,6 @@ def load_config() -> Config:
         enable_js_rendering=os.environ.get("ENABLE_JS_RENDERING", "true").lower() in ("1", "true", "yes", "on"),
         js_rendering_suspicion_threshold=int(os.environ.get("JS_RENDERING_SUSPICION_THRESHOLD", "3")),
         js_rendering_timeout_seconds=int(os.environ.get("JS_RENDERING_TIMEOUT_SECONDS", str(JS_RENDERING_TIMEOUT_SECONDS))),
-        enable_claude_fallback=os.environ.get("ENABLE_CLAUDE_FALLBACK", "false").lower() in ("1", "true", "yes", "on"),
-        tc_analyzer_mode=os.environ.get("TC_ANALYZER_MODE", "keyword").lower(),
+        enable_claude_fallback=enable_claude_fallback,
+        tc_analyzer_mode=tc_analyzer_mode,
     )

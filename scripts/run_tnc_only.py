@@ -37,8 +37,11 @@ from agent.state import StateStore
 @click.option("--orgid", required=True, help="OrgID whose Portals row to refresh")
 @click.option(
     "--force", is_flag=True,
-    help="Re-analyse even if the existing row already has an Overall T&C Verdict; "
-         "also bypasses the per-URL analyzer cache so updated scoring logic takes effect",
+    help="Re-run full T&C discovery (tc_finder) even when the sheet's T&C URLs cell "
+         "is already populated; also bypasses the per-URL analyzer cache so updated "
+         "scoring logic takes effect. Without --force, a populated T&C URLs cell "
+         "short-circuits to analyzer-only re-aggregation against the URLs already in "
+         "the sheet.",
 )
 @click.option(
     "--debug", is_flag=True,
@@ -69,25 +72,86 @@ def main(orgid: str, force: bool, debug: bool) -> None:
     extra_roots = [str(x).lower().lstrip(".") for x in overrides.get("extra_allowed_root_domains", []) if x]
     effective_domains = list(domains) + [r for r in extra_roots if r not in domains]
 
+    # Lazy: only the full-discovery branch needs Playwright. The
+    # analyzer-only short-circuit doesn't.
     js_renderer: JSRenderer | None = None
-    if config.enable_js_rendering:
-        js_renderer = JSRenderer(
-            timeout_seconds=config.js_rendering_timeout_seconds,
-            user_agent=config.user_agent,
-        )
 
     stats = {"portals_analyzed": 0, "no_tc_found": 0, "errors": 0, "unique_tc_urls": 0}
 
     try:
         with StateStore(config.state_db_path) as state:
             existing_sheet_rows = sheets.read_portals_by_orgid(target)
-            if existing_sheet_rows and not force:
+            existing_tc_urls: list[str] = []
+            if existing_sheet_rows:
                 first_row = existing_sheet_rows[0][1]
-                if str(first_row.get("Overall T&C Verdict", "")).strip():
-                    click.echo(
-                        f"[{target}] row already has Overall T&C Verdict — pass --force to re-analyse"
-                    )
-                    return
+                existing_tc_urls = [
+                    line.strip()
+                    for line in str(first_row.get("T&C URLs", "")).split("\n")
+                    if line.strip()
+                ]
+
+            # Short-circuit: T&C URLs already in the sheet → skip
+            # tc_finder discovery entirely and just (re-)run the
+            # analyzer against the known URLs. --force opts back into
+            # full discovery.
+            if existing_tc_urls and not force:
+                row_num, first_row = existing_sheet_rows[0]
+                click.echo(
+                    f"[{target}] using {len(existing_tc_urls)} T&C URL(s) from "
+                    f"sheet, skipping discovery (pass --force to re-discover)"
+                )
+                verdicts: list[str] = []
+                for tc_url in existing_tc_urls:
+                    try:
+                        analysis = tc_analyzer.analyze_tc_url(
+                            tc_url=tc_url,
+                            state=state,
+                            user_agent=config.user_agent,
+                            http_timeout=config.http_timeout_seconds,
+                            orgid=target,
+                            force_refresh=False,
+                        )
+                    except Exception as err:
+                        click.echo(
+                            f"[{target}] ERROR analysing {tc_url}: {err}",
+                            err=True,
+                        )
+                        stats["errors"] += 1
+                        continue
+                    verdict = str(analysis.get("verdict") or "Yes (No T&C Found)")
+                    verdicts.append(verdict)
+                    click.echo(f"[{target}] {tc_url} → {verdict!r}")
+                    stats["portals_analyzed"] += 1
+                stats["unique_tc_urls"] = len(existing_tc_urls)
+                overall_verdict = tc_analyzer.aggregate_verdicts(verdicts)
+                new_row = {
+                    "OrgID": target,
+                    "University Name": (
+                        str(first_row.get("University Name", "")).strip()
+                        or university_name
+                    ),
+                    "Portal URLs": str(first_row.get("Portal URLs", "")),
+                    "T&C URLs": "\n".join(existing_tc_urls),
+                    "Overall T&C Verdict": overall_verdict,
+                }
+                values = [
+                    new_row.get(col, "") for col in SheetsClient.PORTALS_COLUMNS
+                ]
+                sheets.update_portal_rows([(row_num, values)])
+                click.echo(
+                    f"[{target}] updated row: {len(existing_tc_urls)} T&C URL(s), "
+                    f"overall={overall_verdict!r}"
+                )
+                click.echo(f"done: {stats}")
+                return
+
+            # Full-discovery path — init the JS renderer now (deferred
+            # so the analyzer-only short-circuit doesn't pay for it).
+            if config.enable_js_rendering:
+                js_renderer = JSRenderer(
+                    timeout_seconds=config.js_rendering_timeout_seconds,
+                    user_agent=config.user_agent,
+                )
 
             portals = _load_portals(target, state=state, sheet_rows=existing_sheet_rows)
             if not portals:

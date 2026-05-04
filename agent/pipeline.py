@@ -118,20 +118,53 @@ def run_pipeline(ctx: PipelineContext, state: StateStore) -> bool:
             continue
 
         ctx.results[spec.name] = result
-        if spec.name not in _NEVER_CACHED:
+
+        # Fix 3 — discovery runs that tripped the wall-clock budget
+        # are not cached. The result-shape is the same as a normal run
+        # (`portals` may be empty or partial), but we want the next
+        # batch run to retry from scratch with full budget rather than
+        # see the cached partial/empty result and skip. This auto-
+        # retries budget-tripped OrgIDs without requiring manual purge.
+        budget_tripped = (
+            spec.name == "discovery"
+            and isinstance(result, dict)
+            and bool(result.get("completed_with_timeout"))
+        )
+        if spec.name not in _NEVER_CACHED and not budget_tripped:
             state.save_result(ctx.orgid, spec.name, result)
+        if budget_tripped:
+            logger.warning(
+                "[%s] stage=%s budget tripped; result NOT cached "
+                "(next run will retry)",
+                ctx.orgid, spec.name,
+            )
 
         # --- Stage A special-case: empty portals means abort ---
         if spec.name == "discovery" and not result.get("portals"):
             reason = result.get("reason") or "no portals found"
-            state.mark_final(
-                ctx.orgid, status="failed_discovery",
-                stage="discovery", error=reason,
-            )
-            logger.warning(
-                "[%s] discovery found 0 portals (%s); aborting pipeline",
-                ctx.orgid, reason,
-            )
+            if budget_tripped:
+                # Fix 3 — non-terminal: leave the OrgID in a retryable
+                # state. mark_stage (not mark_final) so completed_at
+                # stays null and the orchestrator's "skip already-done"
+                # check won't pick this up as finished.
+                state.mark_stage(
+                    ctx.orgid, "discovery", "budget_tripped",
+                    error="discovery wall-clock budget exceeded",
+                )
+                logger.warning(
+                    "[%s] discovery budget exceeded with 0 portals; "
+                    "marked budget_tripped (will retry next run)",
+                    ctx.orgid,
+                )
+            else:
+                state.mark_final(
+                    ctx.orgid, status="failed_discovery",
+                    stage="discovery", error=reason,
+                )
+                logger.warning(
+                    "[%s] discovery found 0 portals (%s); aborting pipeline",
+                    ctx.orgid, reason,
+                )
             return False
 
         state.mark_stage(ctx.orgid, spec.name, "done")

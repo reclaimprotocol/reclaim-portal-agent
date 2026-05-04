@@ -10,3 +10,4 @@ click==8.1.7
 tenacity==8.5.0
 playwright>=1.45.0
 pdfplumber>=0.11.0
+googlesearch-python>=1.2.5
