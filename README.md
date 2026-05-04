@@ -140,9 +140,17 @@ Per-university config overrides. Takes effect on next run.
 
 ## Recent changes
 
+- Zero-portal retry cascade — when discovery finds 0 portals,
+  automatically retries with DDG search, broader Gemini prompt,
+  then homepage link crawl before accepting failure
+- Samarth admin tenant filter — rejects *adm Samarth tenants
+  only when a peer non-adm tenant was also found (Option B)
+- Admission URL keyword expansion (registration, register,
+  freshers, fresher added to existing detector)
 - Gemini Pro (OpenRouter) as primary search — DDG as fallback
 - Phase 3 Gemini subdomain expansion
 - SPA detection + Playwright escalation for login paths
 - js-render link-follow — follows portal links from rendered pages
 - Wildcard DNS content fingerprint comparison
+- Edumarshal added to known shared platforms
 - `--use-sheet-urls` flag for `run_tnc_only.py`
