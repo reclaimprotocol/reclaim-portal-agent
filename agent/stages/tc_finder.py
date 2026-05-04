@@ -25,7 +25,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any, Iterator
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import (
+    quote,
+    urljoin,
+    urlparse,
+    urlsplit,
+    urlunparse,
+    urlunsplit,
+)
 
 import requests
 from bs4 import BeautifulSoup
@@ -38,6 +45,7 @@ from ..config import (
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
     SHARED_PLATFORM_DOMAINS,
+    host_in_external_blocklist,
     TC_FINDER_PARANOID_MODE,
     TC_HTML_ERROR_INDICATORS,
     TC_PAGE_MAX_ANCHOR_TAGS,
@@ -75,6 +83,32 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================ Gemini T&C search
+
+def _sanitize_gemini_url(url: str) -> str:
+    """Re-encode the path of a URL Gemini returned. Gemini occasionally
+    emits T&C URLs with literal whitespace, parentheses, or non-ASCII
+    characters in the path — `requests` rejects or mis-handles those.
+    `quote(path, safe="/%")` percent-encodes unsafe chars while leaving
+    `/` separators *and already-encoded* `%XX` sequences alone (using
+    `safe="/"` alone would double-encode `%20` → `%2520`). Other URL
+    components (scheme, netloc, query, fragment) are preserved verbatim.
+    Best-effort — falls back to the original on parse failure.
+    """
+    if not url:
+        return url
+    try:
+        parsed = urlparse(url)
+        return urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            quote(parsed.path, safe="/%"),
+            parsed.params,
+            parsed.query,
+            parsed.fragment,
+        ))
+    except Exception:
+        return url
+
 
 def gemini_tc_search(
     orgid: str,
@@ -167,7 +201,7 @@ def gemini_tc_search(
     if not isinstance(urls, list):
         return []
     valid = [
-        u for u in urls
+        _sanitize_gemini_url(u) for u in urls
         if isinstance(u, str)
         and u.startswith(("http://", "https://"))
         and len(u) < 500
@@ -398,6 +432,17 @@ def find_university_tnc(
     against each university homepage in specificity order
     (terms → privacy → disclaimer → CMS variants → legacy `.html`).
 
+    Phase 3 — portal-subdomain path probe: when neither the
+    homepage footer scan nor the curated probe against the
+    inferred university domain found anything, retry the curated
+    probe against each *portal host* not already covered. Catches
+    universities whose T&C document lives on a portal subdomain
+    rather than the bare root (e.g. ITM GOI's privacy policy is at
+    ``lms.itmgoi.in/privacy.html``, not on ``itmgoi.in``).
+    Shared-platform tenants (Samarth / Knimbus / etc.) and external-
+    blocklist hosts are skipped — those serve the platform's T&C,
+    not the institution's.
+
     Returns ``(tc_url, source)`` on hit, ``(None, None)`` otherwise.
 
     Bug 37 — SheerID's ``domains`` column for some OrgIDs lists
@@ -410,7 +455,9 @@ def find_university_tnc(
     parameter is kept on the signature for back-compat and is ignored
     here.
     """
-    del portals  # No longer used here — Samarth fallback owns Samarth portals (handled in run()).
+    # `portals` is now consumed by Phase 3 (portal-subdomain path
+    # probe) below. Samarth-tenant portals are still excluded there
+    # via the `host_is_known_shared_platform` check.
     del domains  # Bug 37 — SheerID list may contain affiliated colleges; do not use.
     uni_domains: list[str] = []
     if university_domain and university_domain not in SHARED_PLATFORM_DOMAINS:
@@ -503,7 +550,54 @@ def find_university_tnc(
             )
             return url, "university-fallback-paths"
 
-    logger.info("[%s] tc-finder: no university T&C found across %s", orgid, uni_domains)
+    # ---- Phase 3 — portal-subdomain path probe ----
+    # Collect distinct portal hosts not covered by Phases 1/2.
+    seen_portal_hosts: set[str] = set()
+    portal_hosts_to_probe: list[str] = []
+    uni_domain_set = {d.lower() for d in uni_domains}
+    for portal in portals:
+        if not isinstance(portal, dict):
+            continue
+        purl = portal.get("url") or ""
+        phost = (urlsplit(purl).netloc or "").lower().split(":")[0]
+        if not phost or phost in seen_portal_hosts:
+            continue
+        seen_portal_hosts.add(phost)
+        if phost in uni_domain_set:
+            continue  # already probed in Phases 1/2
+        if discovery_rules.host_is_known_shared_platform(phost):
+            continue  # tenant of a shared platform — not the institution's T&C surface
+        if host_in_external_blocklist(phost):
+            continue
+        portal_hosts_to_probe.append(phost)
+
+    for phost in portal_hosts_to_probe:
+        if not _budget_ok():
+            return None, None
+        portal_root = f"https://{phost}"
+        # Admit the portal host into the allow-list for this probe so
+        # the strict validator inside `_parallel_accept_first` accepts
+        # the result on the portal subdomain rather than rejecting it
+        # as off-domain.
+        url = _probe_university_fallback_paths(
+            portal_root,
+            allowed_domains=uni_domains + [phost],
+            user_agent=user_agent, http_timeout=http_timeout,
+            js_renderer=js_renderer,
+        )
+        if url:
+            logger.info(
+                "[%s] tc-finder Phase 3: found %s via fallback-paths "
+                "on portal subdomain %s",
+                orgid, url, phost,
+            )
+            return url, "portal-subdomain-fallback-paths"
+
+    logger.info(
+        "[%s] tc-finder: no university T&C found across %s "
+        "(portal hosts also tried: %s)",
+        orgid, uni_domains, portal_hosts_to_probe,
+    )
     return None, None
 
 

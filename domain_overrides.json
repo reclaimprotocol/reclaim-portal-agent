@@ -131,5 +131,22 @@
     ],
     "extra_effective_domains": ["mait.ac.in"],
     "notes": "MAIT (Maharaja Agrasen Institute of Technology). ERP at erp.mait.ac.in/maithelix2/ (the maithelix2 path is the active login surface — /MAITSTUDENT/ and /maithelix/ are dead). app.edumarshal.com is the third-party platform reached via mait.ac.in homepage Portals → ERP link; edumarshal.com is in KNOWN_SHARED_PLATFORM_PATTERNS so rule-C accepts it without a static login form."
+  },
+  "3830553": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://mis.itmuniversity.ac.in/itmzone/login.php"
+    ],
+    "notes": "ITM University Gwalior. MIS portal lives at the non-standard path /itmzone/login.php (ITM Group convention). The SheerID-listed itmuniverse.in is currently down (connection refused). LMS / exam portals are surfaced organically; the MIS seed is force-accepted because the path-probe set doesn't yet include /itmzone/."
+  },
+  "3833683": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://mlsustudent.sumsraj.com/",
+      "https://mlsuportal.sumsraj.com/",
+      "https://mlsuexamination.sumsraj.com/"
+    ],
+    "extra_effective_domains": ["sumsraj.com"],
+    "notes": "MLSU (Mohanlal Sukhadia University, Udaipur). Portals live on the sumsraj.com platform — student / portal / examination tenants. erp/elearning/e-library subdomains of mlsu.ac.in are DNS-dead. sumsraj.com is in KNOWN_SHARED_PLATFORM_PATTERNS so rule-C accepts these tenants; SHARED_PLATFORM_TENANT_PROBES would also surface them organically (force-accept pins the canonical URLs)."
   }
 }

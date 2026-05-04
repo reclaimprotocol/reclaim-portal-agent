@@ -60,6 +60,7 @@ from ..config import (
     OPENROUTER_API_KEY,
     SAMARTH_ADMIN_TENANT_SUFFIXES,
     SAMARTH_TENANT_PATTERNS,
+    SHARED_PLATFORM_TENANT_PROBES,
     SIBLING_COUNT_AFFILIATED_FILTER_THRESHOLD,
     TOTAL_DISCOVERY_BUDGET_SECONDS,
     host_in_instance_blocklist,
@@ -265,11 +266,22 @@ _LOGIN_SUBDOMAIN_LABELS_SPA: frozenset[str] = frozenset({
     "login", "moodle", "elearn", "onlinelms", "exam", "exams",
     "fee", "fees", "feeportal", "library", "lib", "result",
     "results",
+    # Indian-uni MIS / SIS / SMS variants and platform-shaped labels.
+    # Kept in sync with `_LOGIN_SUBDOMAIN_INDICATORS` in
+    # discovery_rules.py — root-path candidates on these subdomains
+    # escalate to Playwright regardless of body length.
+    "mis", "sis", "sms", "spoc", "sap", "eportal", "myportal",
 })
 
 # Path shapes that count as "the root" for the subdomain check.
+# Kept in sync with `_ROOT_PATH_SHAPES_FOR_SUSPICION` in
+# discovery_rules.py — both sets answer "does this URL point at the
+# host root?".
 _LOGIN_SUBDOMAIN_ROOT_PATHS: frozenset[str] = frozenset({
     "", "/", "/index.html", "/index.htm", "/index.php", "/home",
+    # ASP.NET-built university homepages (e.g. older `.NET` portals
+    # whose apex returns a redirect to `/default.aspx`).
+    "/default.aspx",
 })
 
 
@@ -329,6 +341,14 @@ def _should_escalate_for_spa(
         return False, None
     parsed = urlsplit(url)
     path = (parsed.path or "").lower()
+    # Never escalate binary downloads to Playwright. Chromium kicks
+    # off a Download for these and `page.goto` errors out with
+    # "Download is starting", wasting a render slot. The pre-filter
+    # / `_validate_one` extension check rejects most PDFs up-front,
+    # but redirect targets (e.g. /upload/fees.PDF reached via 302)
+    # can land here through a non-binary input URL.
+    if path.endswith(FILE_EXTENSIONS):
+        return False, None
     leftmost = host.split(".", 1)[0] if "." in host else host
     path_match = any(tok in path for tok in _LOGIN_PATH_INDICATORS_SPA)
     sub_match = leftmost in _LOGIN_SUBDOMAIN_LABELS_SPA
@@ -912,6 +932,40 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             samarth_acronym,
         )
 
+    # Generic multi-tenant platform probes (`SHARED_PLATFORM_TENANT_PROBES`).
+    # Sumsraj.com style platforms whose tenant convention is
+    # `<inst>{suffix}.<platform>` (e.g. mlsustudent.sumsraj.com,
+    # mlsuportal.sumsraj.com, mlsuexamination.sumsraj.com for MLSU).
+    # Dedup the shortname source with the Samarth set; same length
+    # floor applies. Validation drops 404/timeout tenants; live ones
+    # pass rule-C since the platform host is on
+    # KNOWN_SHARED_PLATFORM_PATTERNS.
+    platform_added = 0
+    for s in sorted(samarth_shortnames):
+        for template in SHARED_PLATFORM_TENANT_PROBES:
+            try:
+                url = template.format(shortname=s)
+            except (KeyError, IndexError):
+                continue
+            if not url or "{" in url:
+                continue
+            rule_candidates.append(Candidate(
+                url=url,
+                category="Student Portal",
+                discovery_source="rule:platform-probe",
+                discovery_reasoning=(
+                    f"shared-platform tenant probe {template!r} "
+                    f"(shortname={s})"
+                ),
+            ))
+            platform_added += 1
+    if platform_added:
+        logger.info(
+            "[%s] shared-platform tenant probes: +%d candidates "
+            "(shortnames=%s)",
+            orgid, platform_added, sorted(samarth_shortnames),
+        )
+
     rule_candidates = _dedupe(rule_candidates)
     logger.info(
         "[%s] phase=probes took=%.1fs candidates=%d",
@@ -1286,6 +1340,46 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         orgid, time.monotonic() - t_phase, len(rule_candidates),
         len(sibling_hosts), homepage_walked,
     )
+
+    # ---- Phase: deep homepage crawl ----------------------------------------
+    # Wider net than the sibling-walk's strict portal-pattern anchors:
+    # score every homepage anchor for portal-likeness, accept known-
+    # platform hits directly, and follow high-scoring non-platform
+    # links one level deeper to pick up hub-page-listed portal URLs.
+    # Skipped when the sibling-walk fetch already failed (homepage
+    # offline / non-200) — the deep crawl would just repeat the same
+    # failure. Bounded by `_CASCADE_HOMEPAGE_CRAWL_BUDGET_SECONDS`.
+    if homepage_walked and not budget.expired():
+        t_phase = time.monotonic()
+        deep_urls = _retry_homepage_crawl(
+            orgid, primary,
+            http_timeout=config.http_timeout_seconds,
+            user_agent=config.user_agent,
+        )
+        if deep_urls:
+            seen_keys = {_normalize_for_dedup(c.url) for c in rule_candidates}
+            deep_added = 0
+            for u in deep_urls:
+                key = _normalize_for_dedup(u)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                rule_candidates.append(Candidate(
+                    url=u,
+                    category="Student Portal",
+                    discovery_source="rule:homepage-deep-crawl",
+                    discovery_reasoning=(
+                        f"homepage deep crawl on {primary}"
+                    ),
+                ))
+                deep_added += 1
+            if deep_added:
+                logger.info(
+                    "[%s] phase=deep_homepage_crawl took=%.1fs added=%d "
+                    "(of %d crawled)",
+                    orgid, time.monotonic() - t_phase, deep_added,
+                    len(deep_urls),
+                )
 
     # ---- Phase: same-host student-login probes (parallel) ------------------
     # Restrict to hosts on the university's own domains OR confirmed sibling
@@ -3204,32 +3298,98 @@ _CASCADE_DDG_QUERY_TEMPLATES: tuple[str, ...] = (
 # we explicitly want to catch cross-host anchors to known shared
 # platforms (Edumarshal / Samarth / Knimbus / CampusPro).
 _CASCADE_PORTAL_LINK_TEXTS: frozenset[str] = frozenset({
-    "student portal", "student login", "erp", "lms",
-    "moodle", "e-learning", "elearning", "login",
-    "sign in", "student", "exam portal", "fee portal",
+    "student portal", "student login", "studentlogin",
+    "student zone", "student corner",
+    "erp", "lms", "moodle", "e-learning", "elearning",
+    "cms", "login", "sign in",
+    "student", "exam portal", "fee portal", "fee payment",
     "library portal", "result", "e-governance",
-    "e-gov", "egov", "academics portal", "ums",
-    "student corner", "my portal", "my account",
+    "e-gov", "egov", "academics portal", "academics",
+    "ums", "my portal", "my account",
+    # Hub-page anchor labels — usually point at a "Portals" /
+    # "Quick Links" landing page that itself lists individual
+    # portal URLs. The deep-crawl follows these one level deeper.
+    "portals", "quick links", "important links", "useful links",
+    "online services", "digital campus", "student services",
 })
 
 _CASCADE_PORTAL_HREF_TOKENS: frozenset[str] = frozenset({
     "login", "signin", "erp", "lms", "portal",
-    "student", "moodle", "ums", "fee", "exam",
+    "student", "moodle", "ums", "mis", "fee", "exam",
     "result", "library", "egov", "elearning",
     "edumarshal", "samarth", "knimbus", "campuspro",
+    "linways", "emsi",
+})
+
+# Subset of `_CASCADE_PORTAL_HREF_TOKENS` that names a known
+# multi-tenant platform — substring presence in an href adds the
+# +5 platform-bonus inside `_score_portal_link`. Kept as its own
+# frozenset (rather than a substring scan of
+# `KNOWN_SHARED_PLATFORM_PATTERNS`) because the bonus fires on
+# the platform's *brand name* even when the URL omits the apex
+# (`.live` / `.com` / `.in` are matched separately by
+# `host_is_known_shared_platform`).
+_CASCADE_KNOWN_PLATFORM_HREF_TOKENS: frozenset[str] = frozenset({
+    "edumarshal", "samarth", "knimbus", "campuspro",
+    "linways", "emsi", "moodle.live", "digitaluniversity",
 })
 
 _CASCADE_HOMEPAGE_LINK_CAP: int = 20
 
+# Deep-crawl tunables. The crawl runs in two phases (depth 1 =
+# homepage anchors; depth 2 = parallel follow of high-scoring
+# depth-1 links into their child pages) and is bounded by a hard
+# wall-clock so a slow university homepage can't blow the
+# discovery budget.
+_CASCADE_HOMEPAGE_CRAWL_BUDGET_SECONDS: float = 30.0
+_CASCADE_HOMEPAGE_HEAD_TIMEOUT: float = 5.0
+_CASCADE_HOMEPAGE_DEPTH2_MAX_FOLLOWS: int = 10
+_CASCADE_HOMEPAGE_DEPTH2_WORKERS: int = 5
+
+# Score thresholds for the deep crawl. A link's score is the sum
+# of: nav-text match (+3), href-token match (+2), known-platform
+# href bonus (+5). Score ≥ 3 is "follow at depth 2"; known-
+# platform hits are accepted directly (already a portal URL).
+_CASCADE_HOMEPAGE_FOLLOW_MIN_SCORE: int = 3
+_CASCADE_NAV_TEXT_SCORE: int = 3
+_CASCADE_HREF_TOKEN_SCORE: int = 2
+_CASCADE_PLATFORM_BONUS_SCORE: int = 5
+
+
+def _score_portal_link(href_lower: str, text_lower: str) -> int:
+    """Score a candidate anchor for portal-likeness. Used by the
+    deep homepage crawl to rank depth-1 links and decide which to
+    follow at depth 2.
+      * +3 — anchor text matches a `_CASCADE_PORTAL_LINK_TEXTS`
+        keyword (e.g. "ERP", "Student Portal", "Quick Links").
+      * +2 — href substring matches `_CASCADE_PORTAL_HREF_TOKENS`
+        (e.g. `/student`, `/erp`, `/login`).
+      * +5 — href contains a known multi-tenant platform brand
+        (`edumarshal`, `samarth`, `linways`, …). Strongest
+        signal; usually means the link IS the portal URL.
+    Score ≥ 3 is the "follow / accept" threshold.
+    """
+    score = 0
+    if any(kw in text_lower for kw in _CASCADE_PORTAL_LINK_TEXTS):
+        score += _CASCADE_NAV_TEXT_SCORE
+    if any(tok in href_lower for tok in _CASCADE_PORTAL_HREF_TOKENS):
+        score += _CASCADE_HREF_TOKEN_SCORE
+    if any(p in href_lower for p in _CASCADE_KNOWN_PLATFORM_HREF_TOKENS):
+        score += _CASCADE_PLATFORM_BONUS_SCORE
+    return score
+
 
 def _extract_portal_links_from_html(
     html: str, base_url: str, orgid: str,
-) -> list[str]:
-    """Cascade retry-3 helper. Returns up to
-    `_CASCADE_HOMEPAGE_LINK_CAP` absolute URLs whose anchor text or
-    href contains a portal indicator. Wider sets than the main-
-    pipeline `extract_login_links_from_html` — intentionally picks
-    up cross-host anchors to known shared platforms.
+) -> list[tuple[str, str, int]]:
+    """Cascade / deep-crawl helper. Returns up to
+    `_CASCADE_HOMEPAGE_LINK_CAP` `(url, anchor_text, score)` tuples
+    sorted by descending score. Wider sets than the main-pipeline
+    `extract_login_links_from_html` — intentionally picks up cross-
+    host anchors to known shared platforms.
+
+    Scoring is via `_score_portal_link`. Only anchors with score
+    > 0 are kept (a single text or href hit is enough to qualify).
     """
     if not html:
         return []
@@ -3239,7 +3399,7 @@ def _extract_portal_links_from_html(
         logger.debug("[%s] cascade-extract parse failed: %s", orgid, e)
         return []
 
-    found: list[str] = []
+    found: list[tuple[str, str, int]] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
         href = (a["href"] or "").strip()
@@ -3256,13 +3416,12 @@ def _extract_portal_links_from_html(
 
         text = (a.get_text(separator=" ") or "").lower().strip()
         href_lower = href.lower()
-        text_match = any(kw in text for kw in _CASCADE_PORTAL_LINK_TEXTS)
-        href_match = any(tok in href_lower for tok in _CASCADE_PORTAL_HREF_TOKENS)
-        if text_match or href_match:
-            found.append(full_url)
-            if len(found) >= _CASCADE_HOMEPAGE_LINK_CAP:
-                break
-    return found
+        score = _score_portal_link(href_lower, text)
+        if score > 0:
+            found.append((full_url, text, score))
+    # Sort by score descending; stable for equal-score ties.
+    found.sort(key=lambda t: -t[2])
+    return found[:_CASCADE_HOMEPAGE_LINK_CAP]
 
 
 def _retry_ddg_search(
@@ -3342,10 +3501,56 @@ def _retry_homepage_crawl(
     http_timeout: float,
     user_agent: str,
 ) -> list[str]:
-    """Cascade retry-3 — fetch the university homepage and extract
-    portal-shaped anchor URLs. Reuses
-    `discovery_rules.fetch_homepage_for_sibling_walk` for the fetch
-    so DNS / non-2xx handling is consistent with the main pipeline."""
+    """Two-level homepage crawl shared by Phase 3 (proactive) and the
+    cascade retry-3 (zero-portal recovery).
+
+    Depth 1 — score every anchor on the homepage via
+    `_score_portal_link`. Anchors hitting a known multi-tenant
+    platform brand (linways / edumarshal / samarth / …) are kept
+    directly — those URLs are typically the portal itself. High-
+    scoring (≥ 3) non-platform anchors are kept *and* queued for
+    depth-2 follow.
+
+    Depth 2 — parallel fetch (5 workers) of the queued links;
+    each fetched page is re-extracted for portal anchors and any
+    known-platform or high-score hits are added. Catches
+    universities whose homepage links to a "Portals" / "Quick
+    Links" hub page that itself enumerates the actual portal URLs
+    (e.g. mait.ac.in homepage → `/portals.aspx` → links to
+    `app.edumarshal.com`).
+
+    Hard wall-clock cap: `_CASCADE_HOMEPAGE_CRAWL_BUDGET_SECONDS`.
+    Front-loaded with a 5 s HEAD reachability check so an offline
+    university homepage doesn't burn the budget. Playwright is NOT
+    used here — the helper is called from worker contexts where
+    Playwright's sync API isn't safe; the higher-level pipeline
+    has its own JS-render escalation when individual candidates
+    need it.
+    """
+    deadline = time.monotonic() + _CASCADE_HOMEPAGE_CRAWL_BUDGET_SECONDS
+    homepage_url_init = f"https://{primary_domain}/"
+    headers = {"User-Agent": user_agent}
+
+    # 1. Reachability check — bail fast on offline hosts.
+    try:
+        discovery_rules.HTTP_SESSION.head(
+            homepage_url_init,
+            headers=headers,
+            timeout=_CASCADE_HOMEPAGE_HEAD_TIMEOUT,
+            allow_redirects=True,
+        )
+    except Exception as err:
+        logger.info(
+            "[%s] homepage crawl: %s unreachable in %ss HEAD (%s) — "
+            "skipping",
+            orgid, primary_domain, _CASCADE_HOMEPAGE_HEAD_TIMEOUT,
+            type(err).__name__,
+        )
+        return []
+    if time.monotonic() >= deadline:
+        return []
+
+    # 2. Fetch homepage HTML.
     fetched = discovery_rules.fetch_homepage_for_sibling_walk(
         primary_domain,
         http_timeout=http_timeout,
@@ -3353,19 +3558,102 @@ def _retry_homepage_crawl(
     )
     if fetched is None:
         logger.info(
-            "[%s] retry-3: homepage fetch failed for %s",
+            "[%s] homepage crawl: fetch failed for %s",
             orgid, primary_domain,
         )
         return []
     homepage_url, homepage_html = fetched
-    urls = _extract_portal_links_from_html(
+
+    # 3. Depth-1 — score every anchor.
+    scored = _extract_portal_links_from_html(
         homepage_html, homepage_url, orgid,
     )
+    if not scored:
+        logger.info(
+            "[%s] homepage crawl: no scored anchors at depth 1 on %s",
+            orgid, primary_domain,
+        )
+        return []
     logger.info(
-        "[%s] retry-3: homepage crawl on %s found %d candidate link(s)",
-        orgid, primary_domain, len(urls),
+        "[%s] homepage crawl: depth-1 scored %d anchor(s) on %s",
+        orgid, len(scored), primary_domain,
     )
-    return urls
+
+    visited: set[str] = {homepage_url}
+    candidates: list[str] = []
+    follow_queue: list[str] = []
+    for url, _text, score in scored:
+        if url in visited:
+            continue
+        visited.add(url)
+        host = (urlsplit(url).netloc or "").lower().split(":")[0]
+        if discovery_rules.host_is_known_shared_platform(host):
+            # Direct keep — known-platform link IS the portal.
+            candidates.append(url)
+            continue
+        if score >= _CASCADE_HOMEPAGE_FOLLOW_MIN_SCORE:
+            # Keep on the candidate list AND queue for a depth-2
+            # follow — the link may itself be a hub page that
+            # lists more specific portal URLs.
+            candidates.append(url)
+            follow_queue.append(url)
+
+    # 4. Depth-2 — parallel follow of the highest-scoring
+    # non-platform links. Only known-platform hits and high-score
+    # anchors found at depth 2 are added; everything else is
+    # noise. Each fetch shares the deadline.
+    follow_queue = follow_queue[:_CASCADE_HOMEPAGE_DEPTH2_MAX_FOLLOWS]
+    if follow_queue and time.monotonic() < deadline:
+
+        def _depth2_fetch(target: str) -> list[str]:
+            if time.monotonic() >= deadline:
+                return []
+            try:
+                resp = discovery_rules.HTTP_SESSION.get(
+                    target,
+                    headers=headers,
+                    timeout=http_timeout,
+                    allow_redirects=True,
+                )
+            except Exception:
+                return []
+            if resp.status_code >= 400:
+                return []
+            body = resp.text or ""
+            sub_scored = _extract_portal_links_from_html(
+                body, resp.url or target, orgid,
+            )
+            sub_out: list[str] = []
+            for sub_url, _t, sub_score in sub_scored:
+                sub_host = (urlsplit(sub_url).netloc or "").lower().split(":")[0]
+                if discovery_rules.host_is_known_shared_platform(sub_host):
+                    sub_out.append(sub_url)
+                elif sub_score >= _CASCADE_HOMEPAGE_FOLLOW_MIN_SCORE:
+                    sub_out.append(sub_url)
+            return sub_out
+
+        with ThreadPoolExecutor(
+            max_workers=min(_CASCADE_HOMEPAGE_DEPTH2_WORKERS, len(follow_queue)),
+        ) as exe:
+            for sub_urls in exe.map(_depth2_fetch, follow_queue):
+                for u in sub_urls:
+                    if u in visited:
+                        continue
+                    visited.add(u)
+                    candidates.append(u)
+
+    # Dedup preserving order; cap at the depth-1 cap.
+    deduped: list[str] = list(dict.fromkeys(candidates))[:_CASCADE_HOMEPAGE_LINK_CAP]
+    elapsed = _CASCADE_HOMEPAGE_CRAWL_BUDGET_SECONDS - max(
+        0.0, deadline - time.monotonic(),
+    )
+    logger.info(
+        "[%s] homepage crawl: %d candidate link(s) (%d depth-1 keeps + "
+        "depth-2 followed %d) in %.1fs",
+        orgid, len(deduped), len(candidates) - (len(candidates) - len(deduped)),
+        len(follow_queue), elapsed,
+    )
+    return deduped
 
 
 def _run_cascade_step(

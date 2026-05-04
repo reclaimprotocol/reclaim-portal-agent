@@ -115,6 +115,27 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
     # entry; rule-C accepts the host without requiring a static login
     # form (the platform is JS-rendered).
     "edumarshal.com": {"category": "Student Portal", "validated": True},
+    # Linways — Kerala / South-India ERP. Tenants live as
+    # `<inst>.linways.com` (e.g. christijk.linways.com for Christ
+    # College Irinjalakuda). Surfaced organically via the deep
+    # homepage crawl when the university links to its tenant from
+    # its public site nav.
+    "linways.com": {"category": "Student Portal", "validated": True},
+    # CampusPro — campus-management platform. Tenants on `.in` and
+    # `.com` apex variants depending on deployment.
+    "campuspro.in": {"category": "Student Portal", "validated": True},
+    "campuspro.com": {"category": "Student Portal", "validated": True},
+    # EMSI / Moodle.live — third-party hosted LMS / SIS platforms.
+    # Tenants under `<inst>.emsi.live` and `<inst>.moodle.live`.
+    "emsi.live": {"category": "Student Portal", "validated": True},
+    "moodle.live": {"category": "LMS/Moodle", "validated": True},
+    # Sumsraj — Indian-uni multi-tenant platform. Tenant pattern is
+    # `<inst>.sumsraj.com` and the institution often runs multiple
+    # functional tenants (`<inst>student`, `<inst>portal`,
+    # `<inst>examination`). MLSU uses mlsustudent / mlsuportal /
+    # mlsuexamination on this platform; probed organically via
+    # `SHARED_PLATFORM_TENANT_PROBES`.
+    "sumsraj.com": {"category": "Student Portal", "validated": True},
 }
 
 
@@ -495,7 +516,12 @@ STRONG_ADMISSION_SIGNALS: tuple[str, ...] = (
     "start your application",
     "new user registration",
     "register as new user",
-    "create new account",
+    # `"create new account"` was previously here but is a standard
+    # Moodle login-page UI element ("Is this your first time here?
+    # → Create new account"). Moved to MODERATE so a single match
+    # never alone flips a Moodle student login into "admission
+    # portal". The Moodle counter-signal bypass below is the
+    # primary guard.
     "not yet registered? register",
     "don't have an account? register",
     "prospective student",
@@ -538,6 +564,7 @@ MODERATE_ADMISSION_SIGNALS: tuple[str, ...] = (
     "document verification",
     "fresh registration",
     "new registration",
+    "create new account",
     "apply now",
     "start application",
     "10th marks", "12th marks",
@@ -574,6 +601,24 @@ STUDENT_LOGIN_COUNTER_SIGNALS: tuple[str, ...] = (
     "hostel",
     "scholarship",
     "back paper", "backlog",
+)
+
+# Moodle login-page counter-signals. ANY one of these substrings in
+# the raw HTML of a candidate page bypasses admission detection
+# entirely (Layers 2+3 in `is_admission_portal`). Moodle's stock
+# login UI renders text like "Forgotten your username or password?"
+# and "Create new account" — the latter is what previously
+# mis-flagged real Moodle student logins as admission portals.
+# Match is against the raw `html` (lowercased), not the visible
+# text — so URL fragments inside `<form action="…">` attributes
+# (`/login/index.php`) participate in the match.
+MOODLE_LOGIN_COUNTER_SIGNALS: tuple[str, ...] = (
+    "forgotten your username",
+    "forgotten your password",
+    "lost password",
+    "moodle",
+    "index.php/login",
+    "login/index.php",
 )
 
 # Layer 3 — <title> / <h1> phrases. Match → reject (without parsing
@@ -838,6 +883,29 @@ SAMARTH_TENANT_PATTERNS: tuple[str, ...] = (
 )
 
 
+# Stage A — generic multi-tenant platform probes. Each entry is a
+# full URL template formatted with the OrgID's `{shortname}` (the
+# leftmost label of a configured root domain, or an entry from the
+# OrgID's `exact_shortnames` override). Live tenants pass rule-C in
+# `passes_login_signal_gate` since the platform host is on
+# `KNOWN_SHARED_PLATFORM_PATTERNS`. Dead tenants 404/timeout and
+# drop naturally during validation.
+#
+# Distinct from `SAMARTH_TENANT_PATTERNS` (which is Samarth-specific
+# and uses `{acronym}` as a second placeholder); this list is for
+# platforms that don't follow the Samarth tenant convention.
+# Sumsraj's MLSU runs multiple functional tenants
+# (`mlsustudent` / `mlsuportal` / `mlsuexamination`) so the
+# templates encode each functional suffix separately.
+SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
+    # Sumsraj.com tenant variants
+    "https://{shortname}.sumsraj.com/",
+    "https://{shortname}student.sumsraj.com/",
+    "https://{shortname}portal.sumsraj.com/",
+    "https://{shortname}examination.sumsraj.com/",
+)
+
+
 # Stage A — Samarth admin-tenant suffix list for the Option B peer
 # filter. After validation, a Samarth tenant whose label ends in one
 # of these suffixes is dropped IFF a peer tenant with the suffix
@@ -1048,6 +1116,17 @@ STUDENT_LOGIN_SAME_HOST_PROBES: tuple[str, ...] = (
     "/app/student",
     "/web/login",
     "/ui/login",
+    # ITM Group university paths. `mis.itmuniversity.ac.in` (Gwalior)
+    # serves its student MIS at `/itmzone/login.php`; the index/login
+    # variants both surface depending on the campus deployment.
+    # `/SmartUniversity/Login` and `/eduserve/StudentLogin` are
+    # ITM-Group ERP paths observed at sister campuses. Costs ~4 extra
+    # HEAD requests per host on non-ITM universities — all 404 fast
+    # during validation.
+    "/itmzone/login.php",
+    "/itmzone/index.php",
+    "/SmartUniversity/Login",
+    "/eduserve/StudentLogin",
 )
 
 

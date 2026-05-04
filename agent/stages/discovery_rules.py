@@ -52,6 +52,7 @@ from ..config import (
     LMS_THIRD_PARTY_HOSTS,
     LOGIN_LINK_TEXT_PATTERNS,
     MODERATE_ADMISSION_SIGNALS,
+    MOODLE_LOGIN_COUNTER_SIGNALS,
     NON_STUDENT_LOGIN_PATH_KEYWORDS,
     NON_STUDENT_LOGIN_PATH_PENALTY,
     OPENROUTER_API_KEY,
@@ -540,7 +541,10 @@ _LOGIN_PATH_TOKENS_FOR_SUSPICION: tuple[str, ...] = ("/login", "/signin", "/auth
 _LOGIN_SUBDOMAIN_INDICATORS: frozenset[str] = frozenset({
     "student", "students", "studentportal",
     "erp", "ums", "sis", "sim", "mis",
-    "portal", "myportal",
+    # Indian-uni MIS / SIS / SMS variants and platform-shaped labels.
+    # Kept in sync with `_LOGIN_SUBDOMAIN_LABELS_SPA` in discovery.py.
+    "sms", "spoc", "sap", "eportal", "myportal",
+    "portal",
     "lms", "elearn", "elearning", "moodle",
     "exam", "exams", "examportal",
     "result", "results",
@@ -551,8 +555,12 @@ _LOGIN_SUBDOMAIN_INDICATORS: frozenset[str] = frozenset({
 })
 
 # Path shapes considered "the root" for login-subdomain detection.
+# Kept in sync with `_LOGIN_SUBDOMAIN_ROOT_PATHS` in discovery.py.
 _ROOT_PATH_SHAPES_FOR_SUSPICION: frozenset[str] = frozenset({
     "", "/", "/index.html", "/index.htm", "/index.php", "/home",
+    # ASP.NET-built university homepages (e.g. older `.NET` portals
+    # whose apex returns a redirect to `/default.aspx`).
+    "/default.aspx",
 })
 
 
@@ -1465,6 +1473,24 @@ def is_admission_portal(url: str, html: str | None) -> tuple[bool, str]:
 
     # Layer 2 + Layer 3 require HTML.
     if not html:
+        return False, ""
+
+    # Moodle login-page bypass. Stock Moodle login pages render UI
+    # elements ("Forgotten your username or password?", "Create new
+    # account", "Lost password") and use form action paths like
+    # `/login/index.php` — the "Create new account" text in
+    # particular previously mis-flagged real Moodle student logins
+    # as admission portals via Layer 2's strong-signal match. Any
+    # marker in the raw HTML overrides admission detection and
+    # accepts the page as a student login. Match against raw
+    # `html` (not get_text()) so URL fragments in `<form action=…>`
+    # attributes participate.
+    html_lower = html.lower()
+    moodle_marker = next(
+        (m for m in MOODLE_LOGIN_COUNTER_SIGNALS if m in html_lower),
+        None,
+    )
+    if moodle_marker is not None:
         return False, ""
 
     soup = BeautifulSoup(html, "html.parser")
@@ -2404,6 +2430,31 @@ NON_STUDENT_AUDIENCE_KEYWORDS_IN_TITLE: tuple[str, ...] = (
     "college affiliation",
     "dispatch",
     "college portal login",
+    # Admin / staff "panel" / "dashboard" variants. Triggered the
+    # GLC Mumbai miss where the page title was
+    # "WELCOME TO GLC ADMIN PANEL" — neither "admin login" nor
+    # "admin portal" matched (substring match, no fuzziness), so
+    # rule-A accepted. "panel" / "dashboard" / "control panel" /
+    # "management panel" cover the common phrasings administration
+    # pages use on Indian-uni / .NET-built sites. Substring match
+    # — case insensitive — so "Admin Panel" / "ADMIN PANEL" /
+    # "Welcome to Admin Login" all hit.
+    "admin panel",
+    "admin dashboard",
+    "administration panel",
+    "administration login",
+    "administration portal",
+    "control panel",
+    "management panel",
+    "management login",
+    "staff panel",
+    "staff dashboard",
+    "faculty panel",
+    "faculty dashboard",
+    "welcome to admin",
+    "welcome to the admin",
+    "dashboard - admin",
+    "dashboard – admin",
 )
 
 STUDENT_AUDIENCE_KEYWORDS: tuple[str, ...] = (
