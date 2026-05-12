@@ -54,9 +54,11 @@ from bs4 import BeautifulSoup
 from ..anthropic_client import AnthropicClient
 from ..config import (
     AFFILIATED_DOMAIN_TOKENS,
+    AFFILIATING_UNIVERSITY_PORTALS,
     GEMINI_SEARCH_ENABLED,
     JS_RENDER_BUDGET_SECONDS,
     KNOWN_SHARED_PLATFORM_PATTERNS,
+    NON_STUDENT_SUBDOMAIN_BLOCKLIST,
     OPENROUTER_API_KEY,
     SAMARTH_ADMIN_TENANT_SUFFIXES,
     SAMARTH_TENANT_PATTERNS,
@@ -167,6 +169,16 @@ MAX_SIBLING_ROOTS_TO_PROBE: int = 3
 # preference for URLs that look student-shaped.
 MAX_JS_RENDER_CANDIDATES: int = 20
 
+# Final consolidation safety gate — drop candidates whose post-
+# consolidation score is below this floor. `consolidate_candidates`
+# applies negative penalties for non-student / admin / staff path
+# tokens; a tuple ending up below 0 has accumulated more red flags
+# than positive signals and should not be written to the sheet
+# regardless of which rule first accepted it. Force-accepted seed
+# URLs carry score=10 (the merge layer above scoring) and pass
+# this gate trivially.
+_MIN_ACCEPTABLE_CONSOLIDATION_SCORE: int = 0
+
 # Phase 3 Gemini subdomain expansion — fire only when the homepage-
 # anchor sibling walk yielded fewer than this many hosts (or when the
 # search phase produced 0 candidates). Cost is one extra OpenRouter
@@ -271,6 +283,11 @@ _LOGIN_SUBDOMAIN_LABELS_SPA: frozenset[str] = frozenset({
     # discovery_rules.py — root-path candidates on these subdomains
     # escalate to Playwright regardless of body length.
     "mis", "sis", "sms", "spoc", "sap", "eportal", "myportal",
+    # Self-service / student-services subdomain labels (JNTUH and
+    # similar Indian universities serve their OSS / Student
+    # Services portals at `studentservices.<uni>.ac.in` /
+    # `services.<uni>.ac.in` / `selfservice.<uni>.ac.in`).
+    "studentservices", "services", "selfservice", "self-service",
 })
 
 # Path shapes that count as "the root" for the subdomain check.
@@ -1315,6 +1332,23 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         )
     if roots_to_probe:
         sib_probe_count_before = len(rule_candidates)
+        # Always probe the bare root of every sibling first.
+        # Standalone Indian-uni ERPs (subodhpgcollege.in style)
+        # routinely serve the login form at the apex rather than
+        # at /login or /student, so the SUBDOMAIN_PROBE_LIST
+        # paths alone miss them. Hard gate / audience check
+        # naturally rejects plain marketing homepages, so adding
+        # the root probe is safe — gain is the standalone-ERP
+        # case, cost is one HEAD per root.
+        for root in roots_to_probe:
+            rule_candidates.append(Candidate(
+                url=f"https://{root}/",
+                category="Student Portal",
+                discovery_source="rule:sibling-root-probe",
+                discovery_reasoning=(
+                    f"sibling-root probe: bare apex of {root}"
+                ),
+            ))
         rule_candidates.extend(
             discovery_rules.run_subdomain_probes(
                 "",  # primary intentionally blank — only extras
@@ -1325,8 +1359,8 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         )
         rule_candidates = _dedupe(rule_candidates)
         logger.info(
-            "[%s] sibling-probe: SUBDOMAIN_PROBE_LIST × %d sibling roots %s; "
-            "candidates %d → %d",
+            "[%s] sibling-probe: SUBDOMAIN_PROBE_LIST × %d sibling roots %s "
+            "(+ bare root for each); candidates %d → %d",
             orgid, len(roots_to_probe), list(roots_to_probe),
             sib_probe_count_before, len(rule_candidates),
         )
@@ -1766,6 +1800,94 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             orgid,
         )
 
+    # Affiliating-university fallback. Runs only when the retry cascade
+    # also returned 0 portals. Indian colleges with no own student
+    # portal (e.g. AKTU's 750+ UP-affiliated engineering / pharmacy
+    # colleges) point students at the affiliating university's
+    # centralized ERP — `erp.aktu.ac.in` for AKTU. Match on OrgID's
+    # `org_state` (alias substring) or on the affiliating domain
+    # appearing in any host already seen during the run (sibling-walk,
+    # portal anchors, effective_domains). First match wins; the URL is
+    # appended as a `(Candidate, score=3)` tuple so it passes the
+    # negative-score safety gate below.
+    if not consolidated:
+        logger.info(
+            "[%s] retry cascade exhausted — checking affiliating "
+            "university fallback", orgid,
+        )
+        state_lower = (org_state or "").lower()
+        # Union of every host this run touched. `sibling_hosts` covers
+        # homepage anchors + DDG-origin + Gemini subdomain admissions;
+        # `portal_anchored_hosts` is the strict-anchor subset (already
+        # inside `sibling_hosts`, included defensively);
+        # `effective_domains` covers owned + sibling + Gemini roots.
+        all_seen_hosts: set[str] = set()
+        all_seen_hosts.update(sibling_hosts)
+        all_seen_hosts.update(portal_anchored_hosts)
+        all_seen_hosts.update(effective_domains)
+        seen_blob = " ".join(str(h) for h in all_seen_hosts)
+        for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
+            state_match = bool(state_lower) and any(
+                alias in state_lower
+                for alias in aff_info["state_aliases"]
+            )
+            domain_match = aff_domain in seen_blob
+            if not (state_match or domain_match):
+                continue
+            fallback_url = aff_info["portal_url"]
+            logger.info(
+                "[%s] affiliating university fallback: %s (%s) — "
+                "%s [state_match=%s domain_match=%s]",
+                orgid, fallback_url, aff_domain, aff_info["note"],
+                state_match, domain_match,
+            )
+            fallback_cand = Candidate(
+                url=fallback_url,
+                category=aff_info["category"],
+                discovery_source="affiliating-university-fallback",
+                discovery_reasoning=(
+                    f"affiliating university {aff_domain} central ERP "
+                    f"(state_match={state_match}, "
+                    f"domain_match={domain_match}): {aff_info['note']}"
+                ),
+                validation_notes=(
+                    "affiliating-university fallback "
+                    "(validation bypassed; central ERP shared by "
+                    "all affiliated colleges)"
+                ),
+                js_rendered=False,
+            )
+            consolidated = [(fallback_cand, 3)]
+            break  # use first match only
+
+    if not consolidated:
+        logger.warning(
+            "[%s] no portals found after all fallbacks — "
+            "genuinely 0 portals", orgid,
+        )
+
+    # Final safety gate — drop any (Candidate, score) tuple whose
+    # consolidation score is negative. A negative score means the
+    # candidate accumulated more red flags than positive signals
+    # (e.g. non-student-path penalty outweighing the student-path
+    # boost) — it should never be written to the sheet regardless
+    # of which rule first accepted it. Force-accepted seed URLs
+    # carry score=10 and are unaffected. Cascade-recovered
+    # candidates also get scored by `consolidate_candidates` so
+    # this gate covers them too.
+    if consolidated:
+        kept_consolidated: list[tuple[Candidate, int]] = []
+        for c, score in consolidated:
+            if score < _MIN_ACCEPTABLE_CONSOLIDATION_SCORE:
+                logger.info(
+                    "[%s] consolidate DROP %s — negative score (%d), "
+                    "too many red flags",
+                    orgid, c.url, score,
+                )
+                continue
+            kept_consolidated.append((c, score))
+        consolidated = kept_consolidated
+
     logger.info(
         "[%s] consolidated: %d candidates → %d final",
         orgid, len(recategorised), len(consolidated),
@@ -1879,6 +2001,18 @@ def _pre_validation_filter(
             continue
         is_adm, _adm_reason = _maybe_reject_admission(url, None, orgid=orgid)
         if is_adm:
+            continue
+        # Admin / backend path filter — pre-fetch reject for URLs
+        # whose path is unambiguously a CMS / Django / WordPress
+        # / Joomla admin surface (`/admin/login`, `/wp-admin`,
+        # `/administrator/`, `/cpanel`, …). Distinct from the
+        # admission detector above; logged at INFO so admin
+        # rejections are visible without DEBUG.
+        if discovery_rules.url_is_admin_path(url):
+            logger.info(
+                "[%s] REJECTED %s: admin URL path — pre-fetch drop",
+                orgid, url,
+            )
             continue
         nonstudent = _non_student_label_match(url)
         if nonstudent is not None:
@@ -2259,6 +2393,26 @@ def _validate_candidates(
             # consolidate membership re-check. `gate_reason_js` carries
             # the gate string (e.g. "rule-C: known shared platform").
             rule_c_bypass_js = "rule-C" in (gate_reason_js or "")
+            # Non-student subdomain veto on the deferred-render
+            # accept path. Skipped for rule-C tenants. Mirrors the
+            # static-fetch and inline-JS-render sites in
+            # `_validate_one`.
+            rendered_host_dr = (
+                urlsplit(rendered_final).netloc.lower().split(":")[0]
+            )
+            if not rule_c_bypass_js:
+                leftmost_dr = (
+                    rendered_host_dr.split(".", 1)[0]
+                    if "." in rendered_host_dr else rendered_host_dr
+                )
+                if leftmost_dr in NON_STUDENT_SUBDOMAIN_BLOCKLIST:
+                    logger.warning(
+                        "[%s] REJECTED %s: non-student subdomain %r — "
+                        "audience veto (deferred-render)",
+                        orgid, rendered_final, leftmost_dr,
+                    )
+                    final_urls_seen.discard(final_key_js)
+                    continue
             kept = replace(
                 c,
                 url=rendered_final,
@@ -2859,7 +3013,27 @@ def _validate_one(
     # interactive-form evidence.
     rule_c_bypass = gate_ok and "rule-C" in gate_reason
 
-    if gate_ok and (static_gate_ok or rule_c_bypass) and audience_reject_reason is None:
+    # Non-student subdomain veto — applies to rule-A and rule-B
+    # accepts only (rule-C / known-shared-platform tenants are
+    # exempt because platform tenants use institution-specific
+    # prefixes that don't collide with the blocklist tokens).
+    # Catches `career.uni.ac.in`, `alumni.uni.ac.in`,
+    # `news.uni.ac.in` etc. that have a real login form but serve
+    # the wrong audience.
+    subdomain_reject_reason: str | None = None
+    if gate_ok and not rule_c_bypass:
+        leftmost = host.split(".", 1)[0] if "." in host else host
+        if leftmost in NON_STUDENT_SUBDOMAIN_BLOCKLIST:
+            subdomain_reject_reason = (
+                f"non-student subdomain {leftmost!r}"
+            )
+
+    if (
+        gate_ok
+        and (static_gate_ok or rule_c_bypass)
+        and audience_reject_reason is None
+        and subdomain_reject_reason is None
+    ):
         signals = []
         if has_password:
             signals.append("password-input")
@@ -2882,6 +3056,15 @@ def _validate_one(
         return _ValResult(
             ok=False, final_url=final_url_clean,
             notes=audience_reject_reason,
+        )
+    if subdomain_reject_reason is not None:
+        logger.warning(
+            "[%s] REJECTED %s: %s — audience veto",
+            orgid, url, subdomain_reject_reason,
+        )
+        return _ValResult(
+            ok=False, final_url=final_url_clean,
+            notes=subdomain_reject_reason,
         )
     if gate_ok and not static_gate_ok:
         # Login signals matched but body fails the hard gate
@@ -3027,6 +3210,28 @@ def _validate_one(
                         notes=f"js-rendered: {audience_reject_js}",
                         js_attempted=True,
                     )
+                # Non-student subdomain veto on the rendered DOM
+                # path (mirror of the static-fetch site). Skipped
+                # for rule-C tenants.
+                rendered_host = (
+                    urlsplit(rendered_final).netloc.lower().split(":")[0]
+                )
+                if gate_ok_js and not rule_c_bypass_js:
+                    leftmost_js = (
+                        rendered_host.split(".", 1)[0]
+                        if "." in rendered_host else rendered_host
+                    )
+                    if leftmost_js in NON_STUDENT_SUBDOMAIN_BLOCKLIST:
+                        reason = f"non-student subdomain {leftmost_js!r}"
+                        logger.warning(
+                            "[%s] REJECTED %s: %s — audience veto (js-rendered)",
+                            orgid, url, reason,
+                        )
+                        return _ValResult(
+                            ok=False, final_url=rendered_final,
+                            notes=f"js-rendered: {reason}",
+                            js_attempted=True,
+                        )
                 if gate_ok_js:
                     signals = []
                     if has_pw_js:
@@ -3642,16 +3847,37 @@ def _retry_homepage_crawl(
                     visited.add(u)
                     candidates.append(u)
 
-    # Dedup preserving order; cap at the depth-1 cap.
-    deduped: list[str] = list(dict.fromkeys(candidates))[:_CASCADE_HOMEPAGE_LINK_CAP]
+    # Dedup preserving order.
+    deduped: list[str] = list(dict.fromkeys(candidates))
+
+    # Augment with the bare apex (`https://<host>/`) of every
+    # newly-discovered cross-domain host. Mirrors the sibling-
+    # probe root-URL fix: standalone ERP sites whose homepage
+    # link points at a sub-path may also serve the login at the
+    # apex; probing the root is a cheap second shot. Skip when
+    # the candidate URL is already at root.
+    augmented: list[str] = []
+    augmented_hosts: set[str] = set()
+    for u in deduped:
+        augmented.append(u)
+        host = (urlsplit(u).netloc or "").lower().split(":")[0]
+        if not host or host in augmented_hosts:
+            continue
+        augmented_hosts.add(host)
+        path = (urlsplit(u).path or "").rstrip("/")
+        if path in ("", "/"):
+            continue  # already root
+        augmented.append(f"https://{host}/")
+    deduped = list(dict.fromkeys(augmented))[:_CASCADE_HOMEPAGE_LINK_CAP]
+
     elapsed = _CASCADE_HOMEPAGE_CRAWL_BUDGET_SECONDS - max(
         0.0, deadline - time.monotonic(),
     )
     logger.info(
-        "[%s] homepage crawl: %d candidate link(s) (%d depth-1 keeps + "
-        "depth-2 followed %d) in %.1fs",
-        orgid, len(deduped), len(candidates) - (len(candidates) - len(deduped)),
-        len(follow_queue), elapsed,
+        "[%s] homepage crawl: %d candidate link(s) (depth-1 + depth-2 "
+        "followed %d, bare-root augmented hosts=%d) in %.1fs",
+        orgid, len(deduped), len(follow_queue), len(augmented_hosts),
+        elapsed,
     )
     return deduped
 

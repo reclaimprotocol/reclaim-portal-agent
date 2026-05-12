@@ -148,5 +148,50 @@
     ],
     "extra_effective_domains": ["sumsraj.com"],
     "notes": "MLSU (Mohanlal Sukhadia University, Udaipur). Portals live on the sumsraj.com platform — student / portal / examination tenants. erp/elearning/e-library subdomains of mlsu.ac.in are DNS-dead. sumsraj.com is in KNOWN_SHARED_PLATFORM_PATTERNS so rule-C accepts these tenants; SHARED_PLATFORM_TENANT_PROBES would also surface them organically (force-accept pins the canonical URLs)."
+  },
+  "663905": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://ggv.samarth.edu.in/index.php/site/login"
+    ],
+    "exact_shortnames": ["ggv"],
+    "blocked_urls": [
+      "https://www.ggu.ac.in/admin/login/?next=/admin/"
+    ],
+    "notes": "Guru Ghasidas Vishwavidyalaya (GGU/GGV). Samarth tenant prefix is 'ggv' (not 'ggu' as the auto-derived SheerID shortname would imply); exact_shortnames pins the R3/R4 tenant gate. /admin/login on www.ggu.ac.in is the Django admin backend — explicitly blocked. After this fix, the generic ADMIN_URL_PATH_TOKENS filter would also reject the /admin/ URL pre-fetch."
+  },
+  "10329730": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://subodhpgcollege.in/"
+    ],
+    "extra_effective_domains": ["subodhpgcollege.in"],
+    "notes": "Subodh PG College. Standalone ERP — the login form lives at the bare apex (subodhpgcollege.in/), not at any of the SUBDOMAIN_PROBE_LIST paths. The sibling-root probe fix would now find this organically; force-accept pins the canonical URL. subodhpgcollege.com returns 503."
+  },
+  "7114463": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://bubhopal.mponline.gov.in/Portal/Services/BARKATULLAH/STUDENT_MGMT_SYS/Login.aspx"
+    ],
+    "extra_effective_domains": ["mponline.gov.in"],
+    "notes": "Barkatullah University Bhopal. Student SIS lives on the MP state-government MPOnline platform; the per-uni code in the URL path is BARKATULLAH which we can't derive from the SheerID shortname 'bubhopal'. bubhopal.ac.in returns TooManyRedirects. The new SHARED_PLATFORM_TENANT_PROBES entry probes bubhopal.mponline.gov.in/ and follows the redirect, but the override pins the canonical login URL with the per-uni code so the sheet shows the right destination."
+  },
+  "5967310": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://erp.dbuu.ac.in/student_login.aspx",
+      "https://moodle.dbuu.ac.in/login/index.php"
+    ],
+    "blocked_urls": [
+      "https://career.dbuu.ac.in/"
+    ],
+    "notes": "Dev Bhoomi Uttarakhand University. ERP and Moodle DNS were intermittently down during a discovery run; force-accept pins the canonical URLs so a transient outage doesn't drop them. career.dbuu.ac.in is the placement / career-cell portal — explicitly blocked. The new NON_STUDENT_SUBDOMAIN_BLOCKLIST also catches `career` generically, but the per-OrgID block is belt-and-suspenders."
+  },
+  "3810018": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://erp.aktu.ac.in/"
+    ],
+    "notes": "AKTU affiliated college in Uttar Pradesh. No own student portal — students use AKTU centralized ERP at erp.aktu.ac.in"
   }
 }

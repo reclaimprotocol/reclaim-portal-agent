@@ -42,6 +42,7 @@ import urllib3
 from bs4 import BeautifulSoup
 
 from ..config import (
+    ADMIN_URL_PATH_TOKENS,
     AMBIGUOUS_SHORTNAMES,
     DUCKDUCKGO_TIMEOUT_SECONDS,
     EXPLICIT_NON_STUDENT_FIELD_SIGNALS,
@@ -552,6 +553,9 @@ _LOGIN_SUBDOMAIN_INDICATORS: frozenset[str] = frozenset({
     "library", "lib",
     "placement", "tnp",
     "signin", "signon", "auth",
+    # Self-service / student-services subdomain labels (JNTUH OSS
+    # at `studentservices.jntuh.ac.in` and similar).
+    "studentservices", "services", "selfservice", "self-service",
 })
 
 # Path shapes considered "the root" for login-subdomain detection.
@@ -1446,6 +1450,28 @@ def _matched_admission_title_phrase(title_h1_text: str) -> str:
                 return ""
             return phrase
     return ""
+
+
+def url_is_admin_path(url: str) -> bool:
+    """Layer-1 admin / backend URL classifier. Returns True iff the
+    URL path contains any token from `ADMIN_URL_PATH_TOKENS` (
+    `/admin/`, `/wp-admin`, `/administrator`, `/cpanel`, …) —
+    catches CMS / Django / WordPress / Joomla admin backends. Run
+    pre-fetch in `_pre_validation_filter` so admin URLs never burn
+    a validation slot. Substring match on the lowercased path; no
+    fuzziness.
+
+    Distinct from `is_admission_portal` (which targets *applicant*
+    onboarding) — admin = staff/management backend, admission =
+    new-student registration.
+    """
+    if not url:
+        return False
+    try:
+        path = (urlsplit(url).path or "").lower()
+    except Exception:
+        return False
+    return any(tok in path for tok in ADMIN_URL_PATH_TOKENS)
 
 
 def is_admission_portal(url: str, html: str | None) -> tuple[bool, str]:

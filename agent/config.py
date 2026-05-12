@@ -136,6 +136,37 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
     # mlsuexamination on this platform; probed organically via
     # `SHARED_PLATFORM_TENANT_PROBES`.
     "sumsraj.com": {"category": "Student Portal", "validated": True},
+    # MPOnline — Madhya Pradesh state-government Student Management
+    # System platform. Tenant pattern is `<inst>.mponline.gov.in`
+    # (e.g. `bubhopal.mponline.gov.in` for Barkatullah University
+    # Bhopal). The bare tenant root redirects to a per-uni
+    # `/Portal/Services/<UNI_CODE>/STUDENT_MGMT_SYS/Login.aspx`
+    # path; we don't infer the per-uni code, so the probe only
+    # generates the apex and lets the redirect carry to the login
+    # page. Note: this host is on a `.gov.in` TLD which is in
+    # `EXTERNAL_DOMAIN_BLOCKLIST` — the probe path bypasses that
+    # blocklist (pre-filter only checks
+    # `host_is_known_shared_platform`); the sibling-walk path
+    # would still skip it.
+    "mponline.gov.in": {"category": "Student Portal", "validated": True},
+    # AKTU (Dr. A.P.J. Abdul Kalam Technical University, Uttar Pradesh)
+    # runs a centralized ERP at `erp.aktu.ac.in` shared by 750+
+    # affiliated engineering / pharmacy colleges across UP. Listing the
+    # apex here lets rule-C accept `erp.aktu.ac.in/` during validation
+    # without a `force_accept_seed_urls` override on every AKTU-
+    # affiliated college — only the zero-portal fallback (see
+    # `AFFILIATING_UNIVERSITY_PORTALS`) or organic discovery needs to
+    # surface the URL. `tenant_path="/"` because the apex IS the login
+    # surface (the ERP serves the auth UI on `/`).
+    "aktu.ac.in": {
+        "category": "Student Portal",
+        "validated": True,
+        "tenant_path": "/",
+        "note": (
+            "AKTU centralized ERP — single URL for all "
+            "affiliated colleges"
+        ),
+    },
 }
 
 
@@ -477,6 +508,66 @@ URL_ADMISSION_PATH_KEYWORDS: tuple[str, ...] = (
     "/allotment",
     "/document_verification", "/docverification",
 )
+
+
+# Stage A — admin / backend URL path tokens. Substring match
+# against the URL path (lowercased). Distinct from the admission
+# detector — these are CMS / Django / WordPress / Joomla admin
+# backends, not applicant onboarding pages. Run pre-fetch in
+# `_pre_validation_filter` so admin URLs never burn a validation
+# slot. The audience-check post-rule-A veto already catches admin
+# pages whose title says so; this is the cheaper URL-only first
+# pass.
+ADMIN_URL_PATH_TOKENS: tuple[str, ...] = (
+    "/admin/",
+    "/admin/login",
+    "/wp-admin",
+    "/wp-login.php",
+    "/administrator",
+    "/administrator/",
+    "/manage/login",
+    "/dashboard/login",
+    "/backend/login",
+    "/cms/login",
+    "/control/login",
+    "/cpanel",
+    "/adminpanel",
+)
+
+
+# Stage A — non-student-audience subdomain veto. After rule-A/B
+# validation accepts a candidate, the leftmost subdomain label is
+# matched against this set; a hit hard-rejects the candidate
+# regardless of which rule first accepted. Catches placement / news
+# / alumni / shop / donate-style subdomains that have a real login
+# form but serve an audience the agent isn't targeting (recruiters,
+# alumni, donors, etc.).
+#
+# Rule-C accepts (`host_is_known_shared_platform(host) == True`) are
+# EXEMPT — platform tenants use institution-specific subdomain
+# prefixes that don't collide with these tokens (e.g.
+# `mlsustudent.sumsraj.com` leftmost is `mlsustudent`, not on the
+# blocklist).
+#
+# Note: `placement` / `placements` / `hostel` are intentionally
+# included even though Indian-uni placement / hostel portals can be
+# student-facing — operator policy is to surface only primary
+# academic portals. Specific universities whose placement / hostel
+# portal is genuinely student-facing should add a per-OrgID
+# `seed_urls` override with `force_accept_seed_urls=true`.
+NON_STUDENT_SUBDOMAIN_BLOCKLIST: frozenset[str] = frozenset({
+    "career", "careers",
+    "placement", "placements",
+    "jobs", "recruit", "recruitment",
+    "alumni", "alum",
+    "donate", "donation", "giving",
+    "shop", "store", "merchandise",
+    "events", "event", "ticketing",
+    "news", "media", "press", "blog",
+    "canteen", "hostel", "transport",
+    "guest", "guesthouse",
+})
+
 
 URL_ADMISSION_HOST_KEYWORDS: tuple[str, ...] = (
     "admission", "admissions",
@@ -829,6 +920,49 @@ STATE_PLATFORM_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Affiliating universities that run centralized ERPs used by their
+# affiliated colleges when the college has no own student portal. The
+# zero-portal fallback in `discovery.run` consults this map after the
+# retry cascade exhausts: if the OrgID's `state` (from
+# `domain_overrides[orgid]["state"]`) matches one of an entry's
+# `state_aliases`, or any host already seen during this run contains the
+# affiliating domain as a substring, the entry's `portal_url` is added
+# as a final fallback candidate. Avoids the "0 portals written" outcome
+# for the 750+ AKTU-affiliated UP engineering/pharmacy colleges (and
+# similar central-ERP setups in other states) without needing a
+# per-college override.
+#
+# Key — affiliating university domain (substring-matched against the
+#       union of sibling/portal-anchored hosts and `effective_domains`).
+# Value — metadata about the central portal:
+#   `state`         — display name (informational; logging only).
+#   `state_aliases` — lowercase substrings tried against the OrgID's
+#                     `org_state.lower()`. The first match wins.
+#   `portal_url`    — final URL written for the fallback candidate.
+#   `category`      — category label for the synthesized Candidate.
+#   `note`          — short description embedded in the validation_notes
+#                     / log line.
+AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
+    "aktu.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+        ],
+        "portal_url": "https://erp.aktu.ac.in/",
+        "category": "Student Portal",
+        "note": (
+            "AKTU ERP — centralized portal for 750+ "
+            "UP-affiliated engineering/pharmacy colleges"
+        ),
+    },
+    # Extensible — add other affiliating universities here:
+    # "mu.ac.in": Mumbai University
+    # "annaununiv.ac.in": Anna University (Tamil Nadu)
+    # "rtmnu.ac.in": Nagpur University (Maharashtra)
+    # "mdsu.ac.in": Rajasthan colleges
+}
+
+
 # Stage A — Bug 31 functional prefixes on platform-tenant subdomains.
 # Indian Samarth / state-platform deployments often expose a single
 # institution under multiple tenants discriminated by a *function* prefix —
@@ -903,6 +1037,12 @@ SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
     "https://{shortname}student.sumsraj.com/",
     "https://{shortname}portal.sumsraj.com/",
     "https://{shortname}examination.sumsraj.com/",
+    # MPOnline (Madhya Pradesh state government SIS). The apex
+    # tenant root redirects to a per-uni
+    # `/Portal/Services/<UNI_CODE>/STUDENT_MGMT_SYS/Login.aspx`
+    # path; we don't synthesise UNI_CODE so the probe relies on
+    # the redirect to land on the login URL.
+    "https://{shortname}.mponline.gov.in/",
 )
 
 
@@ -1127,6 +1267,13 @@ STUDENT_LOGIN_SAME_HOST_PROBES: tuple[str, ...] = (
     "/itmzone/index.php",
     "/SmartUniversity/Login",
     "/eduserve/StudentLogin",
+    # JNTUH-style "OSS" (Online Student Services) paths. JNTUH and
+    # several Telangana / Andhra universities expose the student
+    # self-service surface under `/oss/`. Costs 3 extra HEAD per
+    # host on non-JNTUH universities — all 404 fast.
+    "/oss/login.html",
+    "/oss/",
+    "/oss/student/login",
 )
 
 
