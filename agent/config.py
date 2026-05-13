@@ -167,6 +167,17 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
             "affiliated colleges"
         ),
     },
+    # Digiicampus — shared ERP/LMS platform used by multiple Indian
+    # universities (e.g. Shobhit at `shobhit.digiicampus.com`). Tenant
+    # pattern is `{shortname}.digiicampus.com` and the login surface
+    # lives at the SPA route `/V2/#/home`. `tenant_path` tells the
+    # URL-normalisation layer to canonicalise stored URLs onto that
+    # path; probed organically via `SHARED_PLATFORM_TENANT_PROBES`.
+    "digiicampus.com": {
+        "category": "Student Portal",
+        "validated": True,
+        "tenant_path": "/V2/#/home",
+    },
 }
 
 
@@ -955,6 +966,49 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
             "UP-affiliated engineering/pharmacy colleges"
         ),
     },
+    # Chaudhary Charan Singh University — Meerut & western UP
+    "ccsuniversity.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+            "meerut", "western up", "hapur",
+            "ghaziabad", "muzaffarnagar", "baghpat",
+        ],
+        "portal_url": "https://ccsuniversity.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "note": (
+            "CCSU Samarth — Chaudhary Charan Singh University "
+            "Meerut, for 700+ affiliated colleges in "
+            "western UP region"
+        ),
+    },
+    # Atal Bihari Vajpayee Medical University — medical colleges UP
+    "abvmu.edu.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+        ],
+        "portal_url": "https://abvmu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "note": (
+            "ABVMU Samarth — Atal Bihari Vajpayee Medical "
+            "University Lucknow, for medical colleges in UP"
+        ),
+    },
+    # Lucknow University — Lucknow region colleges
+    "lkouniv.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+            "lucknow", "sitapur", "lakhimpur",
+        ],
+        "portal_url": "https://lu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "note": (
+            "LU Samarth — University of Lucknow, for "
+            "affiliated colleges in Lucknow region"
+        ),
+    },
     # Extensible — add other affiliating universities here:
     # "mu.ac.in": Mumbai University
     # "annaununiv.ac.in": Anna University (Tamil Nadu)
@@ -1043,6 +1097,12 @@ SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
     # path; we don't synthesise UNI_CODE so the probe relies on
     # the redirect to land on the login URL.
     "https://{shortname}.mponline.gov.in/",
+    # Digiicampus (`{shortname}.digiicampus.com`). The login surface
+    # is the SPA route `/V2/#/home`; the bare apex is probed as a
+    # belt-and-suspenders fallback in case the SPA shell isn't
+    # reachable directly.
+    "https://{shortname}.digiicampus.com/V2/#/home",
+    "https://{shortname}.digiicampus.com/",
 )
 
 

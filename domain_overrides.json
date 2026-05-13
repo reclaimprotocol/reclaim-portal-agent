@@ -193,5 +193,32 @@
       "https://erp.aktu.ac.in/"
     ],
     "notes": "AKTU affiliated college in Uttar Pradesh. No own student portal — students use AKTU centralized ERP at erp.aktu.ac.in"
+  },
+  "664530": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://shobhit.digiicampus.com/V2/#/home",
+      "https://lms.shobhit.online/V2/#/home"
+    ],
+    "extra_effective_domains": [
+      "digiicampus.com",
+      "shobhit.online"
+    ],
+    "notes": "ERP on Digiicampus platform. shobhit.digiicampus.com and lms.shobhit.online both point to same Digiicampus instance. crms/dms/euniversity subdomains DNS was down during run."
+  },
+  "10054970": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://ncrims.in/"
+    ],
+    "extra_effective_domains": ["ncrims.in"],
+    "notes": "Student portal at ncrims.in (CONNECT NCRIMS platform). Primary domain ncrinstituteofmedicalsciences.com has no portal. Affiliated to Ch. Charan Singh University Meerut not AKTU."
+  },
+  "3833175": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://ccsuniversity.samarth.edu.in/index.php/site/login"
+    ],
+    "notes": "MCM College Meerut affiliated to CCSU (Chaudhary Charan Singh University). Student portal is CCSU Samarth. erp.mcm.ac.in DNS was down during run."
   }
 }
