@@ -178,11 +178,17 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
         "validated": True,
         "tenant_path": "/V2/#/home",
     },
-    # Campus365 — widely used Indian college/school ERP platform.
-    # Tenant pattern is `{shortname}.campus365.io` and the canonical
-    # login surface is `/site/userlogin` (Yii-style route). Surfaced
-    # organically via `SHARED_PLATFORM_TENANT_PROBES`; rule-C accepts
-    # without a static login form since the tenant shell is JS-rendered.
+    # Campus365 — Indian college/school ERP platform. Tenant pattern
+    # is `{shortname}.campus365.io` and the canonical login surface
+    # is `/site/userlogin` (Yii-style route). The host uses wildcard
+    # DNS (every subdomain resolves and returns a generic landing
+    # page), so it is INTENTIONALLY not in
+    # `SHARED_PLATFORM_TENANT_PROBES` — probing every shortname
+    # produced false positives for non-customers. Kept here so URLs
+    # discovered organically (DDG search, homepage crawl) can still
+    # validate via rule-C; the wildcard-DNS canary check in
+    # `_validate_one` rejects any rule-C accept whose response body
+    # matches the wildcard fingerprint.
     "campus365.io": {
         "category": "Student Portal",
         "validated": True,
@@ -1129,11 +1135,16 @@ SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
     # reachable directly.
     "https://{shortname}.digiicampus.com/V2/#/home",
     "https://{shortname}.digiicampus.com/",
-    # Campus365 (`{shortname}.campus365.io`). Canonical login is
-    # `/site/userlogin`; the bare apex is probed as a fallback for
-    # tenants that haven't migrated to the Yii-style route.
-    "https://{shortname}.campus365.io/site/userlogin",
-    "https://{shortname}.campus365.io/",
+    # NOTE: campus365.io was previously probed here as
+    # `https://{shortname}.campus365.io/site/userlogin` (and bare
+    # apex), but the platform uses wildcard DNS — every fabricated
+    # subdomain resolves and returns a generic landing page, so the
+    # probes produced false positives for universities that don't use
+    # campus365.io. The host remains in
+    # `KNOWN_SHARED_PLATFORM_PATTERNS` so organically-discovered URLs
+    # (DDG search, homepage crawl) still validate via rule-C; the
+    # wildcard-DNS canary check in `_validate_one` rejects any rule-C
+    # accept whose body matches the wildcard fingerprint.
 )
 
 
