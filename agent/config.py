@@ -178,6 +178,16 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
         "validated": True,
         "tenant_path": "/V2/#/home",
     },
+    # Campus365 — widely used Indian college/school ERP platform.
+    # Tenant pattern is `{shortname}.campus365.io` and the canonical
+    # login surface is `/site/userlogin` (Yii-style route). Surfaced
+    # organically via `SHARED_PLATFORM_TENANT_PROBES`; rule-C accepts
+    # without a static login form since the tenant shell is JS-rendered.
+    "campus365.io": {
+        "category": "Student Portal",
+        "validated": True,
+        "tenant_path": "/site/userlogin",
+    },
 }
 
 
@@ -1063,11 +1073,27 @@ SAMARTH_FUNCTIONAL_PREFIXES: tuple[str, ...] = (
 # `exact_shortnames` overrides for Samarth-hosted universities (e.g.
 # `bujhansiadm.samarth.edu.in` for Bundelkhand is now found
 # organically).
+#
+# Abbreviation patterns (`{shortname3}` / `{shortname4}` / `{acronym3}`
+# / `{acronym4}`) generate truncated tenant labels — the call site in
+# `discovery._build_probe_candidates` pre-computes those kwargs from
+# `s[:3]` / `s[:4]` / `eff_acronym[:3]` / `eff_acronym[:4]` (Python
+# `str.format()` doesn't support slicing or method calls inside field
+# names, so the truncation can't live in the format string itself).
+# Catches Samarth tenants that use a different common-name abbreviation
+# than the SheerID-derived shortname or full acronym (e.g.
+# `kmclu.samarth.edu.in` for Khwaja Moinuddin Chishti Language
+# University even though its SheerID shortname is `uafulucknow`). The
+# probe loop skips any computed tenant shorter than 3 chars.
 SAMARTH_TENANT_PATTERNS: tuple[str, ...] = (
     "{shortname}",            # bujhansi.samarth.edu.in
     "{shortname}univ",        # bujhansiuniv.samarth.edu.in
     "{shortname}university",  # bujhansiuniversity.samarth.edu.in
     "{acronym}",              # buj.samarth.edu.in
+    "{shortname3}",           # first 3 chars of shortname: uaf
+    "{shortname4}",           # first 4 chars of shortname: uafu
+    "{acronym3}",             # first 3 chars of acronym: kmc
+    "{acronym4}",             # first 4 chars of acronym: kmcu
 )
 
 
@@ -1103,6 +1129,11 @@ SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
     # reachable directly.
     "https://{shortname}.digiicampus.com/V2/#/home",
     "https://{shortname}.digiicampus.com/",
+    # Campus365 (`{shortname}.campus365.io`). Canonical login is
+    # `/site/userlogin`; the bare apex is probed as a fallback for
+    # tenants that haven't migrated to the Yii-style route.
+    "https://{shortname}.campus365.io/site/userlogin",
+    "https://{shortname}.campus365.io/",
 )
 
 
@@ -1334,6 +1365,21 @@ STUDENT_LOGIN_SAME_HOST_PROBES: tuple[str, ...] = (
     "/oss/login.html",
     "/oss/",
     "/oss/student/login",
+    # IT College (Lucknow) ITCPS platform paths. `itcollege.ac.in/itcps/`
+    # is a custom PHP portal observed at IT College and may exist at
+    # sister deployments. Costs 2 extra HEAD per host on non-ITCPS
+    # universities — both 404 fast.
+    "/itcps/student/login.php",
+    "/itcps/",
+    # Generic PHP login variants. `/erp-login.php` and the
+    # `/student_login.php` / `/studentlogin.php` pair surface on a long
+    # tail of small-college .NET/PHP portals. `/login.php` is the
+    # broadest; expect occasional 200s on admin/marketing pages that
+    # the validator's downstream gates filter out.
+    "/erp-login.php",
+    "/student_login.php",
+    "/studentlogin.php",
+    "/login.php",
 )
 
 

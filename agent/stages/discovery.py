@@ -503,6 +503,51 @@ def _has_wildcard_dns(
     return True, fingerprint
 
 
+# Process-wide cache of (registrable root → (is_wildcard, fingerprint))
+# for rule-C-bypass validation. Computed lazily on the first rule-C accept
+# for a root; reused across OrgIDs in the same process. Keeps the wildcard
+# check effectively free after the first hit per root.
+_wildcard_canary_cache: dict[str, tuple[bool, str | None]] = {}
+_wildcard_canary_cache_lock = threading.Lock()
+
+
+def _wildcard_canary_for_root(
+    root: str, *, http_timeout: float, user_agent: str,
+) -> tuple[bool, str | None]:
+    """Cached wrapper around `_has_wildcard_dns` keyed by registrable root.
+
+    Returns ``(is_wildcard, fingerprint)`` — same shape as `_has_wildcard_dns`.
+    Thread-safe; first caller per root pays the DNS+HTTP cost, subsequent
+    callers read from cache.
+    """
+    if not root:
+        return False, None
+    with _wildcard_canary_cache_lock:
+        cached = _wildcard_canary_cache.get(root)
+        if cached is not None:
+            return cached
+    result = _has_wildcard_dns(
+        root, http_timeout=http_timeout, user_agent=user_agent,
+    )
+    with _wildcard_canary_cache_lock:
+        _wildcard_canary_cache[root] = result
+    return result
+
+
+def _body_fingerprint(body: str) -> str | None:
+    """MD5 of the first ``_CONTENT_FINGERPRINT_BYTES`` of ``body`` encoded as
+    UTF-8. Mirrors `_content_fingerprint`'s bytewise hash so a validated
+    response body can be compared directly against a wildcard-DNS canary
+    fingerprint captured via the same prefix-of-bytes path."""
+    if not body:
+        return None
+    raw = body.encode("utf-8", errors="replace")[:_CONTENT_FINGERPRINT_BYTES]
+    if not raw:
+        return None
+    import hashlib
+    return hashlib.md5(raw).hexdigest()
+
+
 def _body_has_interactive_form(body: str) -> bool:
     """True if the body looks like a real interactive page — has any of:
       * `<form>` tag
@@ -921,26 +966,53 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             samarth_shortnames.add(s.lower())
     samarth_acronym = (acronym or "").lower()
     samarth_added = 0
+    # Both Samarth root domains are probed. `samarth.edu.in` is the
+    # modern apex used by the majority of tenants; `samarth.ac.in` is
+    # an older/alternate apex still live for some universities (e.g.
+    # KMCLU at `kmclu.samarth.ac.in`). Both are on
+    # KNOWN_SHARED_PLATFORM_PATTERNS so rule-C accepts either without a
+    # static login form; dead tenants 404/timeout and drop naturally.
+    samarth_roots: tuple[str, ...] = ("samarth.edu.in", "samarth.ac.in")
     for s in sorted(samarth_shortnames):
         eff_acronym = samarth_acronym or s[:3]
+        # Pre-compute truncated kwargs for the `{shortname3}` /
+        # `{shortname4}` / `{acronym3}` / `{acronym4}` patterns in
+        # `SAMARTH_TENANT_PATTERNS` (Python `str.format()` doesn't
+        # support slicing inside field names). The 3-char floor below
+        # filters out trivially short tenants regardless.
+        fmt_kwargs = {
+            "shortname": s,
+            "acronym": eff_acronym,
+            "shortname3": s[:3],
+            "shortname4": s[:4],
+            "acronym3": eff_acronym[:3],
+            "acronym4": eff_acronym[:4],
+        }
         for pattern in SAMARTH_TENANT_PATTERNS:
             try:
-                tenant = pattern.format(shortname=s, acronym=eff_acronym)
+                tenant = pattern.format(**fmt_kwargs)
             except (KeyError, IndexError):
                 continue
             if not tenant or "{" in tenant:
                 continue
-            url = f"https://{tenant}.samarth.edu.in/index.php/site/login"
-            rule_candidates.append(Candidate(
-                url=url,
-                category="Student Portal",
-                discovery_source="rule:samarth-probe",
-                discovery_reasoning=(
-                    f"samarth tenant pattern {pattern!r} "
-                    f"(shortname={s}, acronym={eff_acronym})"
-                ),
-            ))
-            samarth_added += 1
+            # Skip probes whose computed tenant label is shorter than
+            # 3 chars: too generic to be a legitimate Samarth tenant
+            # and risks cross-OrgID DNS collisions on platform wildcards.
+            if len(tenant) < 3:
+                continue
+            for samarth_root in samarth_roots:
+                url = f"https://{tenant}.{samarth_root}/index.php/site/login"
+                rule_candidates.append(Candidate(
+                    url=url,
+                    category="Student Portal",
+                    discovery_source="rule:samarth-probe",
+                    discovery_reasoning=(
+                        f"samarth tenant pattern {pattern!r} "
+                        f"(shortname={s}, acronym={eff_acronym}, "
+                        f"root={samarth_root})"
+                    ),
+                ))
+                samarth_added += 1
     if samarth_added:
         logger.info(
             "[%s] samarth tenant probes: +%d candidates "
@@ -2413,6 +2485,26 @@ def _validate_candidates(
                     )
                     final_urls_seen.discard(final_key_js)
                     continue
+            # Wildcard-DNS canary check on the deferred-render accept
+            # path (mirror of the static-fetch and inline-JS-render
+            # sites). Rejects rule-C-bypass tenants whose body matches
+            # the wildcard canary for the registrable root.
+            if rule_c_bypass_js:
+                root_dr = discovery_rules.registrable_root(rendered_host_dr) or rendered_host_dr
+                is_wildcard_dr, canary_fp_dr = _wildcard_canary_for_root(
+                    root_dr, http_timeout=http_timeout, user_agent=user_agent,
+                )
+                if is_wildcard_dr and canary_fp_dr is not None:
+                    body_fp_dr = _body_fingerprint(rbody)
+                    if body_fp_dr is not None and body_fp_dr == canary_fp_dr:
+                        logger.warning(
+                            "[%s] REJECTED %s: wildcard DNS false "
+                            "positive on %s — tenant does not exist "
+                            "(deferred-render)",
+                            orgid, rendered_final, root_dr,
+                        )
+                        final_urls_seen.discard(final_key_js)
+                        continue
             kept = replace(
                 c,
                 url=rendered_final,
@@ -3028,11 +3120,34 @@ def _validate_one(
                 f"non-student subdomain {leftmost!r}"
             )
 
+    # Wildcard-DNS canary check for rule-C-bypass accepts. Some known
+    # shared platforms (campus365.io, …) serve a generic page from a
+    # wildcard A-record for every unknown subdomain, so `newartscollege.
+    # campus365.io/site/userlogin` returns 200 with the platform's
+    # generic shell even though the tenant doesn't exist. Compare the
+    # response body's fingerprint against the wildcard canary's; on
+    # match → fake tenant → reject. Only fires on rule-C-bypass since
+    # rule-A/rule-B already require a real login form on the page.
+    rule_c_wildcard_reject_reason: str | None = None
+    if rule_c_bypass:
+        root = discovery_rules.registrable_root(host) or host
+        is_wildcard, canary_fp = _wildcard_canary_for_root(
+            root, http_timeout=http_timeout, user_agent=user_agent,
+        )
+        if is_wildcard and canary_fp is not None:
+            body_fp = _body_fingerprint(body)
+            if body_fp is not None and body_fp == canary_fp:
+                rule_c_wildcard_reject_reason = (
+                    f"wildcard DNS false positive on {root} — "
+                    f"tenant does not exist"
+                )
+
     if (
         gate_ok
         and (static_gate_ok or rule_c_bypass)
         and audience_reject_reason is None
         and subdomain_reject_reason is None
+        and rule_c_wildcard_reject_reason is None
     ):
         signals = []
         if has_password:
@@ -3065,6 +3180,15 @@ def _validate_one(
         return _ValResult(
             ok=False, final_url=final_url_clean,
             notes=subdomain_reject_reason,
+        )
+    if rule_c_wildcard_reject_reason is not None:
+        logger.warning(
+            "[%s] REJECTED %s: %s",
+            orgid, url, rule_c_wildcard_reject_reason,
+        )
+        return _ValResult(
+            ok=False, final_url=final_url_clean,
+            notes=rule_c_wildcard_reject_reason,
         )
     if gate_ok and not static_gate_ok:
         # Login signals matched but body fails the hard gate
@@ -3232,6 +3356,33 @@ def _validate_one(
                             notes=f"js-rendered: {reason}",
                             js_attempted=True,
                         )
+                # Wildcard-DNS canary check on the rendered DOM (mirror
+                # of the static-fetch path). Rejects rule-C-bypass
+                # accepts whose rendered body fingerprint matches the
+                # wildcard canary for the host's registrable root —
+                # i.e. the tenant doesn't actually exist on the
+                # platform, the wildcard just resolves every subdomain.
+                if rule_c_bypass_js:
+                    root_js = discovery_rules.registrable_root(rendered_host) or rendered_host
+                    is_wildcard_js, canary_fp_js = _wildcard_canary_for_root(
+                        root_js, http_timeout=http_timeout, user_agent=user_agent,
+                    )
+                    if is_wildcard_js and canary_fp_js is not None:
+                        body_fp_js = _body_fingerprint(rbody)
+                        if body_fp_js is not None and body_fp_js == canary_fp_js:
+                            reason = (
+                                f"wildcard DNS false positive on "
+                                f"{root_js} — tenant does not exist"
+                            )
+                            logger.warning(
+                                "[%s] REJECTED %s: %s (js-rendered)",
+                                orgid, url, reason,
+                            )
+                            return _ValResult(
+                                ok=False, final_url=rendered_final,
+                                notes=f"js-rendered: {reason}",
+                                js_attempted=True,
+                            )
                 if gate_ok_js:
                     signals = []
                     if has_pw_js:

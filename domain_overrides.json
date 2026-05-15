@@ -220,5 +220,33 @@
       "https://ccsuniversity.samarth.edu.in/index.php/site/login"
     ],
     "notes": "MCM College Meerut affiliated to CCSU (Chaudhary Charan Singh University). Student portal is CCSU Samarth. erp.mcm.ac.in DNS was down during run."
+  },
+  "3833431": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://microtek.campus365.io/site/userlogin"
+    ],
+    "extra_effective_domains": ["campus365.io"],
+    "notes": "Student portal on campus365.io platform. microtek.ac.in/digital-form is a student form page not a login portal."
+  },
+  "664354": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://kmclu.samarth.edu.in/index.php/site/login",
+      "https://kmclu.samarth.ac.in/index.php/site/login"
+    ],
+    "extra_shortnames": ["kmclu"],
+    "blocked_urls": [
+      "https://kmcluadm.samarth.edu.in/index.php/site/login"
+    ],
+    "notes": "Samarth tenant is kmclu (not uafulucknow/kmcuafu). kmcluadm is admin tenant blocked since peer kmclu exists. uafulucknow.ac.in DNS was down during run."
+  },
+  "3830520": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://itcollege.ac.in/itcps/student/login.php",
+      "https://itcps-erp.itcollege.ac.in/erp-login.php"
+    ],
+    "notes": "Student portal at /itcps/student/login.php. ERP at itcps-erp subdomain. erp.itcollege.ac.in DNS was down during run."
   }
 }
