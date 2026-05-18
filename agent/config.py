@@ -167,6 +167,19 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
             "affiliated colleges"
         ),
     },
+    # GNDU (Guru Nanak Dev University, Amritsar) runs a centralized
+    # Student Login Console (`slc.gndu.ac.in`) shared by all its
+    # affiliated Campus / RC Campus / Constituent Colleges across
+    # Punjab and Haryana. Surfaced via the zero-portal fallback for
+    # GNDU-affiliated colleges (see `AFFILIATING_UNIVERSITY_PORTALS`)
+    # or organic discovery; listing the apex here lets rule-C accept
+    # any `gndu.ac.in` URL without a per-college
+    # `force_accept_seed_urls` override.
+    "gndu.ac.in": {
+        "category": "Student Portal",
+        "validated": True,
+        "tenant_path": "/Integration/StudentArea/login.aspx",
+    },
     # Digiicampus — shared ERP/LMS platform used by multiple Indian
     # universities (e.g. Shobhit at `shobhit.digiicampus.com`). Tenant
     # pattern is `{shortname}.digiicampus.com` and the login surface
@@ -1023,6 +1036,25 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
         "note": (
             "LU Samarth — University of Lucknow, for "
             "affiliated colleges in Lucknow region"
+        ),
+    },
+    # Guru Nanak Dev University — Punjab / Haryana region colleges
+    "gndu.ac.in": {
+        "state": "Punjab",
+        "state_aliases": [
+            "punjab", "haryana", "amritsar",
+            "chandigarh", "himachal pradesh",
+            "jammu and kashmir",
+        ],
+        "portal_url": (
+            "https://slc.gndu.ac.in/Integration/"
+            "StudentArea/login.aspx"
+        ),
+        "category": "Student Portal",
+        "note": (
+            "GNDU SLC — Guru Nanak Dev University Amritsar "
+            "centralized portal for affiliated colleges "
+            "across Punjab and Haryana"
         ),
     },
     # Extensible — add other affiliating universities here:
