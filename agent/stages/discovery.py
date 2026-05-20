@@ -966,13 +966,14 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             samarth_shortnames.add(s.lower())
     samarth_acronym = (acronym or "").lower()
     samarth_added = 0
-    # Both Samarth root domains are probed. `samarth.edu.in` is the
-    # modern apex used by the majority of tenants; `samarth.ac.in` is
-    # an older/alternate apex still live for some universities (e.g.
-    # KMCLU at `kmclu.samarth.ac.in`). Both are on
-    # KNOWN_SHARED_PLATFORM_PATTERNS so rule-C accepts either without a
-    # static login form; dead tenants 404/timeout and drop naturally.
-    samarth_roots: tuple[str, ...] = ("samarth.edu.in", "samarth.ac.in")
+    # Only `samarth.edu.in` is probed. Samarth eGov splits its
+    # platform across two apex domains by design:
+    #   samarth.edu.in → Student portal (the agent's target)
+    #   samarth.ac.in  → Employee / Faculty / Admin portal
+    # `samarth.ac.in` tenants are NEVER student logins, so they are
+    # blocked at pre-filter via `KNOWN_INSTANCE_BLOCKLIST` and not
+    # probed here.
+    samarth_root = "samarth.edu.in"
     for s in sorted(samarth_shortnames):
         eff_acronym = samarth_acronym or s[:3]
         # Pre-compute truncated kwargs for the `{shortname3}` /
@@ -1000,19 +1001,17 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             # and risks cross-OrgID DNS collisions on platform wildcards.
             if len(tenant) < 3:
                 continue
-            for samarth_root in samarth_roots:
-                url = f"https://{tenant}.{samarth_root}/index.php/site/login"
-                rule_candidates.append(Candidate(
-                    url=url,
-                    category="Student Portal",
-                    discovery_source="rule:samarth-probe",
-                    discovery_reasoning=(
-                        f"samarth tenant pattern {pattern!r} "
-                        f"(shortname={s}, acronym={eff_acronym}, "
-                        f"root={samarth_root})"
-                    ),
-                ))
-                samarth_added += 1
+            url = f"https://{tenant}.{samarth_root}/index.php/site/login"
+            rule_candidates.append(Candidate(
+                url=url,
+                category="Student Portal",
+                discovery_source="rule:samarth-probe",
+                discovery_reasoning=(
+                    f"samarth tenant pattern {pattern!r} "
+                    f"(shortname={s}, acronym={eff_acronym})"
+                ),
+            ))
+            samarth_added += 1
     if samarth_added:
         logger.info(
             "[%s] samarth tenant probes: +%d candidates "

@@ -83,8 +83,10 @@ GEMINI_SEARCH_ENABLED: bool = os.getenv(
 # These platforms are verified across many universities; running validation
 # again (HTTP fetch + Playwright fallback for SPA tenants) is wasted work.
 KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
+    # NOTE: only `samarth.edu.in` is listed. `samarth.ac.in` is the
+    # Samarth employee/faculty/admin portal — NOT a student portal —
+    # and is rejected via `KNOWN_INSTANCE_BLOCKLIST` instead.
     "samarth.edu.in": {"category": "Student Portal", "validated": True},
-    "samarth.ac.in": {"category": "Student Portal", "validated": True},
     "digitaluniversity.ac": {"category": "Student Portal", "validated": True},
     "digitaluniversity.ac.in": {"category": "Student Portal", "validated": True},
     "myloft.xyz": {"category": "Library", "validated": True},
@@ -820,6 +822,16 @@ KNOWN_INSTANCE_BLOCKLIST: tuple[str, ...] = (
     # `host_in_instance_blocklist` matches subdomains via endswith,
     # so `erp.mituniversityindia.edu.in` is also rejected.
     "mituniversityindia.edu.in",
+    # Samarth eGov uses two apex domains by design:
+    #   samarth.edu.in → Student portal (accepted via
+    #                    KNOWN_SHARED_PLATFORM_PATTERNS)
+    #   samarth.ac.in  → Employee / Faculty / Admin portal
+    # `samarth.ac.in` tenants are NEVER student portals
+    # (e.g. `nehu.samarth.ac.in` / `aissmscoe.samarth.ac.in` are
+    # staff logins). Blocking the apex here rejects every
+    # `{tenant}.samarth.ac.in` host at pre-filter via the endswith
+    # match in `host_in_instance_blocklist`, before any HTTP fetch.
+    "samarth.ac.in",
 )
 
 
