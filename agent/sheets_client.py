@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -42,6 +44,10 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 logger = logging.getLogger(__name__)
 
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+
+# Refresh the OAuth token this long before its actual expiry so we never
+# attempt a Sheets call with a token that's about to expire mid-flight.
+_TOKEN_REFRESH_BUFFER = timedelta(minutes=10)
 
 
 def _col_letter(n: int) -> str:
@@ -129,23 +135,70 @@ class SheetsClient:
     # --------------------------------------------------------------- auth
 
     def _load_creds(self) -> Credentials:
-        creds: Credentials | None = None
-        if self._token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(self._token_path), SCOPES)
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                if not self._credentials_path.exists():
-                    raise FileNotFoundError(
-                        f"OAuth client file not found at {self._credentials_path}."
-                    )
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(self._credentials_path), SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-            self._token_path.write_text(creds.to_json())
+        creds = self._load_token_from_disk()
+
+        if creds is not None and self._needs_refresh(creds):
+            creds = self._try_silent_refresh(creds)
+
+        if creds is None or not creds.valid:
+            creds = self._run_browser_oauth()
+
+        self._token_path.write_text(creds.to_json())
         return creds
+
+    def _load_token_from_disk(self) -> Credentials | None:
+        if not self._token_path.exists():
+            return None
+        try:
+            return Credentials.from_authorized_user_file(str(self._token_path), SCOPES)
+        except Exception:
+            logger.warning(
+                "Could not parse %s; will re-authenticate via browser",
+                self._token_path,
+                exc_info=True,
+            )
+            return None
+
+    @staticmethod
+    def _needs_refresh(creds: Credentials) -> bool:
+        """True if the token is expired or will expire within the refresh buffer."""
+        if not creds.valid:
+            return True
+        if creds.expiry is None:
+            return False
+        # google-auth stores `expiry` as a naive UTC datetime; compare in kind.
+        return creds.expiry - datetime.utcnow() < _TOKEN_REFRESH_BUFFER
+
+    def _try_silent_refresh(self, creds: Credentials) -> Credentials | None:
+        """Refresh `creds` in place. On RefreshError, wipe token.json so the
+        caller falls through to the browser OAuth flow."""
+        if not creds.refresh_token:
+            return None
+        try:
+            creds.refresh(Request())
+            logger.info("Refreshed Google OAuth token silently")
+            return creds
+        except RefreshError as exc:
+            logger.warning(
+                "Silent token refresh failed (%s); deleting %s and re-authenticating in browser",
+                exc,
+                self._token_path,
+            )
+            try:
+                self._token_path.unlink()
+            except FileNotFoundError:
+                pass
+            return None
+
+    def _run_browser_oauth(self) -> Credentials:
+        if not self._credentials_path.exists():
+            raise FileNotFoundError(
+                f"OAuth client file not found at {self._credentials_path}."
+            )
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(self._credentials_path), SCOPES
+        )
+        return flow.run_local_server(port=0)
 
     # ----------------------------------------------------------- retries
 

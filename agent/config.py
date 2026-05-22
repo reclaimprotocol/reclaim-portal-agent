@@ -1069,11 +1069,760 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
             "across Punjab and Haryana"
         ),
     },
-    # Extensible — add other affiliating universities here:
-    # "mu.ac.in": Mumbai University
-    # "annaununiv.ac.in": Anna University (Tamil Nadu)
-    # "rtmnu.ac.in": Nagpur University (Maharashtra)
-    # "mdsu.ac.in": Rajasthan colleges
+    # ----- Entries below are state-driven Phase 3.5 PROBE targets -----
+    # Each carries `"verify": True`. The discovery probe (Phase 3.5)
+    # enqueues them as ordinary candidates routed through the standard
+    # validation pipeline (rule-A/B/C). The zero-portal force-accept
+    # fallback (later in `discovery.run`) skips entries with
+    # `verify: True` — those have NOT been operator-verified end-to-end
+    # and are not trusted enough to be written without validation.
+    # Remove the `verify` flag once a portal URL has been confirmed live
+    # against a real college; the entry then graduates to the same
+    # force-accept behaviour as AKTU / CCSU / LU / GNDU.
+    #
+    # ---- Uttar Pradesh (Samarth tenants) ----
+    "mjpru.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+            "bareilly", "rohilkhand", "shahjahanpur",
+            "pilibhit", "badaun",
+        ],
+        "portal_url": "https://mjpru.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "MJP Rohilkhand University Bareilly Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "vbspu.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+            "jaunpur", "ghazipur", "mau", "azamgarh",
+        ],
+        "portal_url": "https://vbspu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Veer Bahadur Singh Purvanchal University Jaunpur Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "ddugorakhpuruniversity.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+            "gorakhpur", "deoria", "kushinagar", "maharajganj",
+        ],
+        "portal_url": "https://ddugu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "DDU Gorakhpur University Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "mgkvp.ac.in": {
+        "state": "Uttar Pradesh",
+        "state_aliases": [
+            "uttar pradesh", "up", "u.p.",
+            "varanasi", "kashi", "mirzapur", "sonbhadra",
+            "chandauli",
+        ],
+        "portal_url": "https://mgkvp.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Mahatma Gandhi Kashi Vidyapith Varanasi Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Maharashtra ----
+    "unipune.ac.in": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh",
+            "pune", "ahmednagar", "nashik",
+        ],
+        "portal_url": "https://unipune.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Savitribai Phule Pune University Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "mu.ac.in": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh",
+            "mumbai", "thane", "raigad", "ratnagiri",
+            "sindhudurg", "palghar", "konkan",
+        ],
+        "portal_url": "https://mu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "University of Mumbai Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "nagpuruniversity.ac.in": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh",
+            "nagpur", "wardha", "bhandara", "gondia", "chandrapur",
+            "gadchiroli", "vidarbha",
+        ],
+        "portal_url": (
+            "https://nagpuruniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "RTM Nagpur University Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "nmu.ac.in": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh",
+            "jalgaon", "dhule", "nandurbar", "khandesh",
+        ],
+        "portal_url": "https://nmu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "KBC North Maharashtra University Jalgaon Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "bamu.ac.in": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh",
+            "aurangabad", "chhatrapati sambhajinagar",
+            "jalna", "beed", "osmanabad", "marathwada",
+        ],
+        "portal_url": "https://bamu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Dr. Babasaheb Ambedkar Marathwada University Aurangabad "
+            "Samarth (unverified — Phase 3.5 probe)"
+        ),
+    },
+    "srtmun.ac.in": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh",
+            "nanded", "latur", "parbhani", "hingoli",
+        ],
+        "portal_url": "https://srtmun.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Swami Ramanand Teerth Marathwada University Nanded Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # YCMOU is on the Maharashtra DigitalUniversity platform; portal_url
+    # is the open-university tenant root (no Samarth path component).
+    "ycmou.digitaluniversity.ac": {
+        "state": "Maharashtra",
+        "state_aliases": [
+            "maharashtra", "mh", "nashik", "ycmou",
+        ],
+        "portal_url": "https://ycmou.digitaluniversity.ac",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Yashwantrao Chavan Maharashtra Open University Nashik "
+            "(DigitalUniversity tenant; unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Rajasthan ----
+    "uniraj.ac.in": {
+        "state": "Rajasthan",
+        "state_aliases": [
+            "rajasthan", "rj",
+            "jaipur", "dausa", "sikar", "alwar",
+        ],
+        "portal_url": "https://uniraj.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "University of Rajasthan Jaipur Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "mdsuajmer.ac.in": {
+        "state": "Rajasthan",
+        "state_aliases": [
+            "rajasthan", "rj",
+            "ajmer", "tonk", "bhilwara", "nagaur",
+        ],
+        "portal_url": "https://mdsu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Maharshi Dayanand Saraswati University Ajmer Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "mgsubikaner.ac.in": {
+        "state": "Rajasthan",
+        "state_aliases": [
+            "rajasthan", "rj",
+            "bikaner", "ganganagar", "hanumangarh", "churu",
+        ],
+        "portal_url": "https://mgsu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Maharaja Ganga Singh University Bikaner Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "jnvu.ac.in": {
+        "state": "Rajasthan",
+        "state_aliases": [
+            "rajasthan", "rj",
+            "jodhpur", "barmer", "jaisalmer", "pali",
+        ],
+        "portal_url": "https://jnvu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Jai Narain Vyas University Jodhpur Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Tamil Nadu ----
+    "annauniv.edu": {
+        "state": "Tamil Nadu",
+        "state_aliases": [
+            "tamil nadu", "tamilnadu", "tn",
+            "chennai", "coimbatore", "trichy", "tiruchirappalli",
+            "tirunelveli", "madurai", "salem",
+        ],
+        "portal_url": "https://annauniv.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Anna University Chennai Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "bharathidasan.ac.in": {
+        "state": "Tamil Nadu",
+        "state_aliases": [
+            "tamil nadu", "tamilnadu", "tn",
+            "trichy", "tiruchirappalli", "thanjavur", "pudukkottai",
+            "perambalur",
+        ],
+        "portal_url": "https://bdu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Bharathidasan University Tiruchirappalli Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "bharathiar.ac.in": {
+        "state": "Tamil Nadu",
+        "state_aliases": [
+            "tamil nadu", "tamilnadu", "tn",
+            "coimbatore", "tirupur", "erode", "nilgiris",
+        ],
+        "portal_url": "https://bu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Bharathiar University Coimbatore Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "msuniv.ac.in": {
+        "state": "Tamil Nadu",
+        "state_aliases": [
+            "tamil nadu", "tamilnadu", "tn",
+            "tirunelveli", "thoothukudi", "kanyakumari",
+        ],
+        "portal_url": "https://msu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Manonmaniam Sundaranar University Tirunelveli Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Karnataka ----
+    "vtu.ac.in": {
+        "state": "Karnataka",
+        "state_aliases": [
+            "karnataka", "ka",
+            "bangalore", "bengaluru", "mysore", "mysuru",
+            "belagavi", "belgaum", "mangalore", "hubli", "dharwad",
+        ],
+        "portal_url": "https://vtu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Visvesvaraya Technological University Belagavi Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "bangaloreuniversity.ac.in": {
+        "state": "Karnataka",
+        "state_aliases": [
+            "karnataka", "ka",
+            "bangalore", "bengaluru", "kolar", "ramanagara",
+        ],
+        "portal_url": (
+            "https://bangaloreuniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Bangalore University Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "kud.ac.in": {
+        "state": "Karnataka",
+        "state_aliases": [
+            "karnataka", "ka",
+            "dharwad", "hubli", "gadag", "haveri", "uttara kannada",
+        ],
+        "portal_url": "https://kud.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Karnatak University Dharwad Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Andhra Pradesh ----
+    "jntua.ac.in": {
+        "state": "Andhra Pradesh",
+        "state_aliases": [
+            "andhra pradesh", "ap", "a.p.",
+            "anantapur", "kurnool", "kadapa", "chittoor",
+            "rayalaseema",
+        ],
+        "portal_url": "https://jntua.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Jawaharlal Nehru Technological University Anantapur Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "jntuk.edu.in": {
+        "state": "Andhra Pradesh",
+        "state_aliases": [
+            "andhra pradesh", "ap", "a.p.",
+            "kakinada", "east godavari", "west godavari",
+            "krishna", "guntur",
+        ],
+        "portal_url": "https://jntuk.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Jawaharlal Nehru Technological University Kakinada Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "andhrauniversity.edu.in": {
+        "state": "Andhra Pradesh",
+        "state_aliases": [
+            "andhra pradesh", "ap", "a.p.",
+            "visakhapatnam", "vizag", "vizianagaram", "srikakulam",
+        ],
+        "portal_url": (
+            "https://andhrauniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Andhra University Visakhapatnam Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Telangana ----
+    "osmania.ac.in": {
+        "state": "Telangana",
+        "state_aliases": [
+            "telangana", "ts",
+            "hyderabad", "secunderabad", "ranga reddy", "medak",
+        ],
+        "portal_url": "https://osmania.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Osmania University Hyderabad Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "jntuh.ac.in": {
+        "state": "Telangana",
+        "state_aliases": [
+            "telangana", "ts",
+            "hyderabad", "rangareddy", "ranga reddy",
+            "medak", "mahbubnagar",
+        ],
+        "portal_url": "https://jntuh.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "JNTU Hyderabad Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "kakatiya.ac.in": {
+        "state": "Telangana",
+        "state_aliases": [
+            "telangana", "ts",
+            "warangal", "karimnagar", "khammam", "nizamabad",
+            "adilabad",
+        ],
+        "portal_url": "https://ku.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Kakatiya University Warangal Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Gujarat ----
+    "gujaratuniversity.ac.in": {
+        "state": "Gujarat",
+        "state_aliases": [
+            "gujarat", "gj",
+            "ahmedabad", "gandhinagar", "kheda", "mehsana",
+        ],
+        "portal_url": (
+            "https://gujaratuniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Gujarat University Ahmedabad Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "vnsgu.ac.in": {
+        "state": "Gujarat",
+        "state_aliases": [
+            "gujarat", "gj",
+            "surat", "navsari", "valsad", "tapi",
+            "south gujarat",
+        ],
+        "portal_url": "https://vnsgu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Veer Narmad South Gujarat University Surat Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "spuvvn.edu": {
+        "state": "Gujarat",
+        "state_aliases": [
+            "gujarat", "gj",
+            "anand", "vallabh vidyanagar", "kheda",
+            "central gujarat",
+        ],
+        "portal_url": "https://spu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Sardar Patel University Vallabh Vidyanagar Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Madhya Pradesh ----
+    "rdunijbpin.org": {
+        "state": "Madhya Pradesh",
+        "state_aliases": [
+            "madhya pradesh", "mp", "m.p.",
+            "jabalpur", "katni", "narsinghpur", "mandla",
+        ],
+        "portal_url": "https://rdunijbpin.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Rani Durgavati University Jabalpur Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "vikramuniv.ac.in": {
+        "state": "Madhya Pradesh",
+        "state_aliases": [
+            "madhya pradesh", "mp", "m.p.",
+            "ujjain", "ratlam", "mandsaur", "neemuch",
+        ],
+        "portal_url": (
+            "https://vikramuniv.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Vikram University Ujjain Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "davv.ac.in": {
+        "state": "Madhya Pradesh",
+        "state_aliases": [
+            "madhya pradesh", "mp", "m.p.",
+            "indore", "dewas", "dhar", "jhabua", "khargone",
+        ],
+        "portal_url": "https://davv.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Devi Ahilya Vishwavidyalaya Indore Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- West Bengal ----
+    "wbut.ac.in": {
+        "state": "West Bengal",
+        "state_aliases": [
+            "west bengal", "wb",
+            "kolkata", "calcutta", "howrah", "haldia",
+            "siliguri", "kalyani",
+        ],
+        "portal_url": "https://makaut.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Maulana Abul Kalam Azad University of Technology (MAKAUT/WBUT) "
+            "Samarth (unverified — Phase 3.5 probe)"
+        ),
+    },
+    "caluniv.ac.in": {
+        "state": "West Bengal",
+        "state_aliases": [
+            "west bengal", "wb",
+            "kolkata", "calcutta", "howrah", "hooghly",
+            "north 24 parganas", "south 24 parganas",
+        ],
+        "portal_url": "https://caluniv.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "University of Calcutta Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Bihar ----
+    "brabu.ac.in": {
+        "state": "Bihar",
+        "state_aliases": [
+            "bihar", "br",
+            "muzaffarpur", "sitamarhi", "vaishali", "sheohar",
+            "east champaran", "west champaran",
+        ],
+        "portal_url": "https://brabu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Babasaheb Bhimrao Ambedkar Bihar University Muzaffarpur Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "lnmu.ac.in": {
+        "state": "Bihar",
+        "state_aliases": [
+            "bihar", "br",
+            "darbhanga", "madhubani", "samastipur", "begusarai",
+            "mithila",
+        ],
+        "portal_url": "https://lnmu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Lalit Narayan Mithila University Darbhanga Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "magadhuniversity.ac.in": {
+        "state": "Bihar",
+        "state_aliases": [
+            "bihar", "br",
+            "gaya", "nalanda", "aurangabad", "jehanabad",
+            "nawada",
+        ],
+        "portal_url": (
+            "https://magadhuniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Magadh University Bodh Gaya Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Punjab ----
+    "punjabiuniversity.ac.in": {
+        "state": "Punjab",
+        "state_aliases": [
+            "punjab", "pb",
+            "patiala", "sangrur", "barnala", "fatehgarh sahib",
+        ],
+        "portal_url": (
+            "https://punjabiuniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Punjabi University Patiala Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "ptu.ac.in": {
+        "state": "Punjab",
+        "state_aliases": [
+            "punjab", "pb",
+            "jalandhar", "kapurthala", "ludhiana", "amritsar",
+        ],
+        "portal_url": "https://ptu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "IKG Punjab Technical University Jalandhar Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Haryana ----
+    "mdurohtak.ac.in": {
+        "state": "Haryana",
+        "state_aliases": [
+            "haryana", "hr",
+            "rohtak", "jhajjar", "sonipat", "bhiwani", "charkhi dadri",
+        ],
+        "portal_url": "https://mdu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Maharshi Dayanand University Rohtak Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "kvasu.ac.in": {
+        "state": "Haryana",
+        "state_aliases": [
+            "haryana", "hr",
+            "kurukshetra", "kaithal", "karnal", "panipat", "yamunanagar",
+        ],
+        "portal_url": "https://kuk.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Kurukshetra University (KUK) Samarth "
+            "(unverified — Phase 3.5 probe; domain key kvasu.ac.in "
+            "carried over from prompt — verify against KUK's own domain)"
+        ),
+    },
+    # ---- Himachal Pradesh ----
+    "hpuniv.ac.in": {
+        "state": "Himachal Pradesh",
+        "state_aliases": [
+            "himachal pradesh", "hp",
+            "shimla", "solan", "kullu", "mandi", "kangra",
+            "hamirpur", "una",
+        ],
+        "portal_url": "https://hpuniv.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Himachal Pradesh University Shimla Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Odisha ----
+    "utkaluniversity.ac.in": {
+        "state": "Odisha",
+        "state_aliases": [
+            "odisha", "orissa", "od",
+            "bhubaneswar", "cuttack", "puri", "khordha",
+        ],
+        "portal_url": (
+            "https://utkaluniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Utkal University Bhubaneswar Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "buodisha.ac.in": {
+        "state": "Odisha",
+        "state_aliases": [
+            "odisha", "orissa", "od",
+            "berhampur", "ganjam", "gajapati", "rayagada",
+        ],
+        "portal_url": "https://buodisha.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Berhampur University Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    # ---- Kerala ----
+    "keralauniversity.ac.in": {
+        "state": "Kerala",
+        "state_aliases": [
+            "kerala", "kl",
+            "thiruvananthapuram", "trivandrum", "kollam",
+            "pathanamthitta",
+        ],
+        "portal_url": (
+            "https://keralauniversity.samarth.edu.in/index.php/site/login"
+        ),
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "University of Kerala Thiruvananthapuram Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "cusat.ac.in": {
+        "state": "Kerala",
+        "state_aliases": [
+            "kerala", "kl",
+            "kochi", "cochin", "ernakulam", "thrissur",
+        ],
+        "portal_url": "https://cusat.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Cochin University of Science and Technology Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
+    "mgu.ac.in": {
+        "state": "Kerala",
+        "state_aliases": [
+            "kerala", "kl",
+            "kottayam", "idukki", "ernakulam", "alappuzha",
+        ],
+        "portal_url": "https://mgu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Mahatma Gandhi University Kottayam Samarth "
+            "(unverified — Phase 3.5 probe)"
+        ),
+    },
 }
 
 

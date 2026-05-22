@@ -1486,6 +1486,78 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
                     len(deep_urls),
                 )
 
+    # ---- Phase 3.5: affiliation probe --------------------------------------
+    # Every Indian college has a parent affiliating university that grants
+    # degrees, and many of those affiliators run Samarth / centralized ERP
+    # tenants shared by their affiliated colleges. This phase looks up
+    # `org_state` (from `domain_overrides[orgid]["state"]`) against the
+    # `state_aliases` of every entry in `AFFILIATING_UNIVERSITY_PORTALS`
+    # and queues each matching affiliator's portal URL as an ordinary
+    # candidate. Probes go through the standard validation pipeline
+    # (rule-A/B/C); dead tenants 404/timeout and drop, live ones land in
+    # the candidate pool alongside the college's own-domain hits.
+    #
+    # Distinct from the `affiliating-university-fallback` block later in
+    # this function — that one is force-accept-on-empty (fires ONLY when
+    # 0 portals survive consolidation, and only for entries without
+    # `verify: True`). This one is probe-with-validation: it runs for
+    # EVERY OrgID with a known state, regardless of how many portals are
+    # eventually found.
+    t_phase = time.monotonic()
+    affiliation_added = 0
+    state_lower = (org_state or "").lower()
+    if state_lower:
+        existing_urls = {c.url for c in rule_candidates}
+        for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
+            if not any(
+                alias in state_lower
+                for alias in aff_info.get("state_aliases", ())
+            ):
+                continue
+            portal_url = aff_info["portal_url"]
+            if portal_url in existing_urls:
+                continue
+            host = urlsplit(portal_url).netloc.lower().split(":")[0]
+            if not host:
+                continue
+            is_wildcard, _fp = _has_wildcard_dns(
+                host,
+                http_timeout=config.http_timeout_seconds,
+                user_agent=config.user_agent,
+            )
+            if is_wildcard:
+                logger.debug(
+                    "[%s] affiliation probe: skip %s — wildcard DNS host %s",
+                    orgid, portal_url, host,
+                )
+                continue
+            rule_candidates.append(Candidate(
+                url=portal_url,
+                category=aff_info.get("category", "Student Portal"),
+                discovery_source="rule:affiliation-probe",
+                discovery_reasoning=(
+                    f"affiliating university {aff_domain} "
+                    f"(state={org_state!r} matched state_aliases)"
+                ),
+            ))
+            existing_urls.add(portal_url)
+            affiliation_added += 1
+            logger.info(
+                "[%s] affiliation probe: added %s (%s)",
+                orgid, portal_url, aff_domain,
+            )
+    else:
+        logger.debug(
+            "[%s] affiliation probe: skipped — no state in domain_overrides",
+            orgid,
+        )
+    if affiliation_added:
+        rule_candidates = _dedupe(rule_candidates)
+    logger.info(
+        "[%s] phase=affiliation_probe took=%.1fs added=%d state=%r",
+        orgid, time.monotonic() - t_phase, affiliation_added, org_state,
+    )
+
     # ---- Phase: same-host student-login probes (parallel) ------------------
     # Restrict to hosts on the university's own domains OR confirmed sibling
     # hosts. Shared-platform tenants (samarth.edu.in / digitaluniversity.ac /
@@ -1898,6 +1970,15 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         all_seen_hosts.update(effective_domains)
         seen_blob = " ".join(str(h) for h in all_seen_hosts)
         for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
+            # `verify: True` entries are Phase 3.5 probe-only — they
+            # have NOT been operator-verified end-to-end and must not
+            # be force-accepted as a fallback. If their URL is live,
+            # Phase 3.5 will have already added it to the candidate
+            # pool via the normal validation path; if it didn't
+            # survive validation, the fallback should not silently
+            # write a possibly-dead URL.
+            if aff_info.get("verify"):
+                continue
             state_match = bool(state_lower) and any(
                 alias in state_lower
                 for alias in aff_info["state_aliases"]
