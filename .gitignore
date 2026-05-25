@@ -20,6 +20,9 @@ client_secret*.json
 logs/
 *.log
 
+# Autotune / eval artifacts
+eval_logs/
+
 # Python
 __pycache__/
 *.py[cod]
