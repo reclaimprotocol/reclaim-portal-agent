@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(_bootstrap.ROOT)
 EVAL_SCRIPT = REPO_ROOT / "scripts" / "run_finetune_eval.py"
 EVAL_LOGS_DIR = REPO_ROOT / "eval_logs"
-CLAUDE_CODE_TIMEOUT_SECONDS = 300
+CLAUDE_CODE_TIMEOUT_SECONDS = 900
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +294,14 @@ def call_claude_code(fixes_file: Path, claude_path: str) -> bool:
 
     try:
         result = subprocess.run(
-            [claude_path, "--print", "--no-stream"],
+            [
+                claude_path, "--print",
+                # Autotune runs non-interactively: without bypass, Claude
+                # blocks on Edit/Write approval prompts. Acceptable here
+                # because the entire purpose of this subprocess is to let
+                # Claude modify the repo.
+                "--permission-mode", "bypassPermissions",
+            ],
             input=full_prompt,
             capture_output=True,
             text=True,
