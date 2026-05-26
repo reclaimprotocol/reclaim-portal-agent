@@ -381,5 +381,11 @@
       "https://sis.manipal.edu/studlogin.aspx",
       "https://slcm.manipal.edu/"
     ]
+  },
+  "663888": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://studenterp.lnmu.ac.in/"
+    ]
   }
 }
