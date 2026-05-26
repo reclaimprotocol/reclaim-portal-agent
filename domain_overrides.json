@@ -387,5 +387,77 @@
     "seed_urls": [
       "https://studenterp.lnmu.ac.in/"
     ]
+  },
+  "3827330": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["mobiquel.com", "uod.ac.in"],
+    "seed_urls": [
+      "https://deshbandhu.mobiquel.com/smartprof/index.php",
+      "https://slc.uod.ac.in/index.php/site/login",
+      "https://deshbandhucollege.in/Internet/Student/Login_Npd.aspx"
+    ],
+    "notes": "Deshbandhu College (DU-affiliated). Student portal at deshbandhu.mobiquel.com/smartprof (Mobiquel SmartProf), DU's central SLC tenant at slc.uod.ac.in, and a college-specific .aspx login at deshbandhucollege.in/Internet/Student/Login_Npd.aspx. Organic discovery only surfaced 404'd samarth.edu.in tenants (http.samarth.edu.in, htt.samarth.edu.in) and blocklisted deshbandhucollege-du.samarth.ac.in; force_accept_seed_urls pins the operator-verified URLs."
+  },
+  "10063096": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["uni1erp.in", "mobiquel.com", "uod.ac.in"],
+    "seed_urls": [
+      "https://mlnce.uni1erp.in/public/login",
+      "https://www.motilal.mobiquel.com/smartprof/",
+      "https://slc.uod.ac.in/index.php/site/login"
+    ],
+    "notes": "Motilal Nehru College (DU-affiliated). Student portals: mlnce.uni1erp.in/public/login (uni1erp platform), motilal.mobiquel.com/smartprof, and DU's central SLC slc.uod.ac.in. Homepage crawls on mlncdu.ac.in only surfaced static marketing pages (Attendance.html, Students_Union.html, fac_library.html) with no login form; force_accept_seed_urls pins the operator-verified URLs."
+  },
+  "3826200": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["gtu.ac.in", "gtu.samarth.edu.in"],
+    "seed_urls": [
+      "https://gtu.samarth.edu.in/index.php/site/login",
+      "https://student.gtu.ac.in/"
+    ],
+    "notes": "Birla Vishvakarma Maha Vidhyalaya (BVM Engineering, Vallabh Vidyanagar). GTU-affiliated college with no own student portal — students use the GTU centralized Samarth tenant (gtu.samarth.edu.in) and the GTU student portal (student.gtu.ac.in). bvmengineering.ac.in homepage crawl only surfaced /student-info (404) and /login.aspx (JS-rendered, fails hard gate) — force_accept_seed_urls pins the GTU central portals."
+  },
+  "664032": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["karnataka.gov.in"],
+    "seed_urls": [
+      "https://uucms.karnataka.gov.in/Login/Index",
+      "https://bangaloreuniversity.karnataka.gov.in/back/index"
+    ],
+    "notes": "Bangalore University. Real student portals live on the Karnataka state-government UUCMS platform: uucms.karnataka.gov.in/Login/Index (state-wide Unified University and College Management System) and bangaloreuniversity.karnataka.gov.in (BU's per-university tenant). bangaloreuniversity.ac.in DNS resolution fails. force_accept_seed_urls bypasses the EXTERNAL_DOMAIN_BLOCKLIST gov.in entry that would otherwise drop karnataka.gov.in URLs."
+  },
+  "6451560": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["mastersofterp.in"],
+    "seed_urls": [
+      "https://nkctest.mastersofterp.in/login.aspx"
+    ],
+    "blocked_urls": [
+      "https://nkc.ac.in/Login.aspx",
+      "https://www.nkc.ac.in/Login.aspx"
+    ],
+    "notes": "Nagindas Khandwala College. Real student portal lives on the third-party MastersOfTerp ERP platform at nkctest.mastersofterp.in/login.aspx (separate domain from the nkc.ac.in marketing site). nkc.ac.in/Login.aspx and www.nkc.ac.in/Login.aspx pass rule-A (real login form) but are the staff/admin login on the marketing site — explicitly blocked. force_accept_seed_urls pins the operator-verified MastersOfTerp URL."
+  },
+  "664052": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["uni-mysore.in"],
+    "seed_urls": [
+      "https://uauth.uni-mysore.in/login"
+    ],
+    "blocked_urls": [
+      "https://uni-mysore.ac.in/uom_admin/index.php"
+    ],
+    "notes": "University of Mysore. Real student SSO is uauth.uni-mysore.in (separate .in TLD from primary uni-mysore.ac.in). The SSO page renders \"don't have an account? register\" copy that the admission-portal detector treats as a strong reject signal — force_accept_seed_urls bypasses Layer 2 admission detection. /uom_admin/index.php on uni-mysore.ac.in passes rule-A but is the admin backend (UoM Admin), not a student portal — blocked."
+  },
+  "664467": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://stu.bmu.ac.in/",
+      "https://lms.bmu.ac.in/"
+    ],
+    "blocked_urls": [
+      "https://bmu.digiicampus.com/StudentLogin"
+    ],
+    "notes": "Baba Mastnath University. Real student portals live on bmu.ac.in subdomains: stu.bmu.ac.in (Student SIS) and lms.bmu.ac.in (Moodle). The Digiicampus tenant bmu.digiicampus.com/StudentLogin surfaces organically (digiicampus.com is in KNOWN_SHARED_PLATFORM_PATTERNS + SHARED_PLATFORM_TENANT_PROBES) but is not the operator-verified student portal for this university — blocked."
   }
 }
