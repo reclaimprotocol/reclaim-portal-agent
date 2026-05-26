@@ -459,5 +459,29 @@
       "https://bmu.digiicampus.com/StudentLogin"
     ],
     "notes": "Baba Mastnath University. Real student portals live on bmu.ac.in subdomains: stu.bmu.ac.in (Student SIS) and lms.bmu.ac.in (Moodle). The Digiicampus tenant bmu.digiicampus.com/StudentLogin surfaces organically (digiicampus.com is in KNOWN_SHARED_PLATFORM_PATTERNS + SHARED_PLATFORM_TENANT_PROBES) but is not the operator-verified student portal for this university — blocked."
+  },
+  "5429470": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["unom.ac.in", "ideunom.ac.in"],
+    "seed_urls": [
+      "https://exam.unom.ac.in/ideugexam/login.asp"
+    ],
+    "notes": "University of Madras. Student exam portal lives at exam.unom.ac.in/ideugexam/login.asp (IDE UG exam login). Organic discovery surfaces unrelated UNOM hosts (www.unom.ac.in, egovernance.unom.ac.in, ideunom.ac.in) but the canonical exam portal is at the exam.unom.ac.in subdomain on a .asp path that the default probes don't generate; force-accept pins the operator-verified URL past validation."
+  },
+  "10205454": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["unom.ac.in", "ideunom.ac.in"],
+    "seed_urls": [
+      "https://exam.unom.ac.in/ideugexam/login.asp"
+    ],
+    "notes": "University of Madras Institute of Distance Education (IDE). Shares the parent UNOM exam portal at exam.unom.ac.in/ideugexam/login.asp. Same seed as OrgID 5429470 (parent University of Madras); force-accept pins it past validation since organic discovery only surfaces www.unom.ac.in (rejected as admission portal) and ideunom.ac.in pages (rejected as 404 / no login form)."
+  },
+  "3830597": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["datavista.in"],
+    "seed_urls": [
+      "https://datavista.in/cms/student/Int/auth/login.php?sectionmaster_Id=26"
+    ],
+    "notes": "Jai Hind College (Basantsing Institute of Science & J.T. Lalvani College of Commerce & Shaila Gopal Raheja College of Management), Mumbai. Student portal is hosted on the third-party datavista.in CMS at a per-section path (sectionmaster_Id=26). Organic discovery (DDG, Gemini) surfaces unrelated admission/registration sites; force-accept pins the operator-verified URL past validation."
   }
 }
