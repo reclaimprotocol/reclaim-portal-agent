@@ -248,5 +248,103 @@
       "https://itcps-erp.itcollege.ac.in/erp-login.php"
     ],
     "notes": "Student portal at /itcps/student/login.php. ERP at itcps-erp subdomain. erp.itcollege.ac.in DNS was down during run."
+  },
+  "10200454": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["nbu", "northbengal"],
+    "extra_effective_domains": ["nbuexams.net"],
+    "seed_urls": [
+      "https://www.nbuexams.net/logincon.php",
+      "https://www.nbuexams.net/student_portal/index.php"
+    ],
+    "notes": "University of North Bengal. Student exam/portal lives on the dedicated nbuexams.net domain (separate from SheerID primary nbu.ac.in). Gemini broad search and homepage crawls on nbu.ac.in surfaced only marketing pages with no login form; force-accept the nbuexams.net seeds so the canonical portals are emitted. ir.nbu.ac.in is the institutional repository, not a student portal."
+  },
+  "3838423": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["slc", "shyamlal"],
+    "extra_effective_domains": ["uod.ac.in"],
+    "seed_urls": [
+      "https://slc.uod.ac.in/index.php/site/login"
+    ],
+    "blocked_urls": [
+      "https://appsms.du.ac.in/muser/userpersonal/login",
+      "https://dup.du.ac.in/index.php/index/login"
+    ],
+    "notes": "Shyam Lal College (DU North East, Delhi). College-level Samarth tenant lives on uod.ac.in (DU runs both du.ac.in and uod.ac.in for college tenants). The auto-derived 'du' from shyamlale.du.ac.in spuriously admits DU-wide portals (appsms.du.ac.in, dup.du.ac.in) which are the central university login, not the college's. exact_shortnames pins R3/R4/R6 to slc/shyamlal so DU-wide subdomains stop being treated as the college's own."
+  },
+  "3848006": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["zcoer", "zeal"],
+    "extra_effective_domains": ["zealerp.in", "zcoerapps.in"],
+    "seed_urls": [
+      "https://learner.zealerp.in/",
+      "https://student.zcoerapps.in/itxlogin"
+    ],
+    "blocked_urls": [
+      "https://zcoer.in/wp-login.php"
+    ],
+    "notes": "Zeal Education Society's Zeal College of Engineering & Research. Real student portals: learner.zealerp.in (Zeal ERP platform) and student.zcoerapps.in/itxlogin (ITX SPA — JS-rendered, static probes all DROP). zcoer.in/wp-login.php is the WordPress admin backend for the marketing site, not a student portal — blocked."
+  },
+  "664115": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["bamu", "bamua"],
+    "extra_effective_domains": ["digitaluniversity.ac", "dulive.ac"],
+    "seed_urls": [
+      "https://bamu.samarth.edu.in/index.php/site/login",
+      "https://bamuaapp.digitaluniversity.ac/Login.aspx?IsCollege=%27Y%27",
+      "https://bamuaops.dulive.ac/#/bamua",
+      "https://bamuaclc.digitaluniversity.ac/#/"
+    ],
+    "blocked_urls": [
+      "https://bamukrc.knimbus.com/portal/v2/default/login",
+      "https://online.bamu.ac.in/unic/indrad/login.php"
+    ],
+    "notes": "Dr. Babasaheb Ambedkar Marathwada University. Real student portals: Samarth tenant bamu.samarth.edu.in, DigitalUniversity (bamuaapp, bamuaclc) and dulive.ac (bamuaops). bamu.samarth.ac.in was rejected as instance-blocklist during the failing run — force_accept_seed_urls bypasses that for the canonical .edu.in tenant. bamukrc.knimbus.com is the knowledge-resource library (not the student SIS); online.bamu.ac.in/unic/indrad is the IndRAD researcher portal — both blocked."
+  },
+  "664236": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["uniraj"],
+    "seed_urls": [
+      "https://uniraj.samarth.ac.in/index.php/site/login"
+    ],
+    "notes": "University of Rajasthan, Jaipur. Real student Samarth tenant lives on samarth.ac.in (uniraj.samarth.ac.in), NOT samarth.edu.in. The samarth.ac.in apex is in KNOWN_INSTANCE_BLOCKLIST (it's the employee/faculty Samarth root) so the tenant would be rejected at pre-filter; force_accept_seed_urls bypasses that for this operator-verified URL. Organic discovery only surfaced ide/idol/sol/hostel/result subdomains under uniraj.ac.in (all rejected as admission portals or no-login)."
+  },
+  "663985": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["mdu", "mdurohtak"],
+    "seed_urls": [
+      "https://student.mdu.ac.in/index",
+      "https://mdu.samarth.edu.in/index.php/site/login",
+      "https://dms.mdu.ac.in/Login.aspx",
+      "http://ilms.mdu.ac.in/moodle_mdu/login/index.php"
+    ],
+    "notes": "Maharshi Dayanand University, Rohtak. Samarth tenant prefix is 'mdu' but the auto-derived SheerID shortname is 'mdurohtak'; without exact_shortnames the strict-membership re-check rejects mdu.samarth.edu.in as a non-matching tenant ('mdu' ∉ auto_shortnames ['mdurohtak']). force_accept_seed_urls also pins the SIS (student.mdu.ac.in), DMS (dms.mdu.ac.in) and Moodle (ilms.mdu.ac.in) URLs that organic discovery missed (homepage crawl was dominated by 404 PDFs)."
+  },
+  "10202495": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["sju", "sjuv4", "sjc"],
+    "seed_urls": [
+      "https://sjuv4.linways.com/ams/student/login",
+      "https://sju.linways.com/student/",
+      "https://sjc.knimbus.com/portal/v2/default/login"
+    ],
+    "notes": "St Joseph's University, Bengaluru. Real student portals live on linways.com tenant subdomains (sjuv4.linways.com /ams/student/login and sju.linways.com/student/) plus the Knimbus library tenant (sjc.knimbus.com). Organic discovery surfaced only linways.com marketing pages (/pages/...) which redirect to the bare platform root and are rejected as such; force_accept_seed_urls pins the canonical tenant URLs. linways.com and knimbus.com are already in KNOWN_SHARED_PLATFORM_PATTERNS so no extra_effective_domains entry is required."
+  },
+  "664220": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["univindia.net"],
+    "seed_urls": [
+      "https://univindia.net/MGSU/mGsuMain/index.php",
+      "https://univindia.net/MGSU/uNIvPaNEL/univlogin.php"
+    ],
+    "notes": "Maharaja Ganga Singh University, Bikaner. Real student portals live on a third-party univindia.net platform under the /MGSU/ path. mgsubikaner.ac.in was returning HTTP 429 (rate-limited) during discovery so every uniraj-side candidate dropped; force_accept_seed_urls bypasses validation so the ground-truth univindia.net URLs are emitted directly. extra_effective_domains keeps the host on the OrgID's allow-list if it ever surfaces organically."
+  },
+  "10151512": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["soaportals.com"],
+    "seed_urls": [
+      "https://soaportals.com/StudentPortalSOA/#/"
+    ],
+    "notes": "Institute of Technical Education and Research (Siksha 'O' Anusandhan, Bhubaneswar). Student portal lives on soaportals.com at the SPA route /StudentPortalSOA/#/. soa.ac.in homepage and research subdomain only carry marketing / news / event pages (no login form, fail the hard gate); force_accept_seed_urls pins the canonical portal URL. extra_effective_domains keeps soaportals.com on the OrgID allow-list."
   }
 }
