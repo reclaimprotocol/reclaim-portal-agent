@@ -12,7 +12,12 @@
     "state": "Punjab",
     "exact_shortnames": ["pup", "punjabiuniversity", "punjabi-university"],
     "extra_effective_domains": ["punjabiuniversity.ac.in", "pupexamination.ac.in", "cdoepunjabiuniversity.in"],
-    "notes": "Punjabi University Patiala. Shortname 'pup' = Punjabi University Patiala. SheerID-listed pbi.ac.in is stale."
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://pupexamination.ac.in/Login.aspx?Type=Student",
+      "https://admissions.cdoepunjabiuniversity.in/Students/login"
+    ],
+    "notes": "Punjabi University Patiala. Shortname 'pup' = Punjabi University Patiala. SheerID-listed pbi.ac.in is stale. Exam portal at pupexamination.ac.in and CDOE admissions portal at admissions.cdoepunjabiuniversity.in are the operator-verified student logins; force-accept the seeds because organic discovery surfaced punjabiuniversity.ac.in/Dalbir/Login.aspx (admin/staff) instead."
   },
   "663894": {
     "state": "Bihar",
@@ -41,8 +46,14 @@
     "notes": "Sathyabama. All university portals are JS-rendered SPAs that redirect to a homepage when unauthenticated, so static heuristics can't validate them. Force-accept the curated seed URLs and probe sathyabama.ac.in directly for T&C."
   },
   "10207980": {
-    "seed_urls": ["https://portal.lnct.ac.in/"],
-    "notes": "LNCT Bhopal student portal. The LNCT group has many sibling campus domains (lnctrishiraj.ac.in, lnctu.ac.in, lncte.ac.in, lnctworldschools.com, lnctuj.com) that surface as siblings via DDG; with MAX_SIBLING_ROOTS_TO_PROBE=3 these no longer eat the discovery budget. seed_url guarantees portal.lnct.ac.in is validated even when the budget is tight."
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["lnctu.ac.in"],
+    "seed_urls": [
+      "https://portal.lnct.ac.in/",
+      "https://accsoft2.lnctu.ac.in/Accsoft2/studentLogin.aspx",
+      "https://lnctcet.lnctu.ac.in/student-login"
+    ],
+    "notes": "LNCT (Lakshmi Narain College of Technology) Bhopal. Real student portals live on the lnctu.ac.in sibling domain — accsoft2.lnctu.ac.in/Accsoft2/studentLogin.aspx (Accsoft SIS) and lnctcet.lnctu.ac.in/student-login. portal.lnct.ac.in is kept as a generic fallback. The LNCT group has many sibling campus domains (lnctrishiraj.ac.in, lncte.ac.in, lnctworldschools.com, lnctuj.com) that surface as siblings via DDG; with MAX_SIBLING_ROOTS_TO_PROBE=3 these no longer eat the discovery budget. force_accept_seed_urls=true ships the GT URLs past validation; otherwise organic discovery surfaced lnctalumni.in (alumni site)."
   },
   "4816763": {
     "exact_shortnames": ["vnsgu", "vnsgurec"],
@@ -346,5 +357,29 @@
       "https://soaportals.com/StudentPortalSOA/#/"
     ],
     "notes": "Institute of Technical Education and Research (Siksha 'O' Anusandhan, Bhubaneswar). Student portal lives on soaportals.com at the SPA route /StudentPortalSOA/#/. soa.ac.in homepage and research subdomain only carry marketing / news / event pages (no login form, fail the hard gate); force_accept_seed_urls pins the canonical portal URL. extra_effective_domains keeps soaportals.com on the OrgID allow-list."
+  },
+  "664229": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["nims-lms.com"],
+    "seed_urls": [
+      "https://nims-lms.com/login"
+    ],
+    "notes": "Nims University Rajasthan. Real student LMS lives on the separate nims-lms.com domain. nimsuniversity.org/news/wp-login.php is the WordPress backend for the news section (admin/staff); lms.nimsuniversity.org/login/index.php is a parallel Moodle but operator-verified GT is nims-lms.com. force_accept_seed_urls=true ships nims-lms.com past validation; extra_effective_domains keeps it on the OrgID allow-list."
+  },
+  "664499": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["icloudems.com"],
+    "seed_urls": [
+      "https://krmu.icloudems.com/corecampus/index.php",
+      "https://lms.krmangalam.edu.in/session_2025-26/"
+    ],
+    "notes": "K.R. Mangalam University. Real student portals: krmu.icloudems.com/corecampus (iCloudEMS tenant) and lms.krmangalam.edu.in (Moodle session_2025-26). Organic discovery kept the library knimbus tenant (library.krmangalam.edu.in) instead. icloudems.com is a multi-tenant SIS platform — added to extra_effective_domains so krmu.icloudems.com is admitted via R1/R2; force_accept_seed_urls=true ships both canonical URLs past validation."
+  },
+  "664051": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://sis.manipal.edu/studlogin.aspx",
+      "https://slcm.manipal.edu/"
+    ]
   }
 }
