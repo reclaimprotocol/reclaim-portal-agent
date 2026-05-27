@@ -483,5 +483,19 @@
       "https://datavista.in/cms/student/Int/auth/login.php?sectionmaster_Id=26"
     ],
     "notes": "Jai Hind College (Basantsing Institute of Science & J.T. Lalvani College of Commerce & Shaila Gopal Raheja College of Management), Mumbai. Student portal is hosted on the third-party datavista.in CMS at a per-section path (sectionmaster_Id=26). Organic discovery (DDG, Gemini) surfaces unrelated admission/registration sites; force-accept pins the operator-verified URL past validation."
+  },
+  "3833539": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://portal.svkm.ac.in/usermgmt/login"
+    ],
+    "notes": "SVKM Mithibai College (row 53). Student login is the shared SVKM group SSO at portal.svkm.ac.in/usermgmt/login; organic discovery accepts the per-college admission portal mithibai.ac.in/mithibailogin/ instead. Force-accept pins the operator SSO past validation."
+  },
+  "664093": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://jiwaji.samarth.ac.in/index.php/site/login"
+    ],
+    "notes": "Jiwaji University (row 58). Student portal is the Samarth tenant jiwaji.samarth.ac.in; organic discovery surfaces the MPOnline state-SIS jiwaji.mponline.gov.in instead. Force-accept pins the Samarth login past validation."
   }
 }
