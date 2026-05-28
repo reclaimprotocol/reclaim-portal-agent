@@ -601,5 +601,69 @@
       "https://onlinelearning.aksuniversity.ac.in/wp-login.php"
     ],
     "notes": "Aks University (row 327). Real student portal is the dedicated SIS subdomain aksuportal.aksuniversity.ac.in/#/login (SPA route — JS-rendered, static probes can't validate). aksuniversity.ac.in/user/login (and www / .com variants) is the Drupal admin/staff backend on the marketing site, and onlinelearning.aksuniversity.ac.in/wp-login.php is the WordPress backend for the e-learning site — none are student portals, all explicitly blocked. Force-accept pins the operator-verified SPA URL."
+  },
+  "10078972": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["onlinejain.com"],
+    "seed_urls": [
+      "https://portal.onlinejain.com/login?next=/dashboard"
+    ],
+    "notes": "Jain Online (row 341). Student portal lives at portal.onlinejain.com/login (Django next=/dashboard route). onlinejain.com homepage fails the hard gate (no login form, 651KB marketing CMS page); the configured Samarth / sumsraj / digiicampus tenant probes for 'onlinejain' all 404. Force-accept pins the operator-verified portal URL past validation."
+  },
+  "3805982": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["instituteoncloud.com"],
+    "seed_urls": [
+      "https://stjohnsagra.instituteoncloud.com/Account/Login?ReturnUrl=%2F"
+    ],
+    "notes": "St John's College Agra (row 343). Student portal lives on the third-party instituteoncloud.com platform at stjohnsagra.instituteoncloud.com/Account/Login (.NET ASPX). Configured digiicampus / samarth / sumsraj / mponline tenant probes for 'sjcagra' / 'stjohnscollegeagra' all return DNS gaierror. sjcagra.ac.in is the marketing site (admission portal — strong 'click here to apply' signal). Force-accept pins the operator-verified instituteoncloud.com URL."
+  },
+  "3834564": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["learnsquare.co"],
+    "seed_urls": [
+      "https://aicas.learnsquare.co/login"
+    ],
+    "notes": "Modern Education Society's Ness Wadia College Of Commerce (row 344). Student portal lives on the third-party learnsquare.co platform at aicas.learnsquare.co/login (tenant name doesn't match the SheerID shortname 'nesswadiacollege'). Configured Samarth / digiicampus / sumsraj tenant probes all 404; Gemini broad search surfaced only the nesswadiacollege.edu.in marketing apex which fails off-domain. Force-accept pins the operator-verified portal URL past validation."
+  },
+  "3839388": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["spm", "shyamaprasad", "spmcollege"],
+    "extra_effective_domains": ["uod.ac.in"],
+    "seed_urls": [
+      "https://slc.uod.ac.in/index.php/site/login"
+    ],
+    "notes": "Shyama Prasad Mukherji College For Women (row 349). DU-constituent college; student login is DU's central SLC Samarth tenant at slc.uod.ac.in (shared with other DU colleges, see 3838423 / 3827330 / 10063096 / 10272424). spm.du.ac.in homepage and /students/* subpaths only carry marketing content (no login form, JS-render defers). Force-accept pins the operator-verified central SLC URL."
+  },
+  "3827631": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["dpggroupofinstitutions.com"],
+    "seed_urls": [
+      "https://erp.dpggroupofinstitutions.com/student_panel_new/"
+    ],
+    "blocked_urls": [
+      "https://www.dpgdegreecollege.com/wp-login.php",
+      "https://dpgdegreecollege.com/wp-login.php"
+    ],
+    "notes": "Dpg Degree College (row 342). Real student portal is the parent DPG Group ERP at erp.dpggroupofinstitutions.com/student_panel_new/ (the marketing site at dpgdegreecollege.com only carries admission/ERP-link pages, all rejected as admission portals). dpgdegreecollege.com/wp-login.php is the WordPress admin backend for the marketing site (passes rule-A but is admin, not a student portal) — explicitly blocked. Force-accept pins the operator-verified group ERP URL."
+  },
+  "3838656": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["accsofterp.com"],
+    "seed_urls": [
+      "https://sgi.accsofterp.com/AccSoft_SGI/studentLogin.aspx"
+    ],
+    "blocked_urls": [
+      "https://dte.mponline.gov.in/portal/services/onlinecounselling/counshomepage/home.aspx",
+      "https://www.mponline.gov.in/portal/"
+    ],
+    "notes": "Sagar Institute Of Research & Technology (row 345). Real student portal is the AccSoft ERP tenant at sgi.accsofterp.com/AccSoft_SGI/studentLogin.aspx. The configured MPOnline tenant probe surfaces dte.mponline.gov.in/portal/services/onlinecounselling/... (DTE counselling, not a student SIS) and the mponline.gov.in apex — both are admission/counselling portals, not the operator-verified student login; explicitly blocked. The OAP_SGI sibling at sgi.accsofterp.com returns HTTP 404; force-accept pins the AccSoft_SGI canonical URL."
+  },
+  "3835696": {
+    "seed_urls": [
+      "https://student.pragjyotishcollege.ac.in/login",
+      "https://gauhati.samarth.edu.in/index.php/site/login"
+    ],
+    "force_accept_seed_urls": true
   }
 }
