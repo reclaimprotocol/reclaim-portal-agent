@@ -665,5 +665,53 @@
       "https://gauhati.samarth.edu.in/index.php/site/login"
     ],
     "force_accept_seed_urls": true
+  },
+  "3841377": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["icampuserp.in", "unitedgn.in"],
+    "seed_urls": [
+      "https://student.icampuserp.in/Login.aspx",
+      "https://student.unitedgn.in/Login.aspx"
+    ],
+    "notes": "United College Of Engineering And Research, Allahabad (row 351). Real student portals live on the iCampus ERP third-party platform at student.icampuserp.in/Login.aspx and on the sibling unitedgn.in domain at student.unitedgn.in/Login.aspx. The homepage 'Student Corner' link points directly to student.icampuserp.in but is skipped as off-domain. Force-accept pins the operator-verified portal URLs past validation."
+  },
+  "3837924": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://portal.sethu.ac.in/login/"
+    ],
+    "blocked_urls": [
+      "https://sethu.ac.in/wp-login.php"
+    ],
+    "notes": "Sethu Institute Of Technology (row 353). Real student portal is portal.sethu.ac.in/login/ — the agent only surfaced portal.sethu.ac.in/grievance-list/nw/ which gets rejected as non-student form. sethu.ac.in/wp-login.php is the WordPress admin backend for the marketing site, NOT a student portal — explicitly blocked. Force-accept pins the operator-verified portal URL."
+  },
+  "664279": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://pucoe.periyaruniversity.ac.in/UDE-Exam-App/",
+      "https://pride.periyaruniversity.ac.in/admission/lsc/login",
+      "https://pride.periyaruniversity.ac.in/pucdoe/ODLRegister/"
+    ],
+    "notes": "Periyar University (row 354). Real student portals live on the pucoe / pride subdomains: pucoe.periyaruniversity.ac.in/UDE-Exam-App/ (Exam app), pride.periyaruniversity.ac.in/admission/lsc/login (LSC admission/login), pride.periyaruniversity.ac.in/pucdoe/ODLRegister/ (ODL register). Organic discovery only surfaced periyaruniversity.ac.in/* PHP pages (coe.php, StudentCorner.php, examfee.php, etc.) which all fail the hard gate or have no login form. Force-accept pins the operator-verified portal URLs."
+  },
+  "3832453": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://lkouniv.samarth.edu.in/index.php/site/login",
+      "https://exam.lkouniv.ac.in/apps/studentaccount/login",
+      "https://udrc.lkouniv.ac.in/Student/Login"
+    ],
+    "notes": "Lucknow Public College Of Professional Studies (row 356). University of Lucknow affiliated college; student logins are the LU central Samarth tenant at lkouniv.samarth.edu.in plus the LU exam and UDRC student portals on lkouniv.ac.in subdomains. Force-accept pins the operator-verified URLs."
+  },
+  "664454": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://erp.gku.ac.in:85/",
+      "https://www.gms.gku.ac.in/"
+    ],
+    "blocked_urls": [
+      "https://elearn.gku.ac.in/wp-login.php"
+    ],
+    "notes": "Guru Kashi University (row 361). Real student portals are the ERP at erp.gku.ac.in:85 (non-standard port 85 — not surfaced by organic discovery) and gms.gku.ac.in. elearn.gku.ac.in/wp-login.php is the WordPress backend for the e-learning marketing site (passes rule-A but is admin, not student) — explicitly blocked. Organic discovery's js-render budget gets exhausted by gku.ac.in/library/* and /calendar/* SPA candidates. Force-accept pins the operator-verified portal URLs."
   }
 }

@@ -1069,6 +1069,22 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
             "across Punjab and Haryana"
         ),
     },
+    # Gujarat Technological University — engineering/pharmacy colleges in Gujarat
+    "gtu.ac.in": {
+        "state": "Gujarat",
+        "state_aliases": [
+            "gujarat", "gj",
+            "ahmedabad", "gandhinagar", "surat", "vadodara",
+            "rajkot", "bhavnagar",
+        ],
+        "portal_url": "https://gtu.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "note": (
+            "GTU Samarth — Gujarat Technological University "
+            "centralized portal for affiliated engineering / "
+            "pharmacy colleges across Gujarat"
+        ),
+    },
     # ----- Entries below are state-driven Phase 3.5 PROBE targets -----
     # Each carries `"verify": True`. The discovery probe (Phase 3.5)
     # enqueues them as ordinary candidates routed through the standard
