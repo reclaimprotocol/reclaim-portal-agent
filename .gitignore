@@ -23,6 +23,9 @@ logs/
 # Autotune / eval artifacts
 eval_logs/
 
+# Prompt files (local only)
+prompts/
+
 # Python
 __pycache__/
 *.py[cod]
