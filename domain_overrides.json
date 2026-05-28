@@ -497,5 +497,85 @@
       "https://jiwaji.samarth.ac.in/index.php/site/login"
     ],
     "notes": "Jiwaji University (row 58). Student portal is the Samarth tenant jiwaji.samarth.ac.in; organic discovery surfaces the MPOnline state-SIS jiwaji.mponline.gov.in instead. Force-accept pins the Samarth login past validation."
+  },
+  "3829446": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://www.sgtbimit.com/student"
+    ],
+    "notes": "Guru Teg Bahadur Institute Of Technology (row 302). Student portal lives at /student path on sgtbimit.com; organic discovery doesn't surface this custom path. Force-accept pins the operator-verified URL."
+  },
+  "3843136": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["asutoshcollege.in"],
+    "seed_urls": [
+      "https://cloud.asutoshcollege.in/StudentPortal/Login.aspx"
+    ],
+    "notes": "Asutosh College (row 303). Student portal lives on the cloud.asutoshcollege.in subdomain at /StudentPortal/Login.aspx (.NET ASPX). Organic discovery surfaced asutoshcollege.in/student_login.php (JS-rendered, no login form) and the asutoshcollege.in apex (hard-gate fail). Force-accept pins the operator-verified cloud subdomain URL."
+  },
+  "5441383": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["svkm.ac.in", "nmims.edu"],
+    "seed_urls": [
+      "https://portal.svkm.ac.in/usermgmt/login",
+      "https://studentzone-ngasce.nmims.edu/"
+    ],
+    "notes": "NMIMS Global Access School For Continuing Education (row 304). Student portals: SVKM group SSO at portal.svkm.ac.in/usermgmt/login (shared with other SVKM units, see 3833539) and studentzone-ngasce.nmims.edu (NGASCE student zone). nmims.edu homepage and /students / /library subpaths only carry marketing pages (admission-portal signal 'form submission' triggers rejection). Force-accept pins the operator-verified URLs."
+  },
+  "664176": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["sambalpuruniversity.in"],
+    "seed_urls": [
+      "https://sambalpuruniversity.in/#/auth/login"
+    ],
+    "notes": "Sambalpur University (row 305). Student portal lives on the .in TLD sambalpuruniversity.in as a SPA route #/auth/login (separate from SheerID primary suniv.ac.in). suniv.ac.in subpages fail the hard gate (large CMS pages with no login form, JS-rendered student-corner deferred). Force-accept pins the operator-verified SPA URL."
+  },
+  "664177": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["soaportals.com"],
+    "seed_urls": [
+      "https://soaportals.com/StudentPortalSOA/#/"
+    ],
+    "notes": "Siksha 'O' Anusandhan (row 308). Student portal lives on soaportals.com at the SPA route /StudentPortalSOA/#/ — same platform as ITER (10151512, the SOA-affiliated engineering college). soa.samarth.edu.in tenants return 404; ums.soa.ac.in has DNS failures. Force-accept pins the operator-verified portal URL."
+  },
+  "3799605": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["edumerge.com"],
+    "seed_urls": [
+      "https://app.edumerge.com/"
+    ],
+    "notes": "Trinity Institute Of Professional Studies West Delhi (row 312). Student portal is the third-party Edumerge platform at app.edumerge.com. tips.edu.in homepage / library / examinations / fee-structure subpaths only carry marketing content (hard-gate fail, JS-render defer). Force-accept pins the operator-verified platform URL."
+  },
+  "10272424": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["brambedkarcollege.in", "uod.ac.in"],
+    "seed_urls": [
+      "https://brambedkarcollege.in/studentportal/login.aspx",
+      "https://slc.uod.ac.in/index.php/site/login"
+    ],
+    "notes": "Dr. Bhim Rao Ambedkar College University Of Delhi (row 313). College-specific student portal at brambedkarcollege.in/studentportal/login.aspx (.NET ASPX) AND DU's central SLC tenant at slc.uod.ac.in (shared with other DU colleges like 3838423 / 3827330 / 10063096). bramb.* samarth tenants return 404 and bramb.du.ac.in DNS fails. Force-accept pins both operator-verified URLs."
+  },
+  "3800484": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["contineo.in"],
+    "seed_urls": [
+      "https://dkteresults.contineo.in:6061/#!"
+    ],
+    "notes": "DKTE Society's Textile And Engineering Institute (row 315). Student results portal lives on third-party contineo.in platform at dkteresults.contineo.in on non-standard port 6061 as a SPA route #!. dkte.ac.in /exam-section/* subpaths only carry marketing/staff content (JS-render defer, hard-gate fail). Force-accept pins the operator-verified portal URL."
+  },
+  "10036691": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["digitaledu.in"],
+    "seed_urls": [
+      "https://m-trcac.digitaledu.in/#/landingpage/login?regType=&regId=&regUserType=alumni&regTitle=&mobile=&authMethod=oma"
+    ],
+    "notes": "Thakur Ramnarayan College of Arts and Commerce (row 316). Student portal lives on the third-party digitaledu.in platform at m-trcac.digitaledu.in as a SPA route with a long query string. trc.samarth.edu.in returns 404; trcac.* samarth/sumsraj tenants are all DNS-dead. Force-accept pins the operator-verified portal URL."
+  },
+  "3823904": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://aecwb.knimbus.com/portal/v2/default/login"
+    ],
+    "notes": "Asansol Engineering College (row 319). Student portal is the Knimbus library tenant aecwb.knimbus.com (knimbus.com is in KNOWN_SHARED_PLATFORM_PATTERNS with canonical_path=/portal/v2/default/login). Organic discovery on aecwb.edu.in surfaced only marketing student-conduct pages (JS-render defer). Force-accept pins the operator-verified Knimbus tenant URL."
   }
 }
