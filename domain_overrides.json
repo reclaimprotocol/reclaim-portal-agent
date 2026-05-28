@@ -577,5 +577,29 @@
       "https://aecwb.knimbus.com/portal/v2/default/login"
     ],
     "notes": "Asansol Engineering College (row 319). Student portal is the Knimbus library tenant aecwb.knimbus.com (knimbus.com is in KNOWN_SHARED_PLATFORM_PATTERNS with canonical_path=/portal/v2/default/login). Organic discovery on aecwb.edu.in surfaced only marketing student-conduct pages (JS-render defer). Force-accept pins the operator-verified Knimbus tenant URL."
+  },
+  "3831624": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["deccansociety.org"],
+    "seed_urls": [
+      "https://livestudent.deccansociety.org/"
+    ],
+    "blocked_urls": [
+      "https://kirticollege.edu.in/wp-login.php"
+    ],
+    "notes": "D E Society's Kirti M Doongursee College (row 325). Real student portal lives on the parent society's centralized platform at livestudent.deccansociety.org (Deccan Education Society — multiple member colleges share the same livestudent host). kirticollege.edu.in/wp-login.php is the WordPress admin backend for the marketing site, not a student portal — explicitly blocked. Organic discovery's livestudent.deccansociety.org candidate fails ConnectTimeout intermittently; force_accept_seed_urls bypasses transient validation failures."
+  },
+  "664451": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://aksuportal.aksuniversity.ac.in/#/login"
+    ],
+    "blocked_urls": [
+      "https://aksuniversity.ac.in/user/login",
+      "https://aksuniversity.com/user/login",
+      "https://www.aksuniversity.ac.in/user/login",
+      "https://onlinelearning.aksuniversity.ac.in/wp-login.php"
+    ],
+    "notes": "Aks University (row 327). Real student portal is the dedicated SIS subdomain aksuportal.aksuniversity.ac.in/#/login (SPA route — JS-rendered, static probes can't validate). aksuniversity.ac.in/user/login (and www / .com variants) is the Drupal admin/staff backend on the marketing site, and onlinelearning.aksuniversity.ac.in/wp-login.php is the WordPress backend for the e-learning site — none are student portals, all explicitly blocked. Force-accept pins the operator-verified SPA URL."
   }
 }
