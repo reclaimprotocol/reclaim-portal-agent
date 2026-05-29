@@ -713,5 +713,125 @@
       "https://elearn.gku.ac.in/wp-login.php"
     ],
     "notes": "Guru Kashi University (row 361). Real student portals are the ERP at erp.gku.ac.in:85 (non-standard port 85 — not surfaced by organic discovery) and gms.gku.ac.in. elearn.gku.ac.in/wp-login.php is the WordPress backend for the e-learning marketing site (passes rule-A but is admin, not student) — explicitly blocked. Organic discovery's js-render budget gets exhausted by gku.ac.in/library/* and /calendar/* SPA candidates. Force-accept pins the operator-verified portal URLs."
+  },
+  "10057488": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["dpuerp.in", "dpu.edu.in"],
+    "seed_urls": [
+      "https://uni5.dpuerp.in/",
+      "https://dpu.edu.in/erp.aspx"
+    ],
+    "blocked_urls": [
+      "https://naac.dpu.edu.in/Login.aspx",
+      "https://studentservices.dpu.edu.in/"
+    ],
+    "notes": "Dr. D. Y. Patil Vidyapeeth, Pune (row 362). Real student ERP lives on the dedicated dpuerp.in platform (uni5.dpuerp.in) and the dpu.edu.in/erp.aspx ERP entry page. Organic discovery picked wrong-domain hosts on dpu.edu.in: naac.dpu.edu.in/Login.aspx is the NAAC accreditation backend (admin, not students) and studentservices.dpu.edu.in is a faculty/college services host — both blocked. Force-accept pins the operator-verified ERP URLs."
+  },
+  "3844340": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["moderncoe.edu.in", "moderncollegegk.org", "unipune.ac.in"],
+    "seed_urls": [
+      "https://erp.moderncoe.edu.in/login.aspx",
+      "https://www.moderncollegegk.org/lms/index.php#!",
+      "https://sim.unipune.ac.in/sim_app/Login/Login"
+    ],
+    "notes": "Progressive Education Society's Modern College of Arts, Science and Commerce (Ganeshkhind, Pune; row 363). Student portals: own ERP at erp.moderncoe.edu.in/login.aspx, the LMS at moderncollegegk.org/lms, and the SPPU central SIM portal (sim.unipune.ac.in/sim_app) shared by Pune University affiliated colleges. Organic discovery only surfaced moderncollegepune.edu.in marketing/results pages (rejected as no-login or admission portals). Force-accept pins the operator-verified URLs."
+  },
+  "3806564": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["dhi-edu.com"],
+    "seed_urls": [
+      "https://auth.dhi-edu.com/auth/realms/srinivasgroup/protocol/openid-connect/auth?client_id=srinivasgroup_sit&redirect_uri=https%3A%2F%2Fsrinivasgroup.dhi-edu.com%2Fsrinivasgroup_sit%2F&state=4b00be71-dc06-4240-b578-c270a202d9c8&response_mode=fragment&response_type=code&scope=openid&nonce=e45a6593-f46e-4f0b-8a13-0aed05aae75d&code_challenge=dOuYbnsv_Atv_aAdWa7CZjSBlVtFDKt9-btjAPO4kIs&code_challenge_method=S256"
+    ],
+    "notes": "Srinivas Institute of Technology (row 365). Student portal is the Srinivas Group Keycloak SSO on the third-party dhi-edu.com platform (auth.dhi-edu.com realm srinivasgroup). Organic discovery on sitmng.ac.in only surfaced 404 library/login pages and the marketing apex (no login form). Force-accept pins the operator-verified SSO URL."
+  },
+  "10235878": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["stjosephuniv.edu.in"],
+    "seed_urls": [
+      "https://stjosephuniv.edu.in/slog/index.php"
+    ],
+    "notes": "St. Joseph's College (row 367). Student login portal lives at stjosephuniv.edu.in/slog/index.php. Organic discovery crawled the unrelated stjosephjakhama.ac.in host (a different St. Joseph's institution) and surfaced only marketing/result pages with no login form. Force-accept pins the operator-verified portal URL."
+  },
+  "3839019": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["myclassboard.com"],
+    "seed_urls": [
+      "https://ssolive.myclassboard.com/Account/Login?ReturnUrl=%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3DV4U5D629JPJIK3LASUD2%26redirect_uri%3Dhttps%253A%252F%252Fsmec.myclassboard.com%252Fsso%252FCallback%26response_type%3Dcode%26scope%3Dopenid%2520profile%2520offline_access"
+    ],
+    "notes": "St. Martin's Engineering College (row 368). Student portal is the MyClassboard SSO at ssolive.myclassboard.com (the smec.myclassboard.com tenant redirects through this SSO). Organic discovery exhausted the js-render budget on smec.ac.in/Login/* and /Student/Login JS routes (all no-form drops). Force-accept pins the operator-verified MyClassboard SSO URL."
+  },
+  "10001723": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["unipune.ac.in"],
+    "seed_urls": [
+      "https://sim.unipune.ac.in/SIM_APP/"
+    ],
+    "notes": "Amrutvahini College of Engineering, Sangamner (row 371). SPPU-affiliated college — students use the Savitribai Phule Pune University central SIM portal at sim.unipune.ac.in/SIM_APP/. Organic discovery on avcoe.org only surfaced student-section/council marketing anchors (no login form). Force-accept pins the operator-verified SPPU portal URL."
+  },
+  "10041680": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["rntu.ac.in"],
+    "seed_urls": [
+      "https://erp.rntu.ac.in/onlineexam/Login.aspx",
+      "https://hostel.rntu.ac.in/login"
+    ],
+    "notes": "Rabindranath Tagore University (row 374). Real student portals live on rntu.ac.in subdomains: erp.rntu.ac.in/onlineexam/Login.aspx (online exam ERP) and hostel.rntu.ac.in/login (hostel portal). Organic discovery on rntu.ac.in only surfaced /exam, /student-campus and /library SPA pages with no login form (all dropped). Force-accept pins the operator-verified portal URLs."
+  },
+  "3830258": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["iitmjanakpuri-sdc.in"],
+    "seed_urls": [
+      "https://www.iitmjanakpuri-sdc.in/KnowledgePortal/#login-form",
+      "https://www.iitmjanakpuri-sdc.in/KnowledgePortal_General/"
+    ],
+    "notes": "Institute of Information Technology & Management, Janakpuri (West Delhi; row 376). Real student portals live on the dedicated iitmjanakpuri-sdc.in domain (KnowledgePortal). Auto-derived subdomain expansion only produced samarth/sumsraj/digiicampus tenants (all wrong tenant or DNS-dead) and the iitmjanakpuri.com marketing apex (no login form). Force-accept pins the operator-verified KnowledgePortal URLs."
+  },
+  "663972": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["icrp.in", "remotlink.com"],
+    "seed_urls": [
+      "https://sumandeep.icrp.in/erp/",
+      "https://svdu.remotlink.com/"
+    ],
+    "notes": "Sumandeep Vidyapeeth (row 377). Real student portals live on third-party platforms: sumandeep.icrp.in/erp (iCRP ERP) and svdu.remotlink.com (Remotlink). Auto-derived samarth/sumsraj/digiicampus tenants 404 and erp.sumandeepvidyapeethdu.edu.in DNS fails. Force-accept pins the operator-verified portal URLs."
+  },
+  "4817853": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["learnsquare.co"],
+    "seed_urls": [
+      "https://aicas.learnsquare.co/login"
+    ],
+    "notes": "Nowrosjee Wadia College (row 378). Student portal lives on the third-party learnsquare.co platform at aicas.learnsquare.co/login (same AICAS tenant as Ness Wadia College, OrgID 3834564 — both are Modern Education Society colleges sharing the platform). Organic discovery only surfaced 404 samarth.edu.in tenants. Force-accept pins the operator-verified portal URL."
+  },
+  "3831522": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["gndu.ac.in", "gndu-online.in"],
+    "seed_urls": [
+      "https://slc.gndu.ac.in/Integration/StudentArea/Login.aspx",
+      "https://uauth.gndu-online.in/login?code=eyJjbGllbnQiOiJnbmR1IiwicmVxdWVzdF90eXBlIjoiU3R1ZGVudCIsImJyb3dzZXJIYXNoS2V5IjoiTkEifQ=="
+    ],
+    "notes": "Khalsa College, Amritsar (row 379). GNDU-affiliated college — students use the Guru Nanak Dev University central SLC portal (slc.gndu.ac.in/Integration/StudentArea) and the GNDU online auth SSO (uauth.gndu-online.in). Organic discovery on khalsacollege.edu.in only surfaced department/faculty pages (rejected as non-student or hard-gate fail). Force-accept pins the operator-verified GNDU central portal URLs."
+  },
+  "663949": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["baou.edu.in"],
+    "seed_urls": [
+      "https://studentinfo.baou.edu.in/Login.aspx",
+      "https://support.baou.edu.in/UMS/onlineDegree/admin/login.aspx",
+      "http://jyotirmay.baou.edu.in/lsc/"
+    ],
+    "blocked_urls": [
+      "https://baou.samarth.edu.in/index.php/site/login",
+      "https://baouonline.edu.in/index.php/login-international"
+    ],
+    "notes": "Dr. Babasaheb Ambedkar Open University (row 370). Real student portals live on baou.edu.in subdomains: studentinfo.baou.edu.in/Login.aspx (student info system), support.baou.edu.in/UMS/onlineDegree/admin/login.aspx (online-degree UMS — the /admin/ path token would normally drop it, so force-accept is required) and jyotirmay.baou.edu.in/lsc (learner support centre). Organic discovery picked wrong-domain hosts (baou.samarth.edu.in Samarth tenant and baouonline.edu.in international login) — both blocked. Force-accept pins the operator-verified URLs."
+  },
+  "3832183": {
+    "seed_urls": [
+      "https://mu.samarth.edu.in/index.php/site/login",
+      "https://lalamoodle.space/login/index.php"
+    ],
+    "force_accept_seed_urls": true
   }
 }
