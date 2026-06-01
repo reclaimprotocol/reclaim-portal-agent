@@ -189,14 +189,16 @@
   },
   "5967310": {
     "force_accept_seed_urls": true,
+    "extra_effective_domains": ["servergi.com"],
     "seed_urls": [
+      "https://dbit.servergi.com:8079/ISIMDBIT/login?utm_source=Website&utm_medium=DBUU&utm_campaign=Admission2026",
       "https://erp.dbuu.ac.in/student_login.aspx",
       "https://moodle.dbuu.ac.in/login/index.php"
     ],
     "blocked_urls": [
       "https://career.dbuu.ac.in/"
     ],
-    "notes": "Dev Bhoomi Uttarakhand University. ERP and Moodle DNS were intermittently down during a discovery run; force-accept pins the canonical URLs so a transient outage doesn't drop them. career.dbuu.ac.in is the placement / career-cell portal — explicitly blocked. The new NON_STUDENT_SUBDOMAIN_BLOCKLIST also catches `career` generically, but the per-OrgID block is belt-and-suspenders."
+    "notes": "Dev Bhoomi Uttarakhand University. Operator-verified student ERP login is the third-party ISIM portal at dbit.servergi.com:8079/ISIMDBIT/login (reached via the homepage 'Student ERP Login' anchor, but skipped by organic discovery as off-domain). servergi.com is added to extra_effective_domains so the host is on the OrgID allow-list and force-accepted as the canonical URL. erp.dbuu.ac.in and moodle.dbuu.ac.in are kept as secondary on-domain portals (DNS was intermittently down during a discovery run). career.dbuu.ac.in is the placement / career-cell portal — explicitly blocked. The NON_STUDENT_SUBDOMAIN_BLOCKLIST also catches `career` generically, but the per-OrgID block is belt-and-suspenders."
   },
   "3810018": {
     "force_accept_seed_urls": true,
@@ -833,5 +835,33 @@
       "https://lalamoodle.space/login/index.php"
     ],
     "force_accept_seed_urls": true
+  },
+  "664242": {
+    "force_accept_seed_urls": true,
+    "exact_shortnames": ["vmou"],
+    "extra_effective_domains": ["vmou.ac.in"],
+    "seed_urls": [
+      "https://online.vmou.ac.in/Admission_Statusway.aspx"
+    ],
+    "blocked_urls": [
+      "https://vmou.ac.in/user/login",
+      "https://www.vmou.ac.in/user/login"
+    ],
+    "notes": "Vardhman Mahaveer Open University, Kota (row 74). Operator-verified student portal is the online services site at online.vmou.ac.in/Admission_Statusway.aspx. The vmou.ac.in apex /user/login (and www variant) passes rule-A as a strict login form but is the generic Drupal user login on the marketing site, not the student services portal — explicitly blocked. The vmou.samarth.edu.in tenant variants all 404. Force-accept pins the operator-verified online.vmou.ac.in URL past validation."
+  },
+  "6803805": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["soaportals.com"],
+    "seed_urls": [
+      "https://soaportals.com/StudentPortalSOA/#/"
+    ],
+    "notes": "Siksha 'O' Anusandhan (row 77). Student portal lives on soaportals.com at the SPA route /StudentPortalSOA/#/ — same platform as ITER (10151512) and the parent SOA entry (664177). soa.ac.in homepage / research subdomain only carry marketing pages (HTTP 429 / no login form, hard-gate fail) and soaums.soa.ac.in has DNS failures. Force-accept pins the operator-verified portal URL past validation; extra_effective_domains keeps soaportals.com on the OrgID allow-list."
+  },
+  "3827541": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://mu.samarth.edu.in/index.php/site/login"
+    ],
+    "notes": "Datta Meghe College Of Engineering, Airoli (Navi Mumbai; row 79). University of Mumbai affiliated college with no own student portal — students use the MU central Samarth tenant at mu.samarth.edu.in (same portal as OrgID 3832183). dmce.ac.in homepage and /examinations / /students-forum / /erp-2 subpages only carry marketing content (no login form, JS-render defers with suspicion=0). Force-accept pins the operator-verified MU central portal URL past validation."
   }
 }
