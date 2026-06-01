@@ -863,5 +863,11 @@
       "https://mu.samarth.edu.in/index.php/site/login"
     ],
     "notes": "Datta Meghe College Of Engineering, Airoli (Navi Mumbai; row 79). University of Mumbai affiliated college with no own student portal — students use the MU central Samarth tenant at mu.samarth.edu.in (same portal as OrgID 3832183). dmce.ac.in homepage and /examinations / /students-forum / /erp-2 subpages only carry marketing content (no login form, JS-render defers with suspicion=0). Force-accept pins the operator-verified MU central portal URL past validation."
+  },
+  "3804623": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://hinducollege.mobiquel.com/"
+    ]
   }
 }
