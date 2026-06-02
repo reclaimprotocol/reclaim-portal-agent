@@ -64,13 +64,38 @@ suggestions instead.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
+import os
+import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+# Number of rows whose discovery runs concurrently during the eval. Discovery
+# is network-bound (per row ~40-90s), so parallelising rows is the big speed
+# lever. Default 1 = original serial behaviour; set EVAL_CONCURRENCY>1 to fan
+# out. Each worker gets its own StateStore + JSRenderer; Sheet writes are
+# serialised under `_SHEET_LOCK`; per-orgid log routing uses `_CURRENT_ORGID`
+# (a contextvar) so snippets aren't cross-contaminated. Keep this modest (3-5):
+# each row already spawns internal validation threads, and too-high fan-out
+# can exhaust local sockets on heavy subdomain-probe rows.
+EVAL_CONCURRENCY: int = max(1, int(os.getenv("EVAL_CONCURRENCY", "1")))
+
+# Serialises the read-modify-write against the Portals sheet so concurrent
+# rows can't race / clobber each other's row indices.
+_SHEET_LOCK = threading.Lock()
+
+# Per-row OrgID for log routing under concurrency. Falls back to the handler's
+# global `current_orgid` (serial path) when unset, so serial behaviour — which
+# captures discovery's child-thread records too — is unchanged.
+_CURRENT_ORGID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "eval_current_orgid", default=None,
+)
 
 import _bootstrap  # noqa: F401  -- must come before agent.* imports
 import click
@@ -227,10 +252,14 @@ class OrgIDLogCapture(logging.Handler):
         )
 
     def emit(self, record: logging.LogRecord) -> None:
-        if self.current_orgid is None:
+        # Parallel path sets the contextvar per worker; serial path sets the
+        # global `current_orgid`. Prefer the contextvar so concurrent rows
+        # route to the right buffer instead of contaminating each other.
+        orgid = _CURRENT_ORGID.get() or self.current_orgid
+        if orgid is None:
             return
         try:
-            self.by_orgid[self.current_orgid].append(self.format(record))
+            self.by_orgid[orgid].append(self.format(record))
         except Exception:  # noqa: BLE001 — never let logging break the eval
             pass
 
@@ -245,6 +274,54 @@ class OrgIDLogCapture(logging.Handler):
 # ---------------------------------------------------------------------------
 # Discovery invocation
 # ---------------------------------------------------------------------------
+
+
+def _make_js_renderer(config: Any) -> JSRenderer | None:
+    if not config.enable_js_rendering:
+        return None
+    return JSRenderer(
+        timeout_seconds=config.js_rendering_timeout_seconds,
+        user_agent=config.user_agent,
+    )
+
+
+def _discovery_worker(
+    sheet_row: int,
+    row: dict[str, Any],
+    orgid: str,
+    config: Any,
+) -> None:
+    """Concurrency entrypoint: own StateStore + JSRenderer + SheetsClient.
+
+    None of these are safe to share across threads:
+      * StateStore  — SQLite connection is thread-bound.
+      * JSRenderer  — Playwright sync API is thread-bound.
+      * SheetsClient — google-api-python-client / httplib2 keep a per-host
+        connection that corrupts under cross-thread use even when calls are
+        serialised; each worker needs its own http connection.
+    So each worker builds and tears down its own. The contextvar tags this
+    worker's log records to `orgid`; the Portals read-modify-write inside
+    `_run_discovery_for_row` is still serialised under `_SHEET_LOCK` so row
+    indices / append order don't race.
+    """
+    token = _CURRENT_ORGID.set(orgid)
+    js_renderer = _make_js_renderer(config)
+    sheets = SheetsClient.from_config(config)
+    uni = str(row.get("SheerID University Name", "")).strip()
+    logger.info(
+        "[sheet_row=%d] [%s] %s → running discovery", sheet_row, orgid, uni,
+    )
+    try:
+        with StateStore(config.state_db_path) as state:
+            _run_discovery_for_row(
+                sheet_row=sheet_row, orgid=orgid, row=row,
+                sheets=sheets, state=state,
+                js_renderer=js_renderer, config=config,
+            )
+    finally:
+        if js_renderer is not None:
+            js_renderer.close()
+        _CURRENT_ORGID.reset(token)
 
 
 def _run_discovery_for_row(
@@ -320,25 +397,28 @@ def _run_discovery_for_row(
         or str(row.get("SheerID University Name", "")).strip()
     )
 
-    existing = sheets.read_portals_by_orgid(orgid)
-    preserved_verdict = ""
-    if existing:
-        preserved_verdict = str(
-            existing[0][1].get("Overall T&C Verdict", "")
-        ).strip()
+    # Serialise the Portals read-modify-write: under EVAL_CONCURRENCY>1,
+    # concurrent rows would otherwise race on row indices / append order.
+    with _SHEET_LOCK:
+        existing = sheets.read_portals_by_orgid(orgid)
+        preserved_verdict = ""
+        if existing:
+            preserved_verdict = str(
+                existing[0][1].get("Overall T&C Verdict", "")
+            ).strip()
 
-    new_row = {
-        "OrgID": orgid,
-        "University Name": university_name,
-        "Portal URLs": "\n".join(portal_urls),
-        "T&C URLs": "\n".join(tc_ordered),
-        "Overall T&C Verdict": preserved_verdict,
-    }
-    values = [new_row.get(c, "") for c in SheetsClient.PORTALS_COLUMNS]
-    if existing:
-        sheets.update_portal_rows([(existing[0][0], values)])
-    else:
-        sheets.append_portal_rows([new_row])
+        new_row = {
+            "OrgID": orgid,
+            "University Name": university_name,
+            "Portal URLs": "\n".join(portal_urls),
+            "T&C URLs": "\n".join(tc_ordered),
+            "Overall T&C Verdict": preserved_verdict,
+        }
+        values = [new_row.get(c, "") for c in SheetsClient.PORTALS_COLUMNS]
+        if existing:
+            sheets.update_portal_rows([(existing[0][0], values)])
+        else:
+            sheets.append_portal_rows([new_row])
 
     state.mark_stage(orgid, "tc_finder", "done")
     return portal_urls
@@ -736,44 +816,71 @@ def main(start: int, end: int, skip_discovery: bool, output: str) -> None:
         capture.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(capture)
 
-    js_renderer: JSRenderer | None = None
     try:
         if not skip_discovery:
-            if config.enable_js_rendering:
-                js_renderer = JSRenderer(
-                    timeout_seconds=config.js_rendering_timeout_seconds,
-                    user_agent=config.user_agent,
-                )
-            with StateStore(config.state_db_path) as state:
-                for sheet_row, row in in_range:
-                    orgid = SheetsClient.extract_orgid(row)
-                    if not orgid:
-                        logger.warning(
-                            "[sheet_row=%d] no OrgID — skipping", sheet_row,
-                        )
-                        continue
-                    uni = str(row.get("SheerID University Name", "")).strip()
-                    logger.info(
-                        "[sheet_row=%d] [%s] %s → running discovery",
-                        sheet_row, orgid, uni,
+            rows_to_run = [
+                (sheet_row, row, SheetsClient.extract_orgid(row))
+                for sheet_row, row in in_range
+            ]
+            for sheet_row, row, orgid in rows_to_run:
+                if not orgid:
+                    logger.warning(
+                        "[sheet_row=%d] no OrgID — skipping", sheet_row,
                     )
-                    capture.current_orgid = orgid
-                    try:
-                        _run_discovery_for_row(
-                            sheet_row=sheet_row, orgid=orgid, row=row,
-                            sheets=sheets, state=state,
-                            js_renderer=js_renderer, config=config,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "[sheet_row=%d] [%s] discovery raised — recording "
-                            "as eval error", sheet_row, orgid,
-                        )
-                    finally:
-                        capture.current_orgid = None
+
+            if EVAL_CONCURRENCY <= 1:
+                # Serial path: one shared StateStore + JSRenderer, global
+                # current_orgid (captures discovery's child-thread logs too).
+                js_renderer = _make_js_renderer(config)
+                try:
+                    with StateStore(config.state_db_path) as state:
+                        for sheet_row, row, orgid in rows_to_run:
+                            if not orgid:
+                                continue
+                            uni = str(row.get("SheerID University Name", "")).strip()
+                            logger.info(
+                                "[sheet_row=%d] [%s] %s → running discovery",
+                                sheet_row, orgid, uni,
+                            )
+                            capture.current_orgid = orgid
+                            try:
+                                _run_discovery_for_row(
+                                    sheet_row=sheet_row, orgid=orgid, row=row,
+                                    sheets=sheets, state=state,
+                                    js_renderer=js_renderer, config=config,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "[sheet_row=%d] [%s] discovery raised — "
+                                    "recording as eval error", sheet_row, orgid,
+                                )
+                            finally:
+                                capture.current_orgid = None
+                finally:
+                    if js_renderer is not None:
+                        js_renderer.close()
+            else:
+                logger.info(
+                    "Running discovery for %d rows with EVAL_CONCURRENCY=%d",
+                    sum(1 for _, _, o in rows_to_run if o), EVAL_CONCURRENCY,
+                )
+                with ThreadPoolExecutor(max_workers=EVAL_CONCURRENCY) as exe:
+                    futs = {
+                        exe.submit(
+                            _discovery_worker, sheet_row, row, orgid, config,
+                        ): (sheet_row, orgid)
+                        for sheet_row, row, orgid in rows_to_run if orgid
+                    }
+                    for fut in as_completed(futs):
+                        sheet_row, orgid = futs[fut]
+                        try:
+                            fut.result()
+                        except Exception:
+                            logger.exception(
+                                "[sheet_row=%d] [%s] discovery raised — "
+                                "recording as eval error", sheet_row, orgid,
+                            )
     finally:
-        if js_renderer is not None:
-            js_renderer.close()
         if capture is not None:
             logging.getLogger().removeHandler(capture)
 
