@@ -869,5 +869,17 @@
     "seed_urls": [
       "https://hinducollege.mobiquel.com/"
     ]
+  },
+  "3831525": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://kcpadmissions.in/attend/student/student_login.php"
+    ]
+  },
+  "3802008": {
+    "force_accept_seed_urls": true,
+    "seed_urls": [
+      "https://bitwebserver.bittechlearn.online:8084/Students/StudentLogin.aspx"
+    ]
   }
 }
