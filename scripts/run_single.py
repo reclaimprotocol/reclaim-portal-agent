@@ -11,7 +11,7 @@ import logging
 import _bootstrap  # noqa: F401  -- must come before agent.* imports
 import click
 
-from agent.config import load_config
+from agent.config import assert_openrouter_model_live, load_config
 from agent.orchestrator import Orchestrator
 from agent.sheets_client import SheetsClient
 from agent.state import StateStore
@@ -46,6 +46,10 @@ def main(orgid: str, force: bool, debug: bool, debug_discovery: bool) -> None:
             logging.getLogger("agent.stages.discovery_rules").setLevel(logging.DEBUG)
     else:
         _bootstrap.setup_logging(config.log_level)
+
+    # Fail fast if the OpenRouter model has been retired, instead of
+    # silently degrading every Gemini call to the DDG fallback.
+    assert_openrouter_model_live()
 
     target_orgid = str(orgid).strip()
 
