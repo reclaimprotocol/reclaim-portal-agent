@@ -38,6 +38,7 @@ Validation has two fallbacks:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import socket
 import threading
@@ -167,7 +168,7 @@ MAX_SIBLING_ROOTS_TO_PROBE: int = 3
 # 0-5 renders, and 20 is enough headroom for SPA-heavy multi-portal
 # universities. Selection is by suspicion score (descending) with a
 # preference for URLs that look student-shaped.
-MAX_JS_RENDER_CANDIDATES: int = 20
+MAX_JS_RENDER_CANDIDATES: int = int(os.environ.get("MAX_JS_RENDER_CANDIDATES", "20"))
 
 # Final consolidation safety gate — drop candidates whose post-
 # consolidation score is below this floor. `consolidate_candidates`
@@ -1028,8 +1029,19 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     # floor applies. Validation drops 404/timeout tenants; live ones
     # pass rule-C since the platform host is on
     # KNOWN_SHARED_PLATFORM_PATTERNS.
+    # Unlike the Samarth probes (which carry `{acronym}` as a dedicated
+    # placeholder), these generic templates only expose `{shortname}`.
+    # Some platforms key the tenant off the institution's acronym rather
+    # than its domain label (e.g. Core Campus: tenant `bskkv` vs domain
+    # `dbskkv.ac.in`), so fold the honorific-stripped acronym into the
+    # probe set. Safe across the current probed platforms — none use
+    # wildcard DNS, so an acronym that isn't a real tenant NXDOMAINs out
+    # during validation.
+    platform_probe_shortnames = set(samarth_shortnames)
+    if samarth_acronym and len(samarth_acronym) >= 3:
+        platform_probe_shortnames.add(samarth_acronym)
     platform_added = 0
-    for s in sorted(samarth_shortnames):
+    for s in sorted(platform_probe_shortnames):
         for template in SHARED_PLATFORM_TENANT_PROBES:
             try:
                 url = template.format(shortname=s)
@@ -1051,7 +1063,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         logger.info(
             "[%s] shared-platform tenant probes: +%d candidates "
             "(shortnames=%s)",
-            orgid, platform_added, sorted(samarth_shortnames),
+            orgid, platform_added, sorted(platform_probe_shortnames),
         )
 
     rule_candidates = _dedupe(rule_candidates)
@@ -1123,6 +1135,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
                 exact_shortnames=exact_shortnames,
                 portal_anchored_hosts=portal_anchored_hosts,
                 auto_shortnames=shortname_candidates,
+                acronym=acronym,
             )
             if not ok:
                 # Demote to DEBUG when the rejection is "host is on a
@@ -1186,6 +1199,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             exact_shortnames=exact_shortnames,
             portal_anchored_hosts=portal_anchored_hosts,
             auto_shortnames=shortname_candidates,
+            acronym=acronym,
         )
         if ok:
             ddg_origin_hosts.add(host)

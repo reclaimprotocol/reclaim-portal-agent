@@ -45,8 +45,11 @@ from ..config import (
     ADMIN_URL_PATH_TOKENS,
     AMBIGUOUS_SHORTNAMES,
     DUCKDUCKGO_TIMEOUT_SECONDS,
+    ERP_APP_LOGIN_PATH_TEMPLATES,
+    ERP_APP_LOGIN_SUBDOMAINS,
     EXPLICIT_NON_STUDENT_FIELD_SIGNALS,
     GEMINI_SEARCH_ENABLED,
+    HASH_ROUTED_PLATFORM_ROOTS,
     KNOWN_ADMISSION_PLATFORMS,
     KNOWN_SHARED_PLATFORM_PATTERNS,
     LMS_HOST_TOKENS,
@@ -59,6 +62,7 @@ from ..config import (
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
     SAMARTH_FUNCTIONAL_PREFIXES,
+    SAMARTH_NONSTUDENT_TENANT_SUFFIXES,
     STATE_PLATFORM_HINTS,
     STRONG_ADMISSION_SIGNALS,
     STUDENT_CONTEXT_SIGNALS,
@@ -74,6 +78,7 @@ from ..config import (
     URL_ADMISSION_PATH_KEYWORDS,
     URL_ADMISSION_REGISTER_EXEMPT_TOKENS,
     host_in_external_blocklist,
+    host_in_instance_blocklist,
 )
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
@@ -361,6 +366,11 @@ _LINK_INELIGIBLE_PREFIXES: tuple[str, ...] = (
 
 _ACRONYM_STOPWORDS: frozenset[str] = frozenset({
     "the", "of", "and", "for", "a", "an",
+    # Honorific prefixes that precede an institution's name but are not
+    # part of its acronym. "Dr. Balasaheb Sawant Konkan Krishi
+    # Vidyapeeth" → BSKKV (not DBSKKV); the institution's own shared-
+    # platform tenant keys off the honorific-free acronym.
+    "dr", "prof", "shri", "sri", "smt", "late", "kum", "mr", "ms", "mrs",
 })
 
 
@@ -453,7 +463,16 @@ def normalize_url(url: str) -> str:
     # discovery sources that decorate the URL with different
     # attribution tags.
     query = _strip_tracking_params(p.query or "")
-    return urlunsplit((p.scheme.lower(), netloc, p.path, query, ""))
+    # Fragments are normally dropped (disposable client-side state). For
+    # hash-routed SPA platforms (Core Campus etc.) the fragment IS the
+    # login route, so preserve it for those hosts only.
+    host = (netloc or "").lower().split(":")[0]
+    keep_fragment = host and any(
+        host == root or host.endswith("." + root)
+        for root in HASH_ROUTED_PLATFORM_ROOTS
+    )
+    fragment = p.fragment if keep_fragment else ""
+    return urlunsplit((p.scheme.lower(), netloc, p.path, query, fragment))
 
 
 def canonicalize_url(url: str) -> str:
@@ -693,7 +712,12 @@ def compute_acronym(name: str) -> str | None:
     """
     if not name:
         return None
-    words = [w for w in name.split() if w.lower() not in _ACRONYM_STOPWORDS]
+    # Strip surrounding punctuation before the stopword test so "Dr." and
+    # "&" don't slip past the honorific/stopword filter.
+    words = [
+        w for w in name.split()
+        if w.strip(".,&()").lower() not in _ACRONYM_STOPWORDS
+    ]
     letters: list[str] = []
     for word in words:
         for ch in word:
@@ -1031,6 +1055,35 @@ def host_is_known_shared_platform(host: str) -> bool:
     return False
 
 
+def is_nonstudent_platform_tenant(host: str) -> bool:
+    """True if `host` is a Samarth / state-platform tenant whose label
+    marks it a RECRUITMENT or ADMISSION portal — never an enrolled-student
+    login. Catches `mgahvrec.samarth.edu.in` (recruitment),
+    `<inst>admission.samarth.edu.in`, and the bare functional tenants
+    `recruitment.samarth.edu.in` / `admissions.samarth.edu.in`.
+
+    Policy veto (user-requested): applied unconditionally at consolidation,
+    independent of whether a student peer tenant exists.
+    """
+    if not host:
+        return False
+    h = host.lower().lstrip(".")
+    roots: list[str] = list(_SAMARTH_PLATFORM_ROOTS)
+    for st_hosts in STATE_PLATFORM_HINTS.values():
+        roots.extend(p.lower().lstrip(".") for p in st_hosts if p)
+    for root in roots:
+        if not root or not h.endswith("." + root):
+            continue
+        # Tenant label = leftmost label of the prefix before the platform root.
+        prefix = h[: -(len(root) + 1)].split(".")[-1]
+        for suf in SAMARTH_NONSTUDENT_TENANT_SUFFIXES:
+            # Exact functional tenant (`recruitment.samarth`) or an
+            # `<acronym><suffix>` tenant (`mgahvrec`, `csjmuadmission`).
+            if prefix == suf or (prefix.endswith(suf) and len(prefix) > len(suf)):
+                return True
+    return False
+
+
 # Samarth platform roots — used by the strict membership rule (Bug 30).
 # Treated as ambiguous tenant hosts: any tenant subdomain must strictly
 # match this OrgID's `exact_shortnames` to avoid cross-university leakage
@@ -1115,6 +1168,7 @@ def host_belongs_to_org(
     portal_anchored_hosts: set[str] | frozenset[str],
     domains: list[str] | tuple[str, ...] = (),
     auto_shortnames: list[str] | tuple[str, ...] | set[str] | frozenset[str] = (),
+    acronym: str = "",
 ) -> tuple[bool, str]:
     """Bug 30 — strict per-OrgID host membership rule.
 
@@ -1251,6 +1305,21 @@ def host_belongs_to_org(
                     if s
                 }
                 check_source = "auto_shortnames"
+            # Acronym fallback — most Samarth/state-platform tenants are
+            # named by the institution ACRONYM (`mgahv` for Mahatma Gandhi
+            # Antarrashtriya Hindi Vishwavidyalaya), which is neither a
+            # domain label nor an exact_shortname. Fold it in (≥4 chars,
+            # non-ambiguous) so acronym-named tenants pass membership
+            # without a per-OrgID override. The ≥4 floor + AMBIGUOUS_SHORTNAMES
+            # exclusion mirror R6 so short/ambiguous acronyms (du, iit, mit)
+            # can't admit unrelated tenants.
+            ac = (acronym or "").lower().strip()
+            if ac and len(ac) >= 4 and ac not in AMBIGUOUS_SHORTNAMES:
+                if not check_set:
+                    check_source = "acronym"
+                elif ac not in check_set:
+                    check_source = check_source + "+acronym"
+                check_set = set(check_set) | {ac}
             if not check_set:
                 return False, (
                     f"platform {plat} tenant '{prefix}': no exact_shortnames or "
@@ -1324,6 +1393,12 @@ def host_belongs_to_org(
             for s in auto_shortnames
             if s and (s or "").lower().strip() not in AMBIGUOUS_SHORTNAMES
         )
+    # The institution acronym is also a valid sibling-domain abbreviation
+    # (e.g. `mgahv` → `mgahv.in`). Same ≥4-char / non-ambiguous guard as
+    # the auto-shortnames above; the R6 loop enforces the length floor.
+    _ac6 = (acronym or "").lower().strip()
+    if _ac6 and _ac6 not in AMBIGUOUS_SHORTNAMES:
+        sibling_shortnames.add(_ac6)
     if sibling_shortnames:
         base = _registrable_base(h)
         base_label = base.split(".", 1)[0] if base else ""
@@ -2075,6 +2150,16 @@ def run_subdomain_probes(
             items.append(
                 (url, "Student Portal", "subdomain-probe", f"subdomain probe: {sub}.{domain}")
             )
+        # ASP.NET ERP app-path probes: the login lives at a path that
+        # mirrors the subdomain label (`iums.{domain}/iums/Login.aspx`),
+        # not at the subdomain root, so probe those explicitly.
+        for sub in ERP_APP_LOGIN_SUBDOMAINS:
+            for tmpl in ERP_APP_LOGIN_PATH_TEMPLATES:
+                url = f"https://{sub}.{domain}{tmpl.format(label=sub)}"
+                items.append(
+                    (url, "Student Portal", "subdomain-probe",
+                     f"ERP app-path probe: {sub}.{domain}{tmpl.format(label=sub)}")
+                )
     return _parallel_probe(items, http_timeout=http_timeout, user_agent=user_agent)
 
 
@@ -3220,6 +3305,37 @@ def consolidate_candidates(
         # SOL DU). Knimbus / Cognibot / MyLoft tenants don't share
         # wildcard roots that way, so they keep the bypass.
         host = _host_of(c.url)
+        # Policy veto (user-requested) — applied to the FINAL URL so it
+        # catches admin pages reached via a validation-time redirect that
+        # the pre-validation filter (which saw the original probe URL)
+        # missed:
+        #   (a) WordPress / CMS admin backends (`wp-login.php`, `/wp-admin`,
+        #       `/administrator`, …) — never a student login.
+        #   (b) Samarth / state-platform recruitment & admission tenants
+        #       (`mgahvrec.samarth.edu.in`, `<inst>admission.samarth.edu.in`).
+        if url_is_admin_path(c.url):
+            logger.info(
+                "[%s] consolidate: drop %s — CMS/admin backend login (policy)",
+                orgid, c.url,
+            )
+            continue
+        # Final-stage instance-blocklist veto. The pre-validation filter
+        # rejects blocklisted hosts (e.g. *.samarth.ac.in — the Samarth
+        # employee/faculty/admin portal, never a student login), but the
+        # js-render KEEP path can re-admit the same host without re-checking.
+        # Re-apply here so a blocklisted host can never reach the sheet.
+        if host_in_instance_blocklist(host):
+            logger.info(
+                "[%s] consolidate: drop %s — instance blocklist (e.g. samarth.ac.in "
+                "employee portal)", orgid, c.url,
+            )
+            continue
+        if is_nonstudent_platform_tenant(host):
+            logger.info(
+                "[%s] consolidate: drop %s — recruitment/admission platform "
+                "tenant (policy)", orgid, c.url,
+            )
+            continue
         # Section 9 — drop bare-homepage candidates that survived
         # rule-B but link-follow couldn't upgrade. The homepage URL
         # itself is never a student portal; if it weren't supposed to
@@ -3247,6 +3363,7 @@ def consolidate_candidates(
             exact_shortnames=exact_short,
             portal_anchored_hosts=pa_hosts,
             auto_shortnames=shortnames,
+            acronym=max(acronyms, key=len, default=""),
         )
         if not ok:
             # Mirror the discovery.py log-level split: WARNING is

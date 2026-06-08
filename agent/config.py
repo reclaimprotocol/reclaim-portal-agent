@@ -287,7 +287,44 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
         "validated": True,
         "tenant_path": "/site/userlogin",
     },
+    # Core Campus ("Integrated University Management System") — a
+    # third-party multi-tenant ERP used by several Indian agricultural /
+    # state universities (e.g. Dr. Balasaheb Sawant Konkan Krishi
+    # Vidyapeeth at `bskkv.core-campus.in`). It is a JS-rendered Angular
+    # SPA whose login lives at the client-side hash route `/#!/login/`
+    # (and `/#/login-form` on the `<inst>portal` tenant), so the static
+    # HTTP validator never sees a password field — `validated: True`
+    # short-circuits that the same way digiicampus / edumarshal are
+    # handled. The platform does NOT use wildcard DNS (verified: a
+    # fabricated subdomain returns NXDOMAIN), so the tenant probes in
+    # `SHARED_PLATFORM_TENANT_PROBES` are safe — dead guesses drop during
+    # validation. `tenant_path` canonicalises stored URLs onto the login
+    # route.
+    "core-campus.in": {
+        "category": "Student Portal",
+        "validated": True,
+        "tenant_path": "/#!/login/",
+        # Core Campus is a hash-routed Angular SPA: the login route lives
+        # in the URL fragment (`/#!/login/`, and `/#/login-form` on the
+        # `<inst>portal` tenant). `normalize_url` strips fragments by
+        # default (they're disposable client-side state for server-routed
+        # apps), which would collapse both tenants to their bare apex and
+        # discard the route. `hash_routed` tells `normalize_url` to keep
+        # the fragment for this platform so the per-tenant login route
+        # survives into the sheet output.
+        "hash_routed": True,
+    },
 }
+
+
+# Roots of `KNOWN_SHARED_PLATFORM_PATTERNS` entries flagged `hash_routed`:
+# client-side-routed SPAs whose login route lives in the URL fragment, so
+# `normalize_url` must NOT strip the fragment for these hosts.
+HASH_ROUTED_PLATFORM_ROOTS: tuple[str, ...] = tuple(
+    pattern
+    for pattern, meta in KNOWN_SHARED_PLATFORM_PATTERNS.items()
+    if isinstance(meta, dict) and meta.get("hash_routed")
+)
 
 
 # Stage C — curated path list for the university-level T&C fallback.
@@ -686,6 +723,9 @@ NON_STUDENT_SUBDOMAIN_BLOCKLIST: frozenset[str] = frozenset({
     "news", "media", "press", "blog",
     "canteen", "hostel", "transport",
     "guest", "guesthouse",
+    # Staff email / webmail — an authentication form, but for employee
+    # mail, never a student portal (e.g. webmail.hindivishwa.org).
+    "webmail", "mail", "email", "owa", "roundcube", "zimbra",
 })
 
 
@@ -2032,6 +2072,19 @@ SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
     # (DDG search, homepage crawl) still validate via rule-C; the
     # wildcard-DNS canary check in `_validate_one` rejects any rule-C
     # accept whose body matches the wildcard fingerprint.
+    #
+    # Core Campus (`{shortname}.core-campus.in`). Two tenant conventions
+    # observed: the main tenant serves login at the hash route
+    # `/#!/login/`, while the institution's `<inst>portal` tenant serves
+    # it at `/#/login-form`. Both are probed. No wildcard DNS, so dead
+    # guesses NXDOMAIN out during validation. The `{shortname}` set is
+    # fed both the domain-label shortnames AND the (honorific-stripped)
+    # acronym, so an institution whose Core Campus tenant keys off its
+    # acronym rather than its domain label (e.g. "Dr. Balasaheb Sawant
+    # Konkan Krishi Vidyapeeth" → tenant `bskkv`, domain `dbskkv.ac.in`)
+    # is still reached.
+    "https://{shortname}.core-campus.in/#!/login/",
+    "https://{shortname}portal.core-campus.in/#/login-form",
 )
 
 
@@ -2048,6 +2101,19 @@ SHARED_PLATFORM_TENANT_PROBES: tuple[str, ...] = (
 # `_dedupe(all_validated)` and before category inference.
 SAMARTH_ADMIN_TENANT_SUFFIXES: tuple[str, ...] = (
     "adm", "admin", "mgmt", "staff",
+)
+
+
+# Tenant-label suffixes that mark a Samarth / state-platform subdomain as
+# NEVER an enrolled-student login — recruitment (faculty/staff hiring) and
+# admission (applicant onboarding) portals. Unlike
+# `SAMARTH_ADMIN_TENANT_SUFFIXES` (dropped only when a live non-admin peer
+# exists), these are vetoed UNCONDITIONALLY at consolidation: e.g.
+# `mgahvrec.samarth.edu.in` (recruitment), `<inst>admission.samarth.edu.in`,
+# bare `recruitment.samarth.edu.in` / `admissions.samarth.edu.in`.
+SAMARTH_NONSTUDENT_TENANT_SUFFIXES: tuple[str, ...] = (
+    "rec", "recruit", "recruitment", "bharti",
+    "admission", "admissions", "admissionportal",
 )
 
 
@@ -2181,7 +2247,7 @@ SUBDOMAIN_PROBE_LIST: tuple[str, ...] = (
     # Generic portal
     "portal", "myportal",
     # Information / ERP
-    "sim", "sis", "erp", "mis", "ums",
+    "sim", "sis", "erp", "mis", "ums", "iums", "oas", "ums-student",
     # Examination
     "exam", "exams", "examination", "examportal",
     "result", "results", "resultportal",
@@ -2200,6 +2266,26 @@ SUBDOMAIN_PROBE_LIST: tuple[str, ...] = (
     "hostel", "hostels", "hostelportal",
     # Distance learning (already in global allow-list)
     "sol", "ncweb", "idol", "cdoe", "cde", "ide", "dde", "udrc", "cdl", "soe",
+)
+
+
+# Stage A — ASP.NET ERP app-path probes. Several Indian-university ERPs
+# (the MasterSoft-style "IUMS" / "Integrated University Management System"
+# family) deploy under a subdomain whose login page lives at a path that
+# MIRRORS the subdomain label — e.g. Dr. Panjabrao Deshmukh Krishi
+# Vidyapeeth's portal is `iums.pdkv.ac.in/iums/Login.aspx`. The bare
+# subdomain root (`iums.pdkv.ac.in/`) returns 200 with NO login form, so
+# the standard subdomain probe can't validate it; only the
+# `/{label}/Login.aspx` app path surfaces the form (behind an
+# `AspxAutoDetectCookieSupport` cookie bounce that the shared HTTP session
+# follows). For each of these labels we additionally probe that app path
+# on the university's own domain. Dead guesses 404/timeout and drop.
+ERP_APP_LOGIN_SUBDOMAINS: tuple[str, ...] = (
+    "iums", "erp", "ums", "oas", "sis",
+)
+ERP_APP_LOGIN_PATH_TEMPLATES: tuple[str, ...] = (
+    "/{label}/Login.aspx",
+    "/{label}/login.aspx",
 )
 
 
