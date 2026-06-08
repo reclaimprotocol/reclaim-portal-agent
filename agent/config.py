@@ -314,6 +314,67 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
         # survives into the sheet output.
         "hash_routed": True,
     },
+    # ------------------------------------------------------------------
+    # Multi-institution platforms harvested from the verified ground-truth
+    # corpus (CONFIDENTIAL_Provider Activation -> Universities, column G:
+    # ~1,800 confirmed login URLs). Each domain below was observed hosting
+    # student/fee/exam/library portals for 2+ DISTINCT institutions, so it
+    # is a shared platform — listing it here exempts organically-discovered
+    # URLs on these hosts from the off-domain reject (rule-C accept), which
+    # is the single biggest recall gap the corpus revealed. NOT actively
+    # probed (no wildcard-DNS risk taken); only accepted when search /
+    # homepage-crawl surfaces them for the target university.
+    # --- third-party ERP / SIS (the main student login) ---
+    "mastersofterp.in": {"category": "Student Portal", "validated": True},
+    "campx.in": {"category": "Student Portal", "validated": True},
+    "icrp.in": {"category": "Student Portal", "validated": True},
+    "edupluscampus.com": {"category": "Student Portal", "validated": True},
+    "mobiquel.com": {"category": "Student Portal", "validated": True},
+    "digitaledu.in": {"category": "Student Portal", "validated": True},
+    "accsofterp.com": {"category": "Student Portal", "validated": True},
+    "uonex.in": {"category": "Student Portal", "validated": True},
+    "uni1erp.in": {"category": "Student Portal", "validated": True},
+    "sitslive.com": {"category": "Student Portal", "validated": True},
+    "etlab.in": {"category": "Student Portal", "validated": True},
+    "etlab.app": {"category": "Student Portal", "validated": True},
+    "dulive.ac": {"category": "Student Portal", "validated": True},
+    "unicampus.in": {"category": "Student Portal", "validated": True},
+    "ouerp.in": {"category": "Student Portal", "validated": True},
+    "osmaniaerp.com": {"category": "Student Portal", "validated": True},
+    "mycampusadmin.com": {"category": "Student Portal", "validated": True},
+    "mitapps.in": {"category": "Student Portal", "validated": True},
+    "icloudems.com": {"category": "Student Portal", "validated": True},
+    "eshiksa.net": {"category": "Student Portal", "validated": True},
+    "cybervidya.net": {"category": "Student Portal", "validated": True},
+    "ivyeduerp.com": {"category": "Student Portal", "validated": True},
+    "instituteoncloud.com": {"category": "Student Portal", "validated": True},
+    "e365.tech": {"category": "Student Portal", "validated": True},
+    "acadmin.in": {"category": "Student Portal", "validated": True},
+    "gnums.co.in": {"category": "Student Portal", "validated": True},
+    "servergi.com": {"category": "Student Portal", "validated": True},
+    "ruhsapps.in": {"category": "Student Portal", "validated": True},
+    "collegeesolution.org": {"category": "Student Portal", "validated": True},
+    "edusprint.in": {"category": "Student Portal", "validated": True},
+    "ucanapply.com": {"category": "Student Portal", "validated": True},
+    "camu.in": {"category": "Student Portal", "validated": True},
+    "mycamu.co.in": {"category": "Student Portal", "validated": True},
+    "datavista.in": {"category": "Student Portal", "validated": True},
+    "cvsattendance.in": {"category": "Student Portal", "validated": True},
+    # --- library platforms ---
+    "kohacloud.in": {"category": "Library", "validated": True},
+    "kohacloud.org": {"category": "Library", "validated": True},
+    "blacal.in": {"category": "Library", "validated": True},
+    "mapmyaccess.com": {"category": "Library", "validated": True},
+    "delnet.in": {"category": "Library", "validated": True},
+    "irins.org": {"category": "Library", "validated": True},
+    # --- fee / payment platforms ---
+    "eduqfix.com": {"category": "Fee Portal", "validated": True},
+    "onfees.com": {"category": "Fee Portal", "validated": True},
+    "erpfees.in": {"category": "Fee Portal", "validated": True},
+    "okiedokiepay.com": {"category": "Fee Portal", "validated": True},
+    "easebuzz.in": {"category": "Fee Portal", "validated": True},
+    # --- examination platforms ---
+    "contineo.in": {"category": "Examination Portal", "validated": True},
 }
 
 
