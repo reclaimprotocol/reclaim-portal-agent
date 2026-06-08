@@ -881,5 +881,82 @@
     "seed_urls": [
       "https://bitwebserver.bittechlearn.online:8084/Students/StudentLogin.aspx"
     ]
+  },
+  "3829813": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["datavista.in"],
+    "seed_urls": [
+      "https://datavista.in/cms/student/Int/auth/login.php?sectionmaster_Id=18"
+    ],
+    "notes": "K P B Hinduja College Of Commerce, Mumbai (row 116). Student portal is hosted on the third-party datavista.in CMS at a per-section path (sectionmaster_Id=18) — same platform as Jai Hind College (OrgID 3830597, sectionmaster_Id=26). Organic discovery only surfaced HTTP-202 samarth.edu.in tenants and Gemini broad search returned wrong URLs; force-accept pins the operator-verified datavista.in URL past validation."
+  },
+  "3829845": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["hithaldia.org"],
+    "seed_urls": [
+      "https://student.hithaldia.org/"
+    ],
+    "notes": "Haldia Institute Of Technology (row 117). Student portal lives on the dedicated student.hithaldia.org subdomain (separate from the SheerID hithaldia.ac.in marketing domain). Organic discovery only surfaced 404 samarth.edu.in tenants and DNS-dead sumsraj/digiicampus tenants; force-accept pins the operator-verified portal URL."
+  },
+  "3842444": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["uni1erp.in", "samarth.ac.in"],
+    "seed_urls": [
+      "https://zhdc.uni1erp.in/public/login",
+      "https://zhdce-du.samarth.ac.in/index.php/site/login"
+    ],
+    "notes": "Zakir Husain Delhi College (DU-affiliated; row 120). Student portals: own ERP at zhdc.uni1erp.in/public/login (uni1erp platform, same as Motilal Nehru College 10063096) and the DU college Samarth tenant zhdce-du.samarth.ac.in. The samarth.ac.in apex is in KNOWN_INSTANCE_BLOCKLIST so the tenant is dropped at pre-filter; force_accept_seed_urls bypasses that for this operator-verified URL. Organic discovery only surfaced 404 samarth.edu.in tenants. Force-accept pins both operator-verified URLs."
+  },
+  "3802764": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["cvsattendance.in", "samarth.ac.in"],
+    "seed_urls": [
+      "https://cvsattendance.in/Internet/Student/Login_Npd.aspx",
+      "https://cvs-du.samarth.ac.in/index.php/site/login"
+    ],
+    "notes": "College Of Vocational Studies (DU-affiliated; row 122). Student portals: own attendance/login ASPX at cvsattendance.in/Internet/Student/Login_Npd.aspx and the DU college Samarth tenant cvs-du.samarth.ac.in. The samarth.ac.in apex is in KNOWN_INSTANCE_BLOCKLIST so the tenant is dropped at pre-filter; force_accept_seed_urls bypasses that for this operator-verified URL. Organic discovery surfaced DNS-dead cvs.mponline.gov.in and 404 samarth.edu.in tenants. Force-accept pins both operator-verified URLs."
+  },
+  "3828248": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["gargicollege.in"],
+    "seed_urls": [
+      "https://gargicollege.in/smartprof/"
+    ],
+    "notes": "Gargi College (DU-affiliated; row 125). Student portal is the SmartProf instance hosted on the college's own domain at gargicollege.in/smartprof/ (same SmartProf platform that Deshbandhu College 3827330 and Hindu College 3804623 run on Mobiquel). Organic discovery only surfaced 404 samarth.edu.in tenants and DNS-dead sumsraj/digiicampus tenants; force-accept pins the operator-verified portal URL."
+  },
+  "664398": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["ucanapply.com"],
+    "seed_urls": [
+      "https://makaut1.ucanapply.com/smartexam/public/"
+    ],
+    "blocked_urls": [
+      "https://makautwb.ac.in/users.php?m=auth",
+      "https://makautwb.ac.in/"
+    ],
+    "notes": "Maulana Abul Kalam Azad University Of Technology, West Bengal (row 113). Real student exam portal lives on the third-party ucanapply.com platform at makaut1.ucanapply.com/smartexam/public/. Organic discovery picked the makautwb.ac.in marketing apex (rule-B login-text keep) and users.php?m=auth — both are the public marketing site, not the student portal — explicitly blocked. Force-accept pins the operator-verified ucanapply.com URL."
+  },
+  "663824": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["digivarsity.com", "anuonline.ac.in"],
+    "seed_urls": [
+      "https://uatportal.digivarsity.com/",
+      "https://portalmoocs.anuonline.ac.in/"
+    ],
+    "blocked_urls": [
+      "https://lms.anuonline.ac.in/login/index.php"
+    ],
+    "notes": "Acharya Nagarjuna University (row 118). Real student portals: uatportal.digivarsity.com (Digivarsity platform) and portalmoocs.anuonline.ac.in (MOOCs portal). Organic discovery escalated lms.anuonline.ac.in/login/index.php (the Moodle LMS login) via the SPA detector and picked it as the wrong-domain answer — blocked. Force-accept pins the operator-verified portal URLs."
+  },
+  "664681": {
+    "force_accept_seed_urls": true,
+    "extra_effective_domains": ["icloudems.com"],
+    "seed_urls": [
+      "https://iimt.icloudems.com/corecampus/index.php"
+    ],
+    "blocked_urls": [
+      "https://www.vmsuniversity.in/wp-login.php"
+    ],
+    "notes": "IIMT University (row 126). Real student portal is the iCloudEMS tenant at iimt.icloudems.com/corecampus/index.php (icloudems.com is a multi-tenant SIS platform, same as K.R. Mangalam 664499). Organic discovery picked www.vmsuniversity.in/wp-login.php — an unrelated WordPress admin backend — as the wrong-domain answer; explicitly blocked (the generic ADMIN_URL_PATH_TOKENS filter also catches /wp-login.php). Force-accept pins the operator-verified iCloudEMS URL."
   }
 }
