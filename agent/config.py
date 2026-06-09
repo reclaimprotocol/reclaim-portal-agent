@@ -753,6 +753,35 @@ ADMIN_URL_PATH_TOKENS: tuple[str, ...] = (
 )
 
 
+# Every institution in this project is INDIAN. A candidate host on a foreign
+# country / academic TLD is therefore never the right portal — it's a
+# same-brand campus abroad (e.g. Amity's `moodle.amity.ac.uk` matching the
+# Indian "amity" shortname). Reject any host ending in one of these.
+# Generic gTLDs (.com/.org/.io/.xyz/.app/.live/.net) are NOT here — many
+# legitimate Indian-uni platforms use them (knimbus.com, myloft.xyz, …).
+FOREIGN_ACADEMIC_TLDS: tuple[str, ...] = (
+    ".ac.uk", ".uk",
+    ".edu.au", ".com.au",
+    ".ac.nz",
+    ".edu.pk",
+    ".ac.lk", ".edu.lk",
+    ".edu.np",
+    ".edu.bd",
+    ".edu.my", ".com.my",
+    ".edu.sg",
+    ".ac.za",
+    ".ac.ke",
+    ".ac.jp",
+    ".ac.kr",
+    ".edu.cn",
+    ".edu.ph",
+    ".ac.ae", ".edu.ae",
+    ".edu.sa",
+    ".ca", ".edu.ca",
+)
+
+
+
 # Stage A — non-student-audience subdomain veto. After rule-A/B
 # validation accepts a candidate, the leftmost subdomain label is
 # matched against this set; a hit hard-rejects the candidate

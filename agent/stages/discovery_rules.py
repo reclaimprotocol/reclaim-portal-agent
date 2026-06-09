@@ -48,6 +48,7 @@ from ..config import (
     ERP_APP_LOGIN_PATH_TEMPLATES,
     ERP_APP_LOGIN_SUBDOMAINS,
     EXPLICIT_NON_STUDENT_FIELD_SIGNALS,
+    FOREIGN_ACADEMIC_TLDS,
     GEMINI_SEARCH_ENABLED,
     HASH_ROUTED_PLATFORM_ROOTS,
     KNOWN_ADMISSION_PLATFORMS,
@@ -1053,6 +1054,17 @@ def host_is_known_shared_platform(host: str) -> bool:
         if host == pattern or host.endswith("." + pattern):
             return True
     return False
+
+
+def is_foreign_academic_host(host: str) -> bool:
+    """True if `host` is on a foreign country / academic TLD. Every
+    institution in this project is Indian, so such a host is a same-brand
+    campus abroad, not the target portal (e.g. `moodle.amity.ac.uk`
+    matching the Indian 'amity' shortname). Generic gTLDs are not flagged."""
+    if not host:
+        return False
+    h = host.lower().rstrip(".")
+    return any(h == t.lstrip(".") or h.endswith(t) for t in FOREIGN_ACADEMIC_TLDS)
 
 
 def is_nonstudent_platform_tenant(host: str) -> bool:
@@ -3334,6 +3346,16 @@ def consolidate_candidates(
             logger.info(
                 "[%s] consolidate: drop %s — recruitment/admission platform "
                 "tenant (policy)", orgid, c.url,
+            )
+            continue
+        # Foreign-TLD veto. All institutions here are Indian, so a host on a
+        # foreign academic/country TLD (e.g. moodle.amity.ac.uk) is a same-
+        # brand overseas campus, not the target portal — drop it even though
+        # the 'amity' shortname matched during membership.
+        if is_foreign_academic_host(host):
+            logger.info(
+                "[%s] consolidate: drop %s — foreign academic TLD (Indian "
+                "institution expected)", orgid, c.url,
             )
             continue
         # Section 9 — drop bare-homepage candidates that survived
