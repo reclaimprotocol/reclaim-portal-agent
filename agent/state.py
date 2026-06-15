@@ -50,6 +50,19 @@ CREATE TABLE IF NOT EXISTS tc_analyzer_cache (
     updated_at  REAL NOT NULL
 );
 
+-- Stage C vendor-level T&C cache (Part 3). Maps a campus-software vendor to
+-- one authoritative verdict so every college on that vendor resolves
+-- instantly without re-fetching/re-analysing. Seeded from
+-- config.VENDOR_TC_MAP on first open; grown at runtime as new vendors are
+-- auto-learned by the analyzer.
+CREATE TABLE IF NOT EXISTS vendor_tc_map (
+    vendor_name   TEXT PRIMARY KEY,
+    vendor_tc_url TEXT,
+    verdict       TEXT,
+    reasoning     TEXT,
+    last_analyzed REAL
+);
+
 CREATE INDEX IF NOT EXISTS idx_orgid_status_status ON orgid_status(status);
 """
 
@@ -70,6 +83,7 @@ class StateStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._apply_migrations()
+        self._seed_vendor_tc_map()
         self._conn.commit()
 
     def _apply_migrations(self) -> None:
@@ -78,6 +92,36 @@ class StateStore:
                 self._conn.execute(stmt)
             except sqlite3.OperationalError:
                 pass  # column already exists
+
+    def _seed_vendor_tc_map(self) -> None:
+        """Seed `vendor_tc_map` from config.VENDOR_TC_MAP with the verified
+        verdicts. INSERT OR IGNORE so operator edits and auto-learned rows
+        are never clobbered on re-open; only missing seed vendors are added.
+        Lazy import keeps state.py free of an import-time config dependency.
+        """
+        try:
+            from .config import VENDOR_TC_MAP
+        except Exception:  # pragma: no cover - config import shouldn't fail
+            return
+        now = time.time()
+        for vendor_name, info in VENDOR_TC_MAP.items():
+            try:
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO vendor_tc_map
+                        (vendor_name, vendor_tc_url, verdict, reasoning, last_analyzed)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        vendor_name,
+                        info.get("tc_url", "") or "",
+                        info.get("verdict"),
+                        "seed (config.VENDOR_TC_MAP)",
+                        now,
+                    ),
+                )
+            except sqlite3.OperationalError:
+                pass
 
     def close(self) -> None:
         self._conn.close()
@@ -213,6 +257,62 @@ class StateStore:
                 """,
                 (tc_url, json.dumps(result, default=str), time.time()),
             )
+
+    # ---- Stage C vendor-level T&C cache (Part 3) ----
+
+    def get_vendor_tc(self, vendor_name: str) -> dict[str, Any] | None:
+        """Return {vendor_tc_url, verdict, reasoning, last_analyzed} for a
+        vendor, or None when unknown / no verdict recorded yet."""
+        if not vendor_name:
+            return None
+        row = self._conn.execute(
+            "SELECT vendor_tc_url, verdict, reasoning, last_analyzed "
+            "FROM vendor_tc_map WHERE vendor_name = ?",
+            (vendor_name,),
+        ).fetchone()
+        if row is None or not row["verdict"]:
+            return None
+        return {
+            "vendor_tc_url": row["vendor_tc_url"],
+            "verdict": row["verdict"],
+            "reasoning": row["reasoning"],
+            "last_analyzed": row["last_analyzed"],
+        }
+
+    def set_vendor_tc(
+        self,
+        vendor_name: str,
+        vendor_tc_url: str | None,
+        verdict: str,
+        reasoning: str | None = None,
+    ) -> None:
+        """Upsert a vendor verdict — used both to refresh seeds and to
+        AUTO-LEARN a newly discovered vendor so all future colleges on it
+        resolve instantly."""
+        if not vendor_name:
+            return
+        with self._tx() as conn:
+            conn.execute(
+                """
+                INSERT INTO vendor_tc_map
+                    (vendor_name, vendor_tc_url, verdict, reasoning, last_analyzed)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(vendor_name) DO UPDATE SET
+                    vendor_tc_url = excluded.vendor_tc_url,
+                    verdict       = excluded.verdict,
+                    reasoning     = excluded.reasoning,
+                    last_analyzed = excluded.last_analyzed
+                """,
+                (vendor_name, vendor_tc_url or "", verdict, reasoning, time.time()),
+            )
+
+    def get_vendor_names(self) -> list[str]:
+        """All known vendor names (seed + auto-learned) — used by the finder
+        to detect a learned vendor by signature substring on later colleges."""
+        rows = self._conn.execute(
+            "SELECT vendor_name FROM vendor_tc_map"
+        ).fetchall()
+        return [r["vendor_name"] for r in rows if r["vendor_name"]]
 
     def purge_orgid(self, orgid: str) -> tuple[int, int]:
         """Delete every row for this OrgID from both state tables.

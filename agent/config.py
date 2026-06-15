@@ -667,6 +667,111 @@ TC_URL_REJECTION_PATTERNS: tuple[str, ...] = (
 TC_FINDER_PARANOID_MODE: bool = True
 TC_PARANOID_MIN_SIMILARITY: float = 0.5
 
+# ── Stage C enhancement knobs (additive) ───────────────────────────────
+# Cap on extra fetches the structured walk-up escalation (Tier 1 path-walk
+# + Tier 2 host-walk) may issue per portal, on top of the existing
+# strategies. Keeps the escalation bounded within TOTAL_TC_BUDGET_SECONDS.
+TC_WALKUP_MAX_PROBES: int = 6
+
+# Hybrid analyzer (Part 2B): a T&C document longer than this many chars is
+# treated as "long/dense" — combined with low keyword confidence it becomes
+# an escalation trigger to the Claude legal pass.
+TC_LONG_DOC_CHARS: int = 18_000
+
+# Hybrid analyzer hard cap on Claude-legal subprocess calls per process
+# (= per batch run). Once hit, remaining complex cases keep their keyword
+# verdict, flagged "(keyword — Claude cap reached)". No billing path: the
+# Claude legal pass runs only via the Claude Code CLI subprocess.
+TC_CLAUDE_MAX_CALLS: int = int(os.environ.get("TC_CLAUDE_MAX_CALLS", "50"))
+
+# Timeout (seconds) for one Claude-legal CLI subprocess call.
+TC_CLAUDE_TIMEOUT_SECONDS: int = 120
+
+# ── Vendor T&C registry (Part 3 seed) ──────────────────────────────────
+# Maps a campus-software VENDOR to its detection signatures, global T&C URL
+# (best-effort; may be ""), and a seed verdict. Two uses:
+#   1. tc_finder Tier 4 detects the vendor (signature substring in the
+#      portal footer/body or host) and tags the finding so every college on
+#      that vendor inherits one authoritative verdict.
+#   2. state.StateStore seeds the `vendor_tc_map` table from this dict on
+#      first open (INSERT OR IGNORE — operator/auto-learned rows are never
+#      overwritten). New vendors discovered at runtime are auto-learned back
+#      into the table, so the registry grows itself.
+# verdict semantics match the analyzer: Yes = scraping not prohibited,
+# Maybe = ambiguous, No = prohibited.
+VENDOR_TC_MAP: dict[str, dict[str, Any]] = {
+    "vmedulife": {
+        "signatures": ("vmedulife", "vmedulife.com"),
+        "tc_url": "https://www.vmedulife.com/terms-conditions",
+        "verdict": "No",
+    },
+    "pwc-integratededucation": {
+        "signatures": ("integratededucation.pwc.in", "powered by pwc"),
+        "tc_url": "",
+        "verdict": "No",
+    },
+    "almashines": {
+        "signatures": ("almashines", "almashines.com"),
+        "tc_url": "https://www.almashines.com/terms-of-service",
+        "verdict": "Maybe",
+    },
+    "samarth": {
+        "signatures": ("samarth.edu.in", "samarth egov", "powered by samarth"),
+        "tc_url": "https://samarth.edu.in/terms-and-conditions/",
+        "verdict": "Yes",
+    },
+    "linways": {
+        "signatures": ("linways", "linways.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "digiicampus": {
+        "signatures": ("digiicampus", "digiicampus.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "campus365": {
+        "signatures": ("campus365", "campus365.io"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "myclassboard": {
+        "signatures": ("myclassboard", "myclassboard.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "cleverground": {
+        "signatures": ("cleverground", "cleverground.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "camu-octoze": {
+        "signatures": ("camudigitalcampus", "octoze", "camu digital campus"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "cloudilyaerp": {
+        "signatures": ("cloudilyaerp", "cloudilyaerp.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "bynaric": {
+        "signatures": ("bynaric", "bynaric.in"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "onfees": {
+        "signatures": ("onfees", "onfees.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+    "mapmyaccess": {
+        "signatures": ("mapmyaccess", "mapmyaccess.com"),
+        "tc_url": "",
+        "verdict": "Yes",
+    },
+}
+
 # Stage C — domains we never want to *infer* as a university's main site.
 # These are shared platforms (Samarth, MKCL DigitalUniversity, MyLoft, Knimbus)
 # whose tenants serve many universities; a portal hosted on one of these tells
@@ -1202,6 +1307,23 @@ STATE_PLATFORM_HINTS: dict[str, tuple[str, ...]] = {
 #   `category`      — category label for the synthesized Candidate.
 #   `note`          — short description embedded in the validation_notes
 #                     / log line.
+# Professional-college name tokens that belong to dedicated STATEWIDE
+# affiliators (technical universities for engineering, health-science
+# universities for medical/nursing/pharmacy, agricultural/veterinary
+# universities, etc.) rather than the general regional university of a
+# district. District-scoped regional universities carry this as
+# `name_tokens_exclude` so they don't wrongly attach to e.g. an engineering
+# college that happens to sit in their district but is affiliated to the
+# state technical university.
+PROFESSIONAL_COLLEGE_NAME_TOKENS: tuple[str, ...] = (
+    "engineering", "institute of technology", "college of technology",
+    "technological", "polytechnic",
+    "medical", "nursing", "pharmac", "dental", "ayurved",
+    "homoeo", "homeo", "paramedical", "physiotherap", "siddha", "unani",
+    "agricultur", "horticultur", "forestr",
+    "veterinary", "animal science", "dairy",
+)
+
 AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
     "aktu.ac.in": {
         "state": "Uttar Pradesh",
@@ -1939,7 +2061,7 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
             "(unverified — Phase 3.5 probe)"
         ),
     },
-    "kvasu.ac.in": {
+    "kuk.ac.in": {
         "state": "Haryana",
         "state_aliases": [
             "haryana", "hr",
@@ -1950,24 +2072,131 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
         "verify": True,
         "note": (
             "Kurukshetra University (KUK) Samarth "
-            "(unverified — Phase 3.5 probe; domain key kvasu.ac.in "
-            "carried over from prompt — verify against KUK's own domain)"
+            "(unverified — Phase 3.5 probe; key corrected from kvasu.ac.in "
+            "which collided with Kerala Veterinary university)"
         ),
     },
     # ---- Himachal Pradesh ----
+    # Himachal Pradesh University — main general affiliator (all districts
+    # except Mandi, now under Sardar Patel University). Student + exam
+    # portals on the official hpushimla.in family (Cloudflare-protected).
     "hpuniv.ac.in": {
         "state": "Himachal Pradesh",
         "state_aliases": [
-            "himachal pradesh", "hp",
-            "shimla", "solan", "kullu", "mandi", "kangra",
-            "hamirpur", "una",
+            "shimla", "solan", "kullu", "kangra", "hamirpur", "una",
+            "bilaspur", "chamba", "sirmaur", "sirmour", "kinnaur",
+            "lahaul", "spiti", "dharamshala", "palampur", "nahan",
         ],
-        "portal_url": "https://hpuniv.samarth.edu.in/index.php/site/login",
+        "match_tokens": [
+            "hpuniv", "hp university", "himachal pradesh university",
+            "hpushimla",
+        ],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_urls": [
+            "https://nstudentportal.hpushimla.in/",
+            "https://exams.hpushimla.in/CommonLogin.aspx",
+        ],
         "category": "Student Portal",
-        "verify": True,
+        "always_attach": True,
         "note": (
-            "Himachal Pradesh University Shimla Samarth "
-            "(unverified — Phase 3.5 probe)"
+            "Himachal Pradesh University Shimla — student + exam portals "
+            "(general affiliator statewide except Mandi; official, "
+            "Cloudflare-protected)"
+        ),
+    },
+    # HP Technical University (HIMTU) Hamirpur — engineering/technical
+    # colleges statewide (name_tokens-scoped).
+    "himtu.ac.in": {
+        "state": "Himachal Pradesh",
+        "state_aliases": ["himachal pradesh", "hp"],
+        "name_tokens": (
+            "engineering", "polytechnic", "institute of technology",
+            "college of technology", "technological", "architecture",
+            "management", "mba",
+        ),
+        "match_tokens": [
+            "himachal pradesh technical", "himtu", "hptu", "hptuexam",
+        ],
+        "portal_url": "https://hptuexam.com/site/userlogin",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "HP Technical University (HIMTU) Hamirpur — engineering/technical "
+            "colleges statewide (verified live)"
+        ),
+    },
+    # Sardar Patel University Mandi — Mandi-district colleges (carved from
+    # HPU). Exam + student registration portals.
+    "spumandi.ac.in": {
+        "state": "Himachal Pradesh",
+        "state_aliases": ["mandi", "sundernagar", "joginder nagar"],
+        "match_tokens": ["sardar patel university", "spumandi", "geonlinehub"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_urls": [
+            "https://spumandiexam.in/",
+            "https://www.geonlinehub.com/SPU_CORE_PROD/Authentication/RegistrationAuth/Login",
+        ],
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Sardar Patel University Mandi — exam + student registration "
+            "portals (Mandi district; verified live)"
+        ),
+    },
+    # Atal Medical & Research University Nerchowk — all medical/nursing/
+    # pharmacy/dental/AYUSH colleges statewide.
+    "amruhp.ac.in": {
+        "state": "Himachal Pradesh",
+        "state_aliases": ["himachal pradesh", "hp"],
+        "name_tokens": (
+            "medical", "nursing", "pharmac", "dental", "ayurved",
+            "homoeo", "homeo", "paramedical", "physiotherap",
+            "health sciences", "unani",
+        ),
+        "match_tokens": ["atal medical", "amruhp", "erpamruhp"],
+        "portal_url": "https://erpamruhp.in/login.htm",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Atal Medical & Research University Nerchowk — medical/nursing/"
+            "pharmacy/dental colleges statewide (verified live)"
+        ),
+    },
+    # Dr. YS Parmar University of Horticulture & Forestry Nauni — Samarth.
+    "uhf.ac.in": {
+        "state": "Himachal Pradesh",
+        "state_aliases": ["himachal pradesh", "hp"],
+        "name_tokens": ("horticultur", "forestr"),
+        "match_tokens": [
+            "parmar", "yspuniversity", "horticulture and forestry",
+            "uhf nauni",
+        ],
+        "portal_url": "https://yspuniversity.samarth.ac.in/index.php/site/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Dr. YS Parmar University of Horticulture & Forestry Nauni "
+            "Samarth (horticulture/forestry statewide; verified live)"
+        ),
+    },
+    # Central University of Himachal Pradesh Dharamshala — central
+    # university (own students). No district alias; Gemini-mapped only.
+    # Student Samarth + central library.
+    "cuhimachal.ac.in": {
+        "state": "Himachal Pradesh",
+        "state_aliases": [],
+        "match_tokens": [
+            "central university of himachal", "cuhimachal", "cuhp",
+        ],
+        "portal_urls": [
+            "https://cuhimachal.samarth.edu.in/index.php/site/login",
+            "https://library.cuhimachal.ac.in/",
+        ],
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Central University of Himachal Pradesh Dharamshala — Samarth "
+            "student + central library (central university; Gemini-mapped)"
         ),
     },
     # ---- Odisha ----
@@ -2002,49 +2231,366 @@ AFFILIATING_UNIVERSITY_PORTALS: dict[str, dict[str, Any]] = {
         ),
     },
     # ---- Kerala ----
+    # Two optional keys used by the Kerala entries below (honoured by the
+    # affiliation probe, the zero-portal fallback, and the always-attach
+    # step in `discovery.run`):
+    #   `always_attach: True` — append this university's portal to the
+    #       college's result EVEN WHEN the college already has its own
+    #       portal (Kerala colleges typically run a local ERP but students
+    #       also authenticate through the affiliating university's portal
+    #       for registration/exams). Honoured only for trusted entries
+    #       (no `verify`); validation is bypassed since the URL is
+    #       operator-verified. Opt-in per entry — existing AKTU/CCSU/GNDU/
+    #       GTU entries omit it, so their behaviour is unchanged.
+    #   `name_tokens: (...)` — when present, the match additionally
+    #       requires one of these lowercase substrings in the college
+    #       NAME. Used to scope the two STATEWIDE affiliators (KTU →
+    #       engineering colleges, KUHS → health-science colleges) to the
+    #       right category, since district aliases alone can't distinguish
+    #       an engineering college in Kottayam (KTU) from an arts college
+    #       in Kottayam (MGU). The four regional universities are
+    #       district-scoped and carry no `name_tokens`.
+    #
+    # The four regional general-affiliating universities — district-scoped
+    # (NO broad "kerala"/"kl" alias, so they attach only within region).
     "keralauniversity.ac.in": {
         "state": "Kerala",
         "state_aliases": [
-            "kerala", "kl",
             "thiruvananthapuram", "trivandrum", "kollam",
-            "pathanamthitta",
+            "nedumangad", "neyyattinkara", "attingal", "varkala",
+            "kazhakoottam", "kazhakuttam",
         ],
-        "portal_url": (
-            "https://keralauniversity.samarth.edu.in/index.php/site/login"
-        ),
+        "portal_url": "https://slcm.keralauniversity.ac.in/",
         "category": "Student Portal",
-        "verify": True,
+        "always_attach": True,
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
         "note": (
-            "University of Kerala Thiruvananthapuram Samarth "
-            "(unverified — Phase 3.5 probe)"
-        ),
-    },
-    "cusat.ac.in": {
-        "state": "Kerala",
-        "state_aliases": [
-            "kerala", "kl",
-            "kochi", "cochin", "ernakulam", "thrissur",
-        ],
-        "portal_url": "https://cusat.samarth.edu.in/index.php/site/login",
-        "category": "Student Portal",
-        "verify": True,
-        "note": (
-            "Cochin University of Science and Technology Samarth "
-            "(unverified — Phase 3.5 probe)"
+            "University of Kerala SLCM — student life-cycle portal "
+            "(Thiruvananthapuram/Kollam region; verified live)"
         ),
     },
     "mgu.ac.in": {
         "state": "Kerala",
         "state_aliases": [
-            "kerala", "kl",
             "kottayam", "idukki", "ernakulam", "alappuzha",
+            "pathanamthitta", "pala", "thodupuzha", "muvattupuzha",
+            "changanassery", "kanjirappally", "kothamangalam",
         ],
-        "portal_url": "https://mgu.samarth.edu.in/index.php/site/login",
+        "portal_url": "https://studentportal.mgu.ac.in/",
+        "category": "Student Portal",
+        "always_attach": True,
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "note": (
+            "Mahatma Gandhi University Kottayam student portal "
+            "(central Kerala region; verified live)"
+        ),
+    },
+    "uoc.ac.in": {
+        "state": "Kerala",
+        "state_aliases": [
+            "kozhikode", "calicut", "malappuram", "wayanad",
+            "palakkad", "thrissur", "thenhipalam", "manjeri",
+            "tirur", "ponnani", "vadakara", "kalpetta",
+        ],
+        "portal_url": "https://student.uoc.ac.in/",
+        "category": "Student Portal",
+        "always_attach": True,
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "note": (
+            "University of Calicut integrated students' portal "
+            "(Malabar region; verified live)"
+        ),
+    },
+    "kannuruniversity.ac.in": {
+        "state": "Kerala",
+        "state_aliases": [
+            "kannur", "kasaragod", "kasargod", "thalassery",
+            "payyanur", "taliparamba", "mananthavady", "mahe",
+        ],
+        "portal_url": "https://kannurops.kreap.co.in/studentLogin",
+        "category": "Student Portal",
+        "always_attach": True,
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "note": (
+            "Kannur University K-REAP student login "
+            "(north Kerala region; verified live)"
+        ),
+    },
+    "ssus.ac.in": {
+        "state": "Kerala",
+        "state_aliases": ["kalady"],
+        "portal_url": "https://studentportal.ssus.ac.in/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "note": (
+            "Sree Sankaracharya University of Sanskrit Kalady "
+            "student portal (verified live)"
+        ),
+    },
+    # Statewide category-scoped affiliators (broad "kerala"/"kl" alias +
+    # `name_tokens` so they attach only to the matching college category).
+    "ktu.edu.in": {
+        "state": "Kerala",
+        "state_aliases": ["kerala", "kl"],
+        "name_tokens": (
+            "engineering", "institute of technology",
+            "college of technology", "technological",
+        ),
+        "portal_url": "https://app.ktu.edu.in/login.htm",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "APJ Abdul Kalam Technological University (KTU) e-Gov "
+            "portal — all engineering colleges in Kerala (verified live)"
+        ),
+    },
+    "cusat.ac.in": {
+        "state": "Kerala",
+        "state_aliases": ["kochi", "cochin"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://cusat.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "note": (
+            "Cochin University of Science and Technology Samarth "
+            "(verified live; HTTP 200 with real login form)"
+        ),
+    },
+    # ---- Kerala statewide (MEDIUM confidence — verify-only probes) ----
+    # URLs corroborated but not fetch-verifiable from overseas infra
+    # (HTTP-only / ICAR-AMS hosts refuse non-Indian IPs). Kept as
+    # `verify: True` so they are NEVER force-accepted or always-attached;
+    # they only enter via the validated Phase 3.5 probe. Flip `verify`
+    # off (and add `always_attach`) once confirmed from an Indian network.
+    "kuhs.ac.in": {
+        "state": "Kerala",
+        "state_aliases": ["kerala", "kl"],
+        "name_tokens": (
+            "medical", "nursing", "pharmac", "dental", "ayurved",
+            "homoeo", "homeo", "health", "paramedical", "physiotherap",
+            "allied health", "siddha", "unani",
+        ),
+        "portal_url": (
+            "http://www2.kuhs.ac.in/kuhs_new/index.php/login/student-login"
+        ),
         "category": "Student Portal",
         "verify": True,
         "note": (
-            "Mahatma Gandhi University Kottayam Samarth "
-            "(unverified — Phase 3.5 probe)"
+            "Kerala University of Health Sciences (KUHS) — all medical/"
+            "nursing/pharmacy/dental/paramedical colleges "
+            "(unverified — HTTP-only, Phase 3.5 probe)"
+        ),
+    },
+    "kau.in": {
+        "state": "Kerala",
+        "state_aliases": ["kerala", "kl"],
+        "name_tokens": (
+            "agricultur", "horticultur", "forestr",
+            "co-operation", "agri-business",
+        ),
+        "portal_url": "https://kau.auams.in/login.aspx",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Kerala Agricultural University ICAR-AMS "
+            "(unverified — auams.in refuses non-Indian IPs, Phase 3.5 probe)"
+        ),
+    },
+    "kvasu.ac.in": {
+        "state": "Kerala",
+        "state_aliases": ["kerala", "kl"],
+        "name_tokens": ("veterinary", "animal science", "dairy"),
+        "portal_url": "https://kvasu.auams.in/login.aspx",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Kerala Veterinary and Animal Sciences University ICAR-AMS "
+            "(unverified — auams.in refuses non-Indian IPs, Phase 3.5 probe)"
+        ),
+    },
+    # ---- Jharkhand ----
+    # The state's main general-affiliating universities, split by division.
+    # All operator-supplied + verified live (HTTP 200), so trusted +
+    # always_attach. `match_tokens` lets the Gemini affiliation lookup map a
+    # college to the right one even though the exam portal lives on a
+    # different domain than the university's main site. Professional colleges
+    # (engineering → Jharkhand Univ. of Technology, medical, etc.) are
+    # excluded so a regional university isn't attached to them by district.
+    "ranchiuniversity.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [
+            "ranchi", "khunti", "lohardaga", "gumla", "simdega",
+        ],
+        "match_tokens": ["ranchiuniversity", "ranchi university"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://www.exam.ranchiuniversity.co.in/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": "Ranchi University exam portal (Ranchi division; verified live)",
+    },
+    "vbu.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [
+            "hazaribagh", "hazaribag", "chatra", "koderma", "kodarma",
+            "giridih", "ramgarh",
+        ],
+        "match_tokens": ["vbu.ac.in", "vinoba bhave"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://www.vbu.ac.in/stdlogin",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Vinoba Bhave University Hazaribagh student login "
+            "(North Chotanagpur; verified live)"
+        ),
+    },
+    "skmu.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [
+            "dumka", "deoghar", "godda", "sahibganj", "sahebganj",
+            "pakur", "jamtara", "santhal pargana",
+        ],
+        "match_tokens": ["skmu", "sido kanhu", "sidho kanho", "sido kanho"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://exam.skmu.ac.in/skmuexamform/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Sido Kanhu Murmu University Dumka exam portal "
+            "(Santhal Pargana; verified live)"
+        ),
+    },
+    "bbmku.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": ["dhanbad", "bokaro"],
+        "match_tokens": [
+            "bbmku", "bbmkuniv", "binod bihari mahto", "koyalanchal",
+        ],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://bbmkuniv.in/bbmkuexamform/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Binod Bihari Mahto Koyalanchal University Dhanbad exam portal "
+            "(Dhanbad/Bokaro; verified live)"
+        ),
+    },
+    "kolhanuniversity.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [
+            "chaibasa", "west singhbhum", "east singhbhum", "jamshedpur",
+            "seraikela", "saraikela", "kharsawan", "singhbhum",
+        ],
+        "match_tokens": ["kolhanuniversity", "kolhan university", "kuuniv"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://www.kuuniv.in/kuform.in/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Kolhan University Chaibasa exam portal "
+            "(Kolhan division; verified live)"
+        ),
+    },
+    # Dr. Shyama Prasad Mukherjee University — Ranchi-area state university
+    # (carved out of Ranchi University; the two share the Ranchi district, so
+    # Ranchi general colleges may surface either as a candidate).
+    "dspmuranchi.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": ["ranchi"],
+        "match_tokens": ["dspmu", "shyama prasad mukherjee"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://dspmuranchi.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Dr. Shyama Prasad Mukherjee University Ranchi Samarth "
+            "(verified live)"
+        ),
+    },
+    # Nilamber-Pitamber University — Palamu division.
+    "npu.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [
+            "palamu", "palamau", "garhwa", "latehar",
+            "daltonganj", "medininagar", "medininagar",
+        ],
+        "match_tokens": ["nilamber", "pitamber", "npuuniv"],
+        "name_tokens_exclude": PROFESSIONAL_COLLEGE_NAME_TOKENS,
+        "portal_url": "https://npuuniv.in/npuexamform/",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Nilamber-Pitamber University Medininagar exam portal "
+            "(Palamu/Garhwa/Latehar; verified live)"
+        ),
+    },
+    # Jharkhand University of Technology — STATEWIDE engineering/technical
+    # affiliator (name_tokens-scoped, like KTU in Kerala).
+    "jutranchi.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": ["jharkhand", "jh"],
+        "name_tokens": (
+            "engineering", "polytechnic", "institute of technology",
+            "college of technology", "technological",
+        ),
+        "match_tokens": [
+            "jharkhand university of technology", "jutranchi",
+            "gyanjyoti", "jut",
+        ],
+        "portal_url": "https://jutgyanjyoti.jharkhand.gov.in/",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Jharkhand University of Technology (JUT) GyanJyoti portal — "
+            "engineering/technical colleges statewide (verified live)"
+        ),
+    },
+    # Central University of Jharkhand — central university (own students,
+    # not a general affiliator). No district alias so it never blanket-
+    # attaches; only the Gemini lookup maps a genuinely CUJ-linked college.
+    "cuj.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [],
+        "match_tokens": ["cuj", "central university of jharkhand"],
+        "portal_url": "https://cuj.samarth.edu.in/index.php/site/login",
+        "category": "Student Portal",
+        "always_attach": True,
+        "note": (
+            "Central University of Jharkhand Samarth (verified live; "
+            "central university — Gemini-mapped only, no district attach)"
+        ),
+    },
+    # Birsa Agricultural University — STATEWIDE agriculture/veterinary
+    # affiliator. ICAR-AMS host blocks non-Indian IPs, so verify-only
+    # (still attached via the Gemini affiliation lookup for ag colleges).
+    "bauranchi.org": {
+        "state": "Jharkhand",
+        "state_aliases": ["jharkhand", "jh"],
+        "name_tokens": (
+            "agricultur", "veterinary", "forestr", "horticultur",
+            "fishery", "fisheries", "dairy", "animal science",
+        ),
+        "match_tokens": ["birsa agricultural", "bauranchi", "amsbau"],
+        "portal_url": "https://amsbau.icar.gov.in/HomePage.aspx",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Birsa Agricultural University ICAR-AMS "
+            "(unverified — icar.gov.in refuses non-Indian IPs)"
+        ),
+    },
+    # Jamshedpur Women's University — standalone women's university (own
+    # students). WAF-blocked from here → verify-only; Gemini-mapped only.
+    "jwu.ac.in": {
+        "state": "Jharkhand",
+        "state_aliases": [],
+        "match_tokens": ["jamshedpur women", "jwu"],
+        "portal_url": "http://cas.jwu.ac.in/automation/jwuloginsem2onwords.aspx",
+        "category": "Student Portal",
+        "verify": True,
+        "note": (
+            "Jamshedpur Women's University CAS login "
+            "(unverified — WAF-blocked; Gemini-mapped only)"
         ),
     },
 }

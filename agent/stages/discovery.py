@@ -61,6 +61,7 @@ from ..config import (
     KNOWN_SHARED_PLATFORM_PATTERNS,
     NON_STUDENT_SUBDOMAIN_BLOCKLIST,
     OPENROUTER_API_KEY,
+    OPENROUTER_MODEL,
     SAMARTH_ADMIN_TENANT_SUFFIXES,
     SAMARTH_TENANT_PATTERNS,
     SHARED_PLATFORM_TENANT_PROBES,
@@ -80,6 +81,142 @@ logger = logging.getLogger(__name__)
 
 UNIVERSITY_NAME_COL = "SheerID University Name"
 DOMAINS_COL = "SheerID Website Domain"
+# Optional row key carrying the institution's state. The SheerID sheet
+# supplies state via `domain_overrides[orgid]["state"]`; the per-state
+# office sheet (run_portal_sheet.py) has no OrgID override, so it injects
+# the tab name here instead. `discovery.run` reads `org_state` from the
+# override first, then falls back to this row key — letting the affiliation
+# probe / fallback / always-attach fire for office-sheet rows too.
+ORG_STATE_COL = "org_state"
+# Optional row key carrying the institution's city/district. Affiliation
+# matching combines state + city into a single "locale" string searched for
+# `state_aliases` — the office sheet only knows the state at the tab level,
+# so the district (which selects the right regional university, e.g.
+# Kottayam → MGU) must come from the City column via this key.
+ORG_CITY_COL = "org_city"
+
+
+def _alias_in_locale(alias: str, locale: str) -> bool:
+    """Word-boundary alias match. Raw substring matching is unsafe: a short
+    district alias like `hapur` is a substring of `thiruvananthapuram`
+    (…t-h-a-p-u-r-a-m) and `up` is a substring of countless words, which
+    would mis-attach a UP university to a Kerala college. Anchor the alias
+    between non-alphanumeric boundaries so it only matches whole tokens
+    (handles multi-word and dotted aliases like `western up` / `u.p.`)."""
+    if not alias:
+        return False
+    return re.search(
+        r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", locale
+    ) is not None
+
+
+def _name_ok(aff_info: dict, name_lower: str) -> bool:
+    """Category gate on the college NAME: require an inclusion token when
+    `name_tokens` is set (statewide affiliators — KTU→engineering,
+    KUHS→health), and reject when a `name_tokens_exclude` token is present
+    (regional universities must skip professional colleges that belong to a
+    statewide affiliator even though they sit in the same district)."""
+    tokens = aff_info.get("name_tokens")
+    if tokens and not any(tok in name_lower for tok in tokens):
+        return False
+    excluded = aff_info.get("name_tokens_exclude")
+    if excluded and any(tok in name_lower for tok in excluded):
+        return False
+    return True
+
+
+def _resolve_affiliating_portals(
+    orgid: str, name: str, city: str
+) -> list[tuple[str, dict]]:
+    """Ask Gemini which university a college is affiliated to, then map the
+    answer to configured `AFFILIATING_UNIVERSITY_PORTALS` entries.
+
+    More accurate than district/town aliases: colleges state their
+    affiliating university on their site / Wikipedia, so a single LLM lookup
+    resolves it directly (an engineering college → KTU, a pharmacy college →
+    KUHS, a Kochi arts college → MGU) regardless of where the town sits.
+
+    Returns a list of (domain_key, aff_info) for matched configured
+    universities; empty list when the LLM is unavailable, the college is
+    itself an autonomous/deemed/central university, or no answer maps to a
+    configured portal. Matching is by DOMAIN (the map's key) to avoid
+    name collisions like "Kerala University" vs "Kerala University of
+    Health Sciences".
+    """
+    if not (OPENROUTER_API_KEY and name):
+        return []
+    where = f", {city}," if city else ""
+    prompt = (
+        f'Which university grants degrees to (affiliates) the college '
+        f'"{name}"{where} in India? Reply with ONLY the affiliating '
+        f"university's official website domain (e.g. mgu.ac.in). If the "
+        f"institution is itself a university / deemed-to-be / autonomous / "
+        f"central / national institute that is NOT affiliated to any "
+        f'parent university, reply exactly "NONE".'
+    )
+    try:
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            json={"model": OPENROUTER_MODEL,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=40,
+        )
+        text = resp.json()["choices"][0]["message"]["content"].strip().lower()
+    except Exception as err:
+        logger.warning("[%s] affiliation lookup failed for %r: %s", orgid, name, err)
+        return []
+    matched: list[tuple[str, dict]] = []
+    for key, info in AFFILIATING_UNIVERSITY_PORTALS.items():
+        # Match the configured domain key (e.g. "mgu.ac.in") OR any
+        # `match_tokens` (name fragments / alternate domains) inside the
+        # answer — the latter covers universities whose exam portal lives on
+        # a different domain than the one Gemini returns (e.g. Ranchi
+        # University: site ranchiuniversity.ac.in, portal …ranchiuniversity.co.in).
+        # Word-boundary match so a short key isn't matched inside a longer
+        # domain — e.g. "mu.ac.in" (Mumbai) must NOT match inside
+        # "skmu.ac.in" (Sido Kanhu Murmu).
+        if _alias_in_locale(key, text) or any(
+            _alias_in_locale(tok, text) for tok in info.get("match_tokens", ())
+        ):
+            matched.append((key, info))
+    if not matched and "none" in text:
+        logger.info("[%s] affiliation lookup: %r → NONE (autonomous)", orgid, name)
+        return []
+    if matched:
+        logger.info(
+            "[%s] affiliation lookup: %r → %s",
+            orgid, name, [k for k, _ in matched],
+        )
+    return matched
+
+
+def _aff_portal_urls(aff_info: dict) -> list[str]:
+    """All login URLs for an affiliating-university entry. Supports a
+    `portal_urls` list (student/exam/LMS/library/fee — whatever exists for
+    that university) and falls back to the single `portal_url`."""
+    urls = list(aff_info.get("portal_urls") or [])
+    single = aff_info.get("portal_url")
+    if single and single not in urls:
+        urls.append(single)
+    return urls
+
+
+def _affiliation_matches(
+    aff_info: dict, state_lower: str, name_lower: str
+) -> bool:
+    """True when an `AFFILIATING_UNIVERSITY_PORTALS` entry applies to this
+    college: the locale (state + city) must contain one of the entry's
+    `state_aliases` as a whole token, and the college name must pass the
+    `name_tokens` / `name_tokens_exclude` category gate."""
+    if not state_lower:
+        return False
+    if not any(
+        _alias_in_locale(alias, state_lower)
+        for alias in aff_info.get("state_aliases", ())
+    ):
+        return False
+    return _name_ok(aff_info, name_lower)
 
 FILE_EXTENSIONS: tuple[str, ...] = (
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -676,6 +813,17 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     org_state: str | None = (
         str(overrides["state"]).strip() if overrides.get("state") else None
     )
+    # Office-sheet fallback: no per-OrgID override, but run_portal_sheet
+    # injects the tab name (= state) into the row. Use it so the
+    # affiliation probe / fallback / always-attach can fire there too.
+    if not org_state and row.get(ORG_STATE_COL):
+        org_state = str(row.get(ORG_STATE_COL)).strip() or None
+    # Affiliation locale = state + city/district, searched for state_aliases.
+    # District comes from the row (office sheet) so regional-university
+    # aliases (e.g. "kottayam" → MGU) can match even though org_state is
+    # just "Kerala". org_state itself stays clean for STATE_PLATFORM_HINTS.
+    org_city = str(row.get(ORG_CITY_COL, "")).strip()
+    aff_locale = " ".join(p for p in (org_state, org_city) if p).lower()
     exact_shortnames: list[str] = [
         str(x).lower().strip()
         for x in overrides.get("exact_shortnames", [])
@@ -1519,47 +1667,44 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     # eventually found.
     t_phase = time.monotonic()
     affiliation_added = 0
-    state_lower = (org_state or "").lower()
-    if state_lower:
+    name_lower = name.lower()
+    if aff_locale:
         existing_urls = {c.url for c in rule_candidates}
         for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
-            if not any(
-                alias in state_lower
-                for alias in aff_info.get("state_aliases", ())
-            ):
+            if not _affiliation_matches(aff_info, aff_locale, name_lower):
                 continue
-            portal_url = aff_info["portal_url"]
-            if portal_url in existing_urls:
-                continue
-            host = urlsplit(portal_url).netloc.lower().split(":")[0]
-            if not host:
-                continue
-            is_wildcard, _fp = _has_wildcard_dns(
-                host,
-                http_timeout=config.http_timeout_seconds,
-                user_agent=config.user_agent,
-            )
-            if is_wildcard:
-                logger.debug(
-                    "[%s] affiliation probe: skip %s — wildcard DNS host %s",
-                    orgid, portal_url, host,
+            for portal_url in _aff_portal_urls(aff_info):
+                if portal_url in existing_urls:
+                    continue
+                host = urlsplit(portal_url).netloc.lower().split(":")[0]
+                if not host:
+                    continue
+                is_wildcard, _fp = _has_wildcard_dns(
+                    host,
+                    http_timeout=config.http_timeout_seconds,
+                    user_agent=config.user_agent,
                 )
-                continue
-            rule_candidates.append(Candidate(
-                url=portal_url,
-                category=aff_info.get("category", "Student Portal"),
-                discovery_source="rule:affiliation-probe",
-                discovery_reasoning=(
-                    f"affiliating university {aff_domain} "
-                    f"(state={org_state!r} matched state_aliases)"
-                ),
-            ))
-            existing_urls.add(portal_url)
-            affiliation_added += 1
-            logger.info(
-                "[%s] affiliation probe: added %s (%s)",
-                orgid, portal_url, aff_domain,
-            )
+                if is_wildcard:
+                    logger.debug(
+                        "[%s] affiliation probe: skip %s — wildcard DNS host %s",
+                        orgid, portal_url, host,
+                    )
+                    continue
+                rule_candidates.append(Candidate(
+                    url=portal_url,
+                    category=aff_info.get("category", "Student Portal"),
+                    discovery_source="rule:affiliation-probe",
+                    discovery_reasoning=(
+                        f"affiliating university {aff_domain} "
+                        f"(state={org_state!r} matched state_aliases)"
+                    ),
+                ))
+                existing_urls.add(portal_url)
+                affiliation_added += 1
+                logger.info(
+                    "[%s] affiliation probe: added %s (%s)",
+                    orgid, portal_url, aff_domain,
+                )
     else:
         logger.debug(
             "[%s] affiliation probe: skipped — no state in domain_overrides",
@@ -1972,7 +2117,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             "[%s] retry cascade exhausted — checking affiliating "
             "university fallback", orgid,
         )
-        state_lower = (org_state or "").lower()
+        state_lower = aff_locale
         # Union of every host this run touched. `sibling_hosts` covers
         # homepage anchors + DDG-origin + Gemini subdomain admissions;
         # `portal_anchored_hosts` is the strict-anchor subset (already
@@ -1993,44 +2138,123 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             # write a possibly-dead URL.
             if aff_info.get("verify"):
                 continue
-            state_match = bool(state_lower) and any(
-                alias in state_lower
-                for alias in aff_info["state_aliases"]
-            )
-            domain_match = aff_domain in seen_blob
+            # Both signals honour the full category gate (name_tokens +
+            # name_tokens_exclude) and word-boundary alias matching, so a
+            # statewide affiliator only falls back for the matching college
+            # category and a regional university never attaches to a
+            # professional college in its district.
+            state_match = _affiliation_matches(aff_info, state_lower, name_lower)
+            domain_match = (aff_domain in seen_blob) and _name_ok(aff_info, name_lower)
             if not (state_match or domain_match):
                 continue
-            fallback_url = aff_info["portal_url"]
+            fallback_urls = _aff_portal_urls(aff_info)
             logger.info(
                 "[%s] affiliating university fallback: %s (%s) — "
                 "%s [state_match=%s domain_match=%s]",
-                orgid, fallback_url, aff_domain, aff_info["note"],
+                orgid, fallback_urls, aff_domain, aff_info["note"],
                 state_match, domain_match,
             )
-            fallback_cand = Candidate(
+            consolidated = [(Candidate(
                 url=fallback_url,
                 category=aff_info["category"],
                 discovery_source="affiliating-university-fallback",
                 discovery_reasoning=(
-                    f"affiliating university {aff_domain} central ERP "
+                    f"affiliating university {aff_domain} central portal "
                     f"(state_match={state_match}, "
                     f"domain_match={domain_match}): {aff_info['note']}"
                 ),
                 validation_notes=(
                     "affiliating-university fallback "
-                    "(validation bypassed; central ERP shared by "
+                    "(validation bypassed; central portal shared by "
                     "all affiliated colleges)"
                 ),
                 js_rendered=False,
-            )
-            consolidated = [(fallback_cand, 3)]
-            break  # use first match only
+            ), 3) for fallback_url in fallback_urls]
+            break  # use first matching university only
 
     if not consolidated:
         logger.warning(
             "[%s] no portals found after all fallbacks — "
             "genuinely 0 portals", orgid,
         )
+
+    # Always-attach affiliating-university portals. Unlike the zero-portal
+    # fallback above (fires only on empty), this appends the parent
+    # university's central student portal EVEN WHEN the college already has
+    # its own portal — Kerala colleges commonly run a local ERP but students
+    # also authenticate through the affiliating university for registration/
+    # exams, so both belong on the row. Opt-in via `always_attach: True`
+    # and trusted only (skips `verify` entries); gated by state alias +
+    # optional `name_tokens` (category). Validation is bypassed because
+    # these URLs are operator-verified. score=3 clears the negative gate.
+    if aff_locale:
+        existing_final = {c.url for c, _ in consolidated}
+        for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
+            if aff_info.get("verify") or not aff_info.get("always_attach"):
+                continue
+            if not _affiliation_matches(aff_info, aff_locale, name_lower):
+                continue
+            for attach_url in _aff_portal_urls(aff_info):
+                if attach_url in existing_final:
+                    continue
+                consolidated.append((Candidate(
+                    url=attach_url,
+                    category=aff_info["category"],
+                    discovery_source="affiliating-university-attach",
+                    discovery_reasoning=(
+                        f"affiliating university {aff_domain} portal attached "
+                        f"alongside own portal(s): {aff_info['note']}"
+                    ),
+                    validation_notes=(
+                        "affiliating-university always-attach "
+                        "(validation bypassed; operator-verified central portal)"
+                    ),
+                    js_rendered=False,
+                ), 3))
+                existing_final.add(attach_url)
+                logger.info(
+                    "[%s] always-attach affiliating portal: %s (%s)",
+                    orgid, attach_url, aff_domain,
+                )
+
+        # Gemini affiliation lookup — per-college, more accurate than the
+        # district aliases above. Resolve the actual affiliating university
+        # and attach its portal regardless of `always_attach`/`verify`
+        # (the affiliation is explicitly confirmed, so even the otherwise
+        # probe-only KUHS/KAU/KVASU portals are attached for the colleges
+        # that genuinely belong to them). Cost-gated: only call the LLM when
+        # the org's state actually has a configured affiliator.
+        state_has_affiliator = any(
+            _alias_in_locale(alias, aff_locale)
+            for info in AFFILIATING_UNIVERSITY_PORTALS.values()
+            for alias in info.get("state_aliases", ())
+        )
+        if state_has_affiliator:
+            for aff_domain, aff_info in _resolve_affiliating_portals(
+                orgid, name, org_city
+            ):
+                for attach_url in _aff_portal_urls(aff_info):
+                    if attach_url in existing_final:
+                        continue
+                    consolidated.append((Candidate(
+                        url=attach_url,
+                        category=aff_info["category"],
+                        discovery_source="affiliation-gemini-attach",
+                        discovery_reasoning=(
+                            f"Gemini resolved affiliating university "
+                            f"{aff_domain}: {aff_info['note']}"
+                        ),
+                        validation_notes=(
+                            "affiliating-university attach via Gemini affiliation "
+                            "lookup (validation bypassed; central portal)"
+                        ),
+                        js_rendered=False,
+                    ), 3))
+                    existing_final.add(attach_url)
+                    logger.info(
+                        "[%s] gemini-affiliation attach: %s (%s)",
+                        orgid, attach_url, aff_domain,
+                    )
 
     # Final safety gate — drop any (Candidate, score) tuple whose
     # consolidation score is negative. A negative score means the

@@ -280,7 +280,16 @@ def main(tab: str, start: int | None, end: int | None, force: bool, dry_run: boo
                         continue
 
                 orgid = f"new:{domain}"
-                row = {DISCOVERY_NAME_KEY: name, DISCOVERY_DOMAIN_KEY: domain}
+                # The tab name IS the state — inject it so discovery's
+                # affiliation probe / fallback / always-attach can fire
+                # (office-sheet rows have no per-OrgID state override).
+                row_city = str(padded[city_i]).strip() if city_i is not None else ""
+                row = {
+                    DISCOVERY_NAME_KEY: name,
+                    DISCOVERY_DOMAIN_KEY: domain,
+                    discovery.ORG_STATE_COL: tab,
+                    discovery.ORG_CITY_COL: row_city,
+                }
                 ctx = PipelineContext(
                     orgid=orgid,
                     row=row,

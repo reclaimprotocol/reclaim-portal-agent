@@ -62,11 +62,22 @@ from ..config import (
     TC_URL_ERROR_PATH_PATTERNS,
     TC_URL_ERROR_QUERY_PARAMS,
     TC_URL_REJECTION_PATTERNS,
+    TC_WALKUP_MAX_PROBES,
     TOTAL_TC_BUDGET_SECONDS,
     UNIVERSITY_TC_FALLBACK_PATHS,
+    VENDOR_TC_MAP,
     load_config,
 )
 from . import discovery_rules
+
+# publicsuffix2 gives the registrable-domain hard-stop for the Tier 2 host
+# walk-up so we never probe a public suffix (ac.in / edu.in / gov.in / …).
+# Optional import: fall back to discovery_rules.registrable_root (its own
+# curated suffix list) when publicsuffix2 isn't installed.
+try:  # pragma: no cover - import guard
+    from publicsuffix2 import get_sld as _ps2_get_sld
+except Exception:  # pragma: no cover
+    _ps2_get_sld = None
 
 # Stage C — Samarth platform-level T&C URL. Used as a fallback when the
 # university's own website yields no T&C and at least one portal for the
@@ -368,8 +379,42 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         university_name=university_name,
     )
 
-    # ---- Phase 2 — Samarth platform fallback ----
+    # Existing-strategy hit is a university-owned document. Scope/vendor are
+    # broadcast alongside the URL so the analyzer can route vendor cases.
+    org_tc_scope: str | None = "university-document" if org_tc_url else None
+    org_tc_vendor: str | None = None
+
+    # ---- Phase 1.5 — structured escalation (Part 1; additive, on-empty) ----
+    # Only when the existing strategies found nothing: walk-up (Tier 1/2),
+    # shared-platform parent (Tier 3), and vendor detection (Tier 4). Highest
+    # authority tier wins. May set a vendor with no URL — the analyzer's
+    # vendor cache then resolves the verdict.
     if not org_tc_url:
+        esc_uni_domains: list[str] = []
+        if university_domain and university_domain not in SHARED_PLATFORM_DOMAINS:
+            esc_uni_domains.append(university_domain)
+        for d in extra_effective_domains:
+            d_n = (d or "").lower().lstrip(".")
+            if d_n and d_n not in esc_uni_domains and d_n not in SHARED_PLATFORM_DOMAINS:
+                esc_uni_domains.append(d_n)
+        esc = find_tc_escalation(
+            portals=portals,
+            uni_domains=esc_uni_domains,
+            js_renderer=js_renderer,
+            user_agent=user_agent,
+            http_timeout=http_timeout,
+            orgid=orgid,
+            state=ctx.deps.get("state"),
+            budget=budget,
+        )
+        if esc is not None and (esc.url or esc.vendor):
+            org_tc_url = esc.url
+            org_tc_source = esc.source
+            org_tc_scope = esc.scope
+            org_tc_vendor = esc.vendor
+
+    # ---- Phase 2 — Samarth platform fallback ----
+    if not org_tc_url and not org_tc_vendor:
         has_samarth = any(
             "samarth.edu.in" in (p.get("url") or "") or "samarth.ac.in" in (p.get("url") or "")
             for p in portals
@@ -377,6 +422,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         if has_samarth:
             org_tc_url = SAMARTH_PLATFORM_TC_URL
             org_tc_source = "samarth-platform-fallback"
+            org_tc_scope = "platform-authoritative"
             logger.info(
                 "[%s] tc-finder: no university T&C; using Samarth platform fallback %s",
                 orgid, org_tc_url,
@@ -388,13 +434,15 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             "portal_url": p.get("url", ""),
             "tc_url": org_tc_url,
             "source": org_tc_source,
+            "scope": org_tc_scope,
+            "vendor": org_tc_vendor,
         }
         for p in portals if p.get("url")
     ]
     logger.info(
-        "[%s] tc-finder total took=%.1fs portals=%d tc_url=%s source=%s budget_tripped=%s",
+        "[%s] tc-finder total took=%.1fs portals=%d tc_url=%s source=%s scope=%s vendor=%s budget_tripped=%s",
         orgid, time.monotonic() - t0, len(findings),
-        org_tc_url, org_tc_source, budget.tripped,
+        org_tc_url, org_tc_source, org_tc_scope, org_tc_vendor, budget.tripped,
     )
     return {"tc_findings": findings}
 
@@ -754,6 +802,355 @@ def find_tc_for_portal(
         orgid, portal_url,
     )
     return base_finding
+
+
+# ============================================================ STRUCTURED ESCALATION (Part 1)
+#
+# Runs only when the existing strategies (Phase 0-3 of find_university_tnc)
+# return nothing — strictly additive, so existing verdicts are unchanged.
+# Four tiers, each tagging WHERE the T&C was found (its authority level):
+#
+#   Tier 1 path-walk  → scope "portal-specific"
+#   Tier 2 host-walk  → scope "site-generic"      (HARD STOP at registrable
+#                                                   domain — never a suffix)
+#   Tier 3 platform   → scope "platform-authoritative"
+#   Tier 4 vendor     → scope "vendor-authoritative"
+#
+# Authority order when several tiers hit:
+#   platform-/vendor-authoritative > portal-specific > site-generic.
+
+
+@dataclass
+class _EscalationFinding:
+    url: str | None
+    source: str
+    scope: str
+    vendor: str | None = None
+
+
+_SCOPE_AUTHORITY: dict[str, int] = {
+    "vendor-authoritative": 4,
+    "platform-authoritative": 4,
+    "portal-specific": 2,
+    "site-generic": 1,
+}
+
+# Footer vendor-attribution phrases for generic (new-vendor) detection.
+_VENDOR_ATTRIBUTION_RE: re.Pattern = re.compile(
+    r"(?:powered|designed|developed|maintained|crafted)\s*"
+    r"(?:&|and|\s)*\s*(?:by|with)\s*[:\-]?\s*([A-Za-z][\w .&'-]{2,40})",
+    re.IGNORECASE,
+)
+
+
+def _registrable_domain(host: str) -> str:
+    """Registrable domain (eTLD+1) of `host`, used as the Tier 2 host-walk
+    HARD STOP so we never probe a public suffix (`ac.in`, `edu.in`,
+    `gov.in`, `co.in`, bare TLDs). Prefers publicsuffix2; falls back to
+    `discovery_rules.registrable_root` when it isn't installed."""
+    h = (host or "").lower().lstrip(".").split(":")[0]
+    if not h:
+        return h
+    if _ps2_get_sld is not None:
+        try:
+            sld = _ps2_get_sld(h)
+            if sld:
+                return sld
+        except Exception:
+            pass
+    return discovery_rules.registrable_root(h)
+
+
+def _path_ancestor_roots(portal_url: str) -> list[str]:
+    """`scheme://host` + each ancestor path level, longest first:
+    https://h/a/b/c → [.../a/b/c, .../a/b, .../a, https://h]."""
+    p = urlsplit(portal_url)
+    host = (p.netloc or "").lower()
+    scheme = (p.scheme or "https").lower()
+    if not host:
+        return []
+    segs = [s for s in (p.path or "").split("/") if s]
+    roots: list[str] = []
+    for i in range(len(segs), 0, -1):
+        roots.append(f"{scheme}://{host}/" + "/".join(segs[:i]))
+    roots.append(f"{scheme}://{host}")
+    # Dedup preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in roots:
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _host_ancestor_roots(host: str) -> list[str]:
+    """Host walk-up roots from `sub.uni.ac.in` up to (and including) the
+    registrable domain — NEVER past it. Returns `https://<host>` strings,
+    most-specific first, excluding the original host (caller already tried
+    it via Tier 1)."""
+    h = (host or "").lower().split(":")[0]
+    reg = _registrable_domain(h)
+    if not h or not reg:
+        return []
+    roots: list[str] = []
+    labels = h.split(".")
+    # Walk up one label at a time while still a subdomain of the
+    # registrable domain; stop AT the registrable domain.
+    while len(labels) > 2:
+        candidate = ".".join(labels[1:])
+        if len(candidate) < len(reg):
+            break
+        if candidate != h:
+            roots.append(candidate)
+        if candidate == reg:
+            break
+        labels = labels[1:]
+    if reg != h and reg not in roots:
+        roots.append(reg)
+    # HARD STOP: `roots` already stops at the registrable domain — a bare
+    # public suffix (ac.in / edu.in / …) is never produced because the
+    # walk breaks once `candidate` would be shorter than `reg`.
+    return [f"https://{r}" for r in roots]
+
+
+def _tier_path_walk(
+    portal_url: str, *, allowed_domains: list[str], user_agent: str,
+    http_timeout: int, js_renderer: "JSRenderer | None", probes_left: list[int],
+) -> str | None:
+    """Tier 1 — path walk-up on the same host. Link-discovery on the fetched
+    page + curated path-probe at each ancestor path level."""
+    for root in _path_ancestor_roots(portal_url):
+        if probes_left[0] <= 0:
+            return None
+        probes_left[0] -= 1
+        body, _final = _fetch_body(
+            root, js_renderer=js_renderer, prefer_js=False,
+            user_agent=user_agent, http_timeout=http_timeout,
+        )
+        if body:
+            url = _pick_top_tc_link(
+                body, base_url=root, allowed_domains=allowed_domains,
+                user_agent=user_agent, http_timeout=http_timeout,
+                js_renderer=js_renderer,
+            )
+            if url:
+                return url
+        url = _probe_tc_paths(
+            root, allowed_domains=allowed_domains,
+            user_agent=user_agent, http_timeout=http_timeout,
+            js_renderer=js_renderer,
+        )
+        if url:
+            return url
+    return None
+
+
+def _tier_host_walk(
+    host: str, *, allowed_domains: list[str], user_agent: str,
+    http_timeout: int, js_renderer: "JSRenderer | None", probes_left: list[int],
+) -> str | None:
+    """Tier 2 — host walk-up with the registrable-domain HARD STOP."""
+    for root in _host_ancestor_roots(host):
+        if probes_left[0] <= 0:
+            return None
+        probes_left[0] -= 1
+        host_label = urlsplit(root).netloc.lower().split(":")[0]
+        url = _probe_tc_paths(
+            root, allowed_domains=allowed_domains + [host_label],
+            user_agent=user_agent, http_timeout=http_timeout,
+            js_renderer=js_renderer,
+        )
+        if url:
+            return url
+    return None
+
+
+def _tier_platform_parent(
+    host: str, *, allowed_domains: list[str], user_agent: str,
+    http_timeout: int, js_renderer: "JSRenderer | None",
+) -> str | None:
+    """Tier 3 — known shared-platform parent T&C. For `college.samarth.edu.in`
+    probe the platform root `samarth.edu.in`, not the tenant subdomain."""
+    if not discovery_rules.host_is_known_shared_platform(host):
+        return None
+    for platform in discovery_rules.KNOWN_SHARED_PLATFORMS:
+        on_platform = any(
+            host == root or host.endswith("." + root)
+            for root in platform["roots"]
+        )
+        if not on_platform:
+            continue
+        for root in platform["roots"]:
+            url = _probe_university_fallback_paths(
+                f"https://{root}",
+                allowed_domains=allowed_domains + [root],
+                user_agent=user_agent, http_timeout=http_timeout,
+                js_renderer=js_renderer,
+            )
+            if url:
+                return url
+        break
+    return None
+
+
+def _detect_vendor(
+    body: str, host: str, *, state: "Any | None" = None,
+) -> tuple[str, str, bool] | None:
+    """Tier 4 vendor detection. Returns `(vendor_name, tc_url, known)`:
+
+      * known=True  — matched a configured `VENDOR_TC_MAP` signature OR a
+                      previously auto-learned vendor (state). `tc_url` is the
+                      configured global T&C (may be ""); the analyzer's
+                      vendor-cache resolves the verdict, skipping any fetch.
+      * known=False — a NEW vendor discovered via a "Powered/Developed by X"
+                      footer signature + external vendor link. `tc_url` is
+                      the vendor domain root (the analyzer probes/learns it).
+
+    Returns None when no vendor is detected.
+    """
+    body_l = (body or "").lower()
+    host_l = (host or "").lower()
+
+    # 1) Configured vendors — signature in footer/body or host.
+    for vendor_name, info in VENDOR_TC_MAP.items():
+        for sig in info.get("signatures", ()):
+            s = sig.lower()
+            if s and (s in body_l or s in host_l):
+                return vendor_name, info.get("tc_url", "") or "", True
+
+    # 2) Auto-learned vendors (DB) — match learned vendor_name as substring.
+    if state is not None:
+        try:
+            for learned in state.get_vendor_names():
+                ln = (learned or "").lower()
+                if ln and ln not in VENDOR_TC_MAP and (ln in body_l or ln in host_l):
+                    return learned, "", True
+        except Exception:
+            pass
+
+    # 3) Generic NEW-vendor detection from the footer attribution phrase +
+    #    an external footer link (the vendor's own domain).
+    if not body:
+        return None
+    soup = BeautifulSoup(body, "html.parser")
+    footer = _extract_footer_section(soup) or soup
+    footer_text = footer.get_text(" ", strip=True)
+    m = _VENDOR_ATTRIBUTION_RE.search(footer_text)
+    if not m:
+        return None
+    page_reg = _registrable_domain(host)
+    for anchor in footer.find_all("a", href=True):
+        href = anchor.get("href", "")
+        if not href or any(href.startswith(p) for p in _LINK_INELIGIBLE_PREFIXES):
+            continue
+        ahost = urlsplit(urljoin(f"https://{host}", href)).netloc.lower().split(":")[0]
+        if not ahost:
+            continue
+        areg = _registrable_domain(ahost)
+        if (
+            areg and areg != page_reg
+            and not _is_platform_or_blocklisted(areg)
+            and not host_in_external_blocklist(ahost)
+        ):
+            return areg, f"https://{areg}", False
+    return None
+
+
+def find_tc_escalation(
+    *,
+    portals: list[dict[str, Any]],
+    uni_domains: list[str],
+    js_renderer: "JSRenderer | None",
+    user_agent: str,
+    http_timeout: int,
+    orgid: str,
+    state: "Any | None" = None,
+    budget: "_TCBudget | None" = None,
+) -> _EscalationFinding | None:
+    """Run Tiers 1-4 across the OrgID's distinct portal hosts and return the
+    single highest-authority tagged finding (or None). Bounded by
+    `TC_WALKUP_MAX_PROBES` walk-up probes per portal + one platform/vendor
+    pass, and by the shared Stage-C budget."""
+    def _budget_ok() -> bool:
+        return budget is None or not budget.expired()
+
+    found: list[_EscalationFinding] = []
+    seen_hosts: set[str] = set()
+    portals_examined = 0
+    for portal in portals:
+        if not _budget_ok():
+            break
+        purl = portal.get("url") or ""
+        if not purl:
+            continue
+        host = urlsplit(purl).netloc.lower().split(":")[0]
+        if not host or host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        portals_examined += 1
+        if portals_examined > 3:   # bound total work across many portals
+            break
+        allowed = list(uni_domains) + [host]
+        probes_left = [TC_WALKUP_MAX_PROBES]
+
+        # Tier 1 — path walk-up (portal-specific).
+        t1 = _tier_path_walk(
+            purl, allowed_domains=allowed, user_agent=user_agent,
+            http_timeout=http_timeout, js_renderer=js_renderer,
+            probes_left=probes_left,
+        )
+        if t1:
+            found.append(_EscalationFinding(t1, "path-walk", "portal-specific"))
+
+        # Tier 2 — host walk-up (site-generic), hard-stopped at registrable.
+        if _budget_ok():
+            t2 = _tier_host_walk(
+                host, allowed_domains=uni_domains, user_agent=user_agent,
+                http_timeout=http_timeout, js_renderer=js_renderer,
+                probes_left=probes_left,
+            )
+            if t2:
+                found.append(_EscalationFinding(t2, "host-walk", "site-generic"))
+
+        # Tier 3 — known shared-platform parent (platform-authoritative).
+        if _budget_ok():
+            t3 = _tier_platform_parent(
+                host, allowed_domains=uni_domains, user_agent=user_agent,
+                http_timeout=http_timeout, js_renderer=js_renderer,
+            )
+            if t3:
+                found.append(_EscalationFinding(t3, "platform", "platform-authoritative"))
+
+        # Tier 4 — vendor detection + global T&C (vendor-authoritative).
+        # Detect from the portal body (fetched static) + host signatures.
+        body, _final = _fetch_body(
+            purl, js_renderer=js_renderer, prefer_js=False,
+            user_agent=user_agent, http_timeout=http_timeout,
+        )
+        vendor = _detect_vendor(body, host, state=state)
+        if vendor is not None:
+            vname, vtc_url, known = vendor
+            found.append(_EscalationFinding(
+                url=vtc_url or None, source="vendor",
+                scope="vendor-authoritative", vendor=vname,
+            ))
+            logger.info(
+                "[%s] tc-finder Tier 4: detected vendor %r (known=%s, tc_url=%s)",
+                orgid, vname, known, vtc_url or "(probe/learn)",
+            )
+
+    if not found:
+        return None
+    found.sort(key=lambda f: -_SCOPE_AUTHORITY.get(f.scope, 0))
+    best = found[0]
+    logger.info(
+        "[%s] tc-finder escalation: %d tier hit(s) %s → primary scope=%s source=%s url=%s vendor=%s",
+        orgid, len(found),
+        [(f.source, f.scope) for f in found],
+        best.scope, best.source, best.url, best.vendor,
+    )
+    return best
 
 
 # ============================================================ scoring + parse
