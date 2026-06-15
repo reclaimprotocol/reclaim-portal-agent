@@ -81,6 +81,18 @@ GEMINI_SEARCH_ENABLED: bool = os.getenv(
     "GEMINI_SEARCH_ENABLED", "true"
 ).lower() == "true"
 
+# Dynamic affiliating-university portal discovery. When enabled, every
+# college whose parent university is NOT in the curated
+# `AFFILIATING_UNIVERSITY_PORTALS` map gets a quick Gemini affiliation check;
+# if a parent domain resolves, the SAME discovery pipeline runs on that
+# parent domain (cached per parent, recursion-guarded) and its portals are
+# attached alongside the college's own. Costs one extra Gemini call per
+# college plus a discovery pass per distinct parent. Set
+# `AFFILIATION_DISCOVERY=false` to disable.
+AFFILIATION_DISCOVERY_ENABLED: bool = os.getenv(
+    "AFFILIATION_DISCOVERY", "true"
+).lower() in ("1", "true", "yes", "on")
+
 
 def assert_openrouter_model_live(timeout: float = 15.0) -> None:
     """Startup guard: verify OPENROUTER_MODEL still resolves on OpenRouter.

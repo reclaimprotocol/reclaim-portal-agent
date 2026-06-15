@@ -56,6 +56,7 @@ from ..anthropic_client import AnthropicClient
 from ..config import (
     AFFILIATED_DOMAIN_TOKENS,
     AFFILIATING_UNIVERSITY_PORTALS,
+    AFFILIATION_DISCOVERY_ENABLED,
     GEMINI_SEARCH_ENABLED,
     JS_RENDER_BUDGET_SECONDS,
     KNOWN_SHARED_PLATFORM_PATTERNS,
@@ -217,6 +218,83 @@ def _affiliation_matches(
     ):
         return False
     return _name_ok(aff_info, name_lower)
+
+
+# Per-process cache of dynamically-discovered parent-university portals, keyed
+# by parent domain. Many colleges share one affiliating university, so the
+# (expensive) parent discovery pass runs at most once per parent per batch.
+_PARENT_PORTAL_CACHE: dict[str, list[dict]] = {}
+_PARENT_PORTAL_LOCK = threading.Lock()
+
+_AFF_DOMAIN_RE = re.compile(r"^(?=.{4,253}$)([a-z0-9-]+\.)+[a-z]{2,}$")
+
+
+def _resolve_affiliation_domain(orgid: str, name: str, city: str) -> str | None:
+    """Quick Gemini check: return the affiliating university's bare domain, or
+    None when the college is itself a university / deemed / autonomous, the
+    LLM is unavailable, or no domain parses. Used by the dynamic
+    affiliating-university discovery (distinct from `_resolve_affiliating_portals`,
+    which only maps to the curated config map)."""
+    if not (OPENROUTER_API_KEY and name):
+        return None
+    where = f", {city}," if city else ""
+    prompt = (
+        f'Which university grants degrees to (affiliates) the college '
+        f'"{name}"{where} in India? Reply with ONLY the affiliating '
+        f"university's official website domain (e.g. mgu.ac.in). If the "
+        f"institution is itself a university / deemed-to-be / autonomous / "
+        f"central / national institute that is NOT affiliated to any "
+        f'parent university, reply exactly "NONE".'
+    )
+    try:
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            json={"model": OPENROUTER_MODEL,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=40,
+        )
+        text = resp.json()["choices"][0]["message"]["content"].strip().lower()
+    except Exception as err:
+        logger.warning("[%s] affiliation-domain lookup failed for %r: %s", orgid, name, err)
+        return None
+    if "none" in text and "." not in text:
+        return None
+    for tok in re.split(r"[\s,]+", text):
+        cand = re.sub(r"^https?://", "", tok.strip().strip('."\'/')).split("/")[0]
+        if cand.startswith("www."):
+            cand = cand[4:]
+        if _AFF_DOMAIN_RE.match(cand):
+            return cand
+    return None
+
+
+def _discover_parent_portals(ctx: "PipelineContext", parent_domain: str) -> list[dict]:
+    """Run the SAME discovery pipeline on the affiliating university's domain
+    and return its portal dicts. Cached per parent domain; recursion-guarded
+    (the nested run can't itself trigger dynamic affiliation discovery)."""
+    key = parent_domain.lower()
+    with _PARENT_PORTAL_LOCK:
+        if key in _PARENT_PORTAL_CACHE:
+            return _PARENT_PORTAL_CACHE[key]
+    from ..pipeline import PipelineContext  # lazy import — avoid import cycle
+
+    parent_deps = dict(ctx.deps)
+    parent_deps["_skip_affiliation_discovery"] = True
+    parent_ctx = PipelineContext(
+        orgid=f"aff:{parent_domain}",
+        row={UNIVERSITY_NAME_COL: parent_domain, DOMAINS_COL: parent_domain},
+        deps=parent_deps,
+    )
+    try:
+        portals = (run(parent_ctx) or {}).get("portals", []) or []
+    except Exception as err:
+        logger.warning("[%s] parent discovery on %s raised: %s", ctx.orgid, parent_domain, err)
+        portals = []
+    with _PARENT_PORTAL_LOCK:
+        _PARENT_PORTAL_CACHE[key] = portals
+    return portals
+
 
 FILE_EXTENSIONS: tuple[str, ...] = (
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -2255,6 +2333,63 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
                         "[%s] gemini-affiliation attach: %s (%s)",
                         orgid, attach_url, aff_domain,
                     )
+
+    # ---- Dynamic affiliating-university portal discovery -------------------
+    # For colleges whose parent university is NOT in the curated
+    # AFFILIATING_UNIVERSITY_PORTALS map: quick Gemini check for the parent's
+    # domain, then run the SAME discovery pipeline on that domain (cached per
+    # parent, recursion-guarded) and attach its portals alongside the
+    # college's own. Skipped when the parent host is already covered (a
+    # configured-affiliation attach landed it), is owned/shared, or the
+    # budget is spent. Gated by AFFILIATION_DISCOVERY_ENABLED.
+    if (
+        AFFILIATION_DISCOVERY_ENABLED
+        and not ctx.deps.get("_skip_affiliation_discovery")
+        and not budget.expired()
+    ):
+        parent_domain = _resolve_affiliation_domain(orgid, name, org_city)
+        own_domains_set = {d.lower() for d in ([primary] + domains + extra_effective_domains) if d}
+        existing_hosts = {
+            urlsplit(c.url).netloc.lower().split(":")[0] for c, _ in consolidated
+        }
+        already_covered = any(
+            h == parent_domain or h.endswith("." + parent_domain)
+            for h in existing_hosts
+        ) if parent_domain else True
+        if (
+            parent_domain
+            and parent_domain not in own_domains_set
+            and not discovery_rules.host_is_known_shared_platform(parent_domain)
+            and not already_covered
+        ):
+            logger.info(
+                "[%s] dynamic affiliation: resolved parent %s — discovering its portals",
+                orgid, parent_domain,
+            )
+            parent_portals = _discover_parent_portals(ctx, parent_domain)
+            existing_urls_final = {c.url for c, _ in consolidated}
+            attached = 0
+            for pp in parent_portals:
+                purl = (pp.get("url") or "").strip()
+                if not purl or purl in existing_urls_final:
+                    continue
+                consolidated.append((Candidate(
+                    url=purl,
+                    category=pp.get("category", "Student Portal"),
+                    discovery_source="affiliation-dynamic-discovery",
+                    discovery_reasoning=(
+                        f"portal of dynamically-resolved affiliating "
+                        f"university {parent_domain}"
+                    ),
+                    validation_notes="affiliating-university dynamic discovery (validated in parent pass)",
+                    js_rendered=bool(pp.get("js_rendered")),
+                ), 3))
+                existing_urls_final.add(purl)
+                attached += 1
+            logger.info(
+                "[%s] dynamic affiliation: attached %d portal(s) from %s",
+                orgid, attached, parent_domain,
+            )
 
     # Final safety gate — drop any (Candidate, score) tuple whose
     # consolidation score is negative. A negative score means the

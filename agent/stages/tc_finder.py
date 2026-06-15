@@ -365,41 +365,47 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     t0 = time.monotonic()
     budget = _TCBudget(deadline_at=t0 + TOTAL_TC_BUDGET_SECONDS)
 
-    # ---- Phase 1 — university website T&C ----
-    org_tc_url, org_tc_source = find_university_tnc(
+    # University-owned domain set (primary + per-OrgID overrides, shared
+    # platforms excluded) — reused by the finder and the escalation fallback.
+    uni_domains_for_all: list[str] = []
+    if university_domain and university_domain not in SHARED_PLATFORM_DOMAINS:
+        uni_domains_for_all.append(university_domain)
+    for d in extra_effective_domains:
+        d_n = (d or "").lower().lstrip(".")
+        if d_n and d_n not in uni_domains_for_all and d_n not in SHARED_PLATFORM_DOMAINS:
+            uni_domains_for_all.append(d_n)
+
+    # ---- Phase 1 — find ALL T&C pages across uni site + portal hosts (parallel) ----
+    # Collect every terms/privacy/disclaimer page on the university's own
+    # domains AND the login-portal hosts; the analyzer scores each and
+    # `aggregate_verdicts_by_url` lets the binding Terms page win.
+    all_tc = find_all_tc_urls(
         portals=portals,
-        domains=domains,
-        extra_effective_domains=extra_effective_domains,
-        university_domain=university_domain,
+        uni_domains=uni_domains_for_all,
         js_renderer=js_renderer,
         user_agent=user_agent,
         http_timeout=http_timeout,
         orgid=orgid,
-        budget=budget,
         university_name=university_name,
+        budget=budget,
     )
 
-    # Existing-strategy hit is a university-owned document. Scope/vendor are
-    # broadcast alongside the URL so the analyzer can route vendor cases.
-    org_tc_scope: str | None = "university-document" if org_tc_url else None
-    org_tc_vendor: str | None = None
-
-    # ---- Phase 1.5 — structured escalation (Part 1; additive, on-empty) ----
-    # Only when the existing strategies found nothing: walk-up (Tier 1/2),
-    # shared-platform parent (Tier 3), and vendor detection (Tier 4). Highest
-    # authority tier wins. May set a vendor with no URL — the analyzer's
-    # vendor cache then resolves the verdict.
-    if not org_tc_url:
-        esc_uni_domains: list[str] = []
-        if university_domain and university_domain not in SHARED_PLATFORM_DOMAINS:
-            esc_uni_domains.append(university_domain)
-        for d in extra_effective_domains:
-            d_n = (d or "").lower().lstrip(".")
-            if d_n and d_n not in esc_uni_domains and d_n not in SHARED_PLATFORM_DOMAINS:
-                esc_uni_domains.append(d_n)
+    findings: list[dict[str, Any]] = []
+    if all_tc:
+        for f in all_tc:
+            findings.append({
+                "portal_url": "",  # T&C is per-OrgID now, not per-portal
+                "tc_url": f["tc_url"],
+                "source": f["source"],
+                "scope": "university-document" if f["host_kind"] == "university" else "portal-document",
+                "vendor": None,
+            })
+    else:
+        # ---- Fallback (nothing validated): structured escalation then Samarth ----
+        org_tc_url = org_tc_source = org_tc_scope = org_tc_vendor = None
         esc = find_tc_escalation(
             portals=portals,
-            uni_domains=esc_uni_domains,
+            uni_domains=uni_domains_for_all,
             js_renderer=js_renderer,
             user_agent=user_agent,
             http_timeout=http_timeout,
@@ -408,41 +414,27 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             budget=budget,
         )
         if esc is not None and (esc.url or esc.vendor):
-            org_tc_url = esc.url
-            org_tc_source = esc.source
-            org_tc_scope = esc.scope
-            org_tc_vendor = esc.vendor
-
-    # ---- Phase 2 — Samarth platform fallback ----
-    if not org_tc_url and not org_tc_vendor:
-        has_samarth = any(
-            "samarth.edu.in" in (p.get("url") or "") or "samarth.ac.in" in (p.get("url") or "")
-            for p in portals
-        )
-        if has_samarth:
-            org_tc_url = SAMARTH_PLATFORM_TC_URL
-            org_tc_source = "samarth-platform-fallback"
-            org_tc_scope = "platform-authoritative"
-            logger.info(
-                "[%s] tc-finder: no university T&C; using Samarth platform fallback %s",
-                orgid, org_tc_url,
+            org_tc_url, org_tc_source = esc.url, esc.source
+            org_tc_scope, org_tc_vendor = esc.scope, esc.vendor
+        if not org_tc_url and not org_tc_vendor:
+            has_samarth = any(
+                "samarth.edu.in" in (p.get("url") or "") or "samarth.ac.in" in (p.get("url") or "")
+                for p in portals
             )
+            if has_samarth:
+                org_tc_url = SAMARTH_PLATFORM_TC_URL
+                org_tc_source = "samarth-platform-fallback"
+                org_tc_scope = "platform-authoritative"
+                logger.info("[%s] tc-finder: no T&C pages found; Samarth fallback %s", orgid, org_tc_url)
+        findings.append({
+            "portal_url": "", "tc_url": org_tc_url, "source": org_tc_source,
+            "scope": org_tc_scope, "vendor": org_tc_vendor,
+        })
 
-    # ---- Phase 3 — broadcast result to every portal (or None) ----
-    findings: list[dict[str, Any]] = [
-        {
-            "portal_url": p.get("url", ""),
-            "tc_url": org_tc_url,
-            "source": org_tc_source,
-            "scope": org_tc_scope,
-            "vendor": org_tc_vendor,
-        }
-        for p in portals if p.get("url")
-    ]
     logger.info(
-        "[%s] tc-finder total took=%.1fs portals=%d tc_url=%s source=%s scope=%s vendor=%s budget_tripped=%s",
-        orgid, time.monotonic() - t0, len(findings),
-        org_tc_url, org_tc_source, org_tc_scope, org_tc_vendor, budget.tripped,
+        "[%s] tc-finder total took=%.1fs portals=%d tc_findings=%d urls=%s budget_tripped=%s",
+        orgid, time.monotonic() - t0, len(portals), len(findings),
+        [f.get("tc_url") for f in findings], budget.tripped,
     )
     return {"tc_findings": findings}
 
@@ -647,6 +639,118 @@ def find_university_tnc(
         orgid, uni_domains, portal_hosts_to_probe,
     )
     return None, None
+
+
+def find_all_tc_urls(
+    *,
+    portals: list[dict[str, Any]],
+    uni_domains: list[str],
+    js_renderer: "JSRenderer | None",
+    user_agent: str,
+    http_timeout: int,
+    orgid: str,
+    university_name: str = "",
+    budget: _TCBudget | None = None,
+) -> list[dict[str, Any]]:
+    """Find **all** T&C-type pages (terms-and-conditions, terms-of-use,
+    privacy-policy, disclaimer, legal, …) across BOTH the university's own
+    domains AND the login-portal hosts — in one parallel validation pass.
+
+    Unlike `find_university_tnc` (university-only, first-hit), this gathers
+    every page that passes the strict gate so the analyzer can score each and
+    `aggregate_verdicts_by_url` can let the binding Terms page win over
+    permissive privacy/disclaimer pages. Returns a list of
+    ``{"tc_url", "source", "host_kind"}`` (host_kind = "university" | "portal"),
+    de-duplicated. Empty list when nothing validates.
+    """
+    def _ok() -> bool:
+        return budget is None or not budget.expired()
+
+    # University-owned hosts (shared platforms excluded — those get covered as
+    # portal hosts below when a portal actually sits on them).
+    uni_hosts: list[str] = []
+    for d in uni_domains:
+        d_n = (d or "").lower().lstrip(".")
+        if d_n and d_n not in SHARED_PLATFORM_DOMAINS and d_n not in uni_hosts:
+            uni_hosts.append(d_n)
+
+    # Portal hosts (the page the student actually logs into — often a vendor
+    # LMS with its OWN binding terms). Blocklisted hosts skipped.
+    portal_hosts: list[str] = []
+    for p in portals or []:
+        if not isinstance(p, dict):
+            continue
+        h = (urlsplit(p.get("url") or "").netloc or "").lower().split(":")[0]
+        if not h or h in uni_hosts or h in portal_hosts:
+            continue
+        if host_in_external_blocklist(h):
+            continue
+        portal_hosts.append(h)
+
+    host_kind: dict[str, str] = {h: "university" for h in uni_hosts}
+    for h in portal_hosts:
+        host_kind.setdefault(h, "portal")
+    all_hosts = uni_hosts + portal_hosts
+    if not all_hosts:
+        return []
+
+    # Build the full candidate set: every curated T&C path on every host
+    # (bare + www variant), validated together in ONE parallel pass.
+    candidates: list[str] = []
+    for h in all_hosts:
+        bases = [f"https://{h}"]
+        if not h.startswith("www."):
+            bases.append(f"https://www.{h}")
+        for b in bases:
+            for path in UNIVERSITY_TC_FALLBACK_PATHS:
+                candidates.append(b + path)
+
+    accepted: list[str] = []
+    if _ok() and candidates:
+        accepted = _parallel_accept_all(
+            candidates, allowed_domains=all_hosts,
+            user_agent=user_agent, http_timeout=http_timeout,
+            max_workers=_TC_PROBE_MAX_WORKERS, js_renderer=js_renderer,
+        )
+
+    # Gemini search (university domain) — surfaces non-curated paths the path
+    # probe can't guess. Validated through the same strict gate.
+    gemini_accepted: list[str] = []
+    if _ok() and GEMINI_SEARCH_ENABLED and OPENROUTER_API_KEY and university_name and uni_hosts:
+        gem = gemini_tc_search(orgid=orgid, university_name=university_name, tc_domain=uni_hosts[0])
+        if gem and _ok():
+            gemini_accepted = _parallel_accept_all(
+                gem, allowed_domains=uni_hosts,
+                user_agent=user_agent, http_timeout=http_timeout,
+                max_workers=_TC_PROBE_MAX_WORKERS, js_renderer=js_renderer,
+            )
+
+    def _bare_host(u: str) -> str:
+        h = (urlsplit(u).netloc or "").lower().split(":")[0]
+        return h[4:] if h.startswith("www.") else h
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for u in accepted:
+        k = _dedup_key(u)
+        if k in seen:
+            continue
+        seen.add(k)
+        kind = host_kind.get(_bare_host(u), "university" if _bare_host(u) in uni_hosts else "portal")
+        out.append({"tc_url": u, "source": f"all-paths-{kind}", "host_kind": kind})
+    for u in gemini_accepted:
+        k = _dedup_key(u)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"tc_url": u, "source": "gemini-search", "host_kind": "university"})
+
+    logger.info(
+        "[%s] tc-finder find_all: %d T&C page(s) across %d host(s) (uni=%s portal=%s): %s",
+        orgid, len(out), len(all_hosts), uni_hosts, portal_hosts,
+        [d["tc_url"] for d in out],
+    )
+    return out
 
 
 def find_tc_for_portal(
@@ -1483,6 +1587,69 @@ def _parallel_accept_first(
         if accepted:
             return accepted
     return None
+
+
+def _dedup_key(url: str) -> str:
+    """Cheap normaliser for de-duplicating accepted T&C URLs (scheme/host
+    lowercased, trailing slash + query dropped)."""
+    s = urlsplit((url or "").strip())
+    host = (s.netloc or "").lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return f"{host}{s.path.rstrip('/').lower()}"
+
+
+def _parallel_accept_all(
+    urls: list[str],
+    *,
+    allowed_domains: list[str],
+    user_agent: str,
+    http_timeout: int,
+    max_workers: int,
+    js_renderer: "JSRenderer | None" = None,
+) -> list[str]:
+    """Like `_parallel_accept_first`, but return EVERY accepted URL, in input
+    order, de-duplicated by `_dedup_key`. Used by `find_all_tc_urls` to gather
+    all T&C-type pages (terms / privacy / disclaimer / ToU) across the
+    university site AND the portal hosts in one parallel pass."""
+    # De-dup the candidate list up front (same path may be built for several
+    # host variants) while preserving order.
+    seen_in: set[str] = set()
+    uniq: list[str] = []
+    for u in urls:
+        if u and u not in seen_in:
+            seen_in.add(u)
+            uniq.append(u)
+    if not uniq:
+        return []
+    results: dict[int, str | None] = {}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(uniq))) as exe:
+        futures = {
+            exe.submit(
+                _accept_candidate, url,
+                allowed_domains=allowed_domains,
+                user_agent=user_agent, http_timeout=http_timeout,
+                js_renderer=js_renderer,
+            ): idx
+            for idx, url in enumerate(uniq)
+        }
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                results[idx] = fut.result()
+            except Exception as err:
+                logger.debug("[tc-finder] accept-all check raised on %s: %s", uniq[idx], err)
+                results[idx] = None
+    out: list[str] = []
+    seen_out: set[str] = set()
+    for idx in range(len(uniq)):
+        accepted = results.get(idx)
+        if accepted:
+            key = _dedup_key(accepted)
+            if key not in seen_out:
+                seen_out.add(key)
+                out.append(accepted)
+    return out
 
 
 # ============================================================ STRICT VALIDATION GATE

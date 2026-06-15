@@ -51,15 +51,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         logger.warning("[%s] sheet_writer called with no portals; nothing to write", orgid)
         return {"portals_written": 0, "rows_written": 0}
 
-    # Index Stage C output by normalized portal URL so we can attach the
-    # right per-portal verdict + T&C URL even if Stage A and Stage C iterate
-    # in different orders.
     analyzer_result = ctx.results.get("tc_analyzer") or {}
-    analyses_by_portal: dict[str, dict[str, Any]] = {}
-    for analysis in (analyzer_result.get("tc_analyses") or []):
-        p_url = str(analysis.get("portal_url", "")).strip()
-        if p_url:
-            analyses_by_portal[_normalize_portal_url(p_url)] = analysis
 
     # Order portals by category (CATEGORY_ORDER post-remap), URL within
     # category. Portals whose category isn't in CATEGORY_ORDER (post-remap)
@@ -71,29 +63,29 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         key=_portal_sort_key,
     )
 
-    portal_urls_list: list[str] = []
+    portal_urls_list: list[str] = [
+        (portal.get("url") or "").strip() for portal in sorted_portals
+    ]
+
+    # T&C is now resolved per-OrgID (Stage C collects ALL terms/privacy/
+    # disclaimer pages across the university site + portal hosts), so we
+    # aggregate over the analyses directly rather than per portal. Every
+    # analysis carries its (tc_url, verdict); `aggregate_verdicts_by_url`
+    # lets a binding Terms page outweigh permissive privacy/disclaimer pages.
     tc_urls_seen: set[str] = set()
     tc_urls_ordered: list[str] = []
-    verdicts: list[str] = []
+    url_verdict_pairs: list[tuple[str, str]] = []
+    for analysis in (analyzer_result.get("tc_analyses") or []):
+        verdict = str(analysis.get("verdict") or "Yes (No T&C Found)")
+        tc_url = str(analysis.get("tc_url") or "").strip()
+        url_verdict_pairs.append((tc_url, verdict))
+        if tc_url:
+            key = _normalize_tc_url_for_dedup(tc_url)
+            if key not in tc_urls_seen:
+                tc_urls_seen.add(key)
+                tc_urls_ordered.append(tc_url)
 
-    for portal in sorted_portals:
-        url = (portal.get("url") or "").strip()
-        portal_urls_list.append(url)
-        analysis = analyses_by_portal.get(_normalize_portal_url(url))
-        if analysis:
-            verdicts.append(str(analysis.get("verdict") or "Yes (No T&C Found)"))
-            tc_url = str(analysis.get("tc_url") or "").strip()
-            if tc_url:
-                key = _normalize_tc_url_for_dedup(tc_url)
-                if key not in tc_urls_seen:
-                    tc_urls_seen.add(key)
-                    tc_urls_ordered.append(tc_url)
-        else:
-            # No Stage C result for this portal — treat as "no T&C found"
-            # so it folds correctly into the aggregate.
-            verdicts.append("Yes (No T&C Found)")
-
-    overall_verdict = tc_analyzer.aggregate_verdicts(verdicts)
+    overall_verdict = tc_analyzer.aggregate_verdicts_by_url(url_verdict_pairs)
 
     new_row: dict[str, Any] = {
         "OrgID": orgid,
