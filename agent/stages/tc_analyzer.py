@@ -37,6 +37,7 @@ from . import discovery_rules
 from ..config import (
     TC_CLAUDE_MAX_CALLS,
     TC_CLAUDE_TIMEOUT_SECONDS,
+    TC_FORCE_CLAUDE,
     TC_LONG_DOC_CHARS,
 )
 
@@ -792,6 +793,8 @@ _CLAUDE_VERDICT_MAP: dict[str, str] = {
 def _escalation_reason(result: dict[str, Any], text: str, *, garbled: bool) -> str | None:
     """Why a case is complex enough for the Claude legal pass — or None when
     it's clear-cut and should return immediately for free."""
+    if TC_FORCE_CLAUDE and (text or "").strip():
+        return "forced full Claude legal review (TC_FORCE_CLAUDE)"
     if result.get("verdict") == "Maybe":
         return "keyword verdict Maybe"
     if result.get("had_conflict"):

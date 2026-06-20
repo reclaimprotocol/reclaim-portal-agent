@@ -699,6 +699,11 @@ TC_CLAUDE_MAX_CALLS: int = int(os.environ.get("TC_CLAUDE_MAX_CALLS", "50"))
 # Timeout (seconds) for one Claude-legal CLI subprocess call.
 TC_CLAUDE_TIMEOUT_SECONDS: int = 120
 
+# When set (TC_FORCE_CLAUDE=1), the hybrid analyzer escalates EVERY readable
+# T&C to the Claude legal pass — not just keyword-ambiguous cases. Used for
+# in-depth full-legal review runs where every clause must be read by Claude.
+TC_FORCE_CLAUDE: bool = os.environ.get("TC_FORCE_CLAUDE", "").strip().lower() in ("1", "true", "yes")
+
 # ── Vendor T&C registry (Part 3 seed) ──────────────────────────────────
 # Maps a campus-software VENDOR to its detection signatures, global T&C URL
 # (best-effort; may be ""), and a seed verdict. Two uses:
@@ -924,6 +929,9 @@ NON_STUDENT_SUBDOMAIN_BLOCKLIST: frozenset[str] = frozenset({
     "placement", "placements",
     "jobs", "recruit", "recruitment",
     "alumni", "alum",
+    # Grievance / complaint redressal systems — a login form, but for
+    # filing complaints, never a student academic-data portal.
+    "grievance", "grievances", "complaint", "complaints", "redressal",
     "donate", "donation", "giving",
     "shop", "store", "merchandise",
     "events", "event", "ticketing",
@@ -2870,6 +2878,7 @@ NON_STUDENT_LOGIN_PATH_KEYWORDS: tuple[str, ...] = (
     "/hr",
     "/alumni",
     "/parent",
+    "/grievance", "/grievances", "/complaint", "/complaints", "/redressal",
 )
 
 # Bug 7 boost / penalty magnitudes. Penalty is large enough that a single

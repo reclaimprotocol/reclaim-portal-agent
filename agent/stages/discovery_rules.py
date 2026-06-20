@@ -2541,6 +2541,10 @@ NON_STUDENT_AUDIENCE_KEYWORDS_IN_TITLE: tuple[str, ...] = (
     "recruitment", "recruiter login",
     "hr login", "human resources login",
     "alumni login", "alumni portal",
+    # Grievance / complaint redressal portals — complaint-filing systems,
+    # not enrolled-student academic-data logins.
+    "grievance", "grievance portal", "grievance redressal",
+    "complaint portal", "online complaint",
     "back office", "backoffice",
     "internal portal", "intranet",
     # Fix 3 — exam/staff role pages observed on JNVU's IUMS

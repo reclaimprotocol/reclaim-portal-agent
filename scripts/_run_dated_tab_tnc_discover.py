@@ -49,8 +49,9 @@ PER_ROW_FINDER_BUDGET = 70  # seconds for find_all_tc_urls per university
 @click.option("--start", type=int, default=None, help="First data row (1-based, excl. header).")
 @click.option("--end", type=int, default=None, help="Last data row (inclusive).")
 @click.option("--force", is_flag=True, help="Re-discover rows that already have a verdict.")
+@click.option("--urls-only", "urls_only", is_flag=True, help="Only DISCOVER + write the T&C URL(s) to col E; skip analysis/verdict (F/G).")
 @click.option("--dry-run", is_flag=True, help="Discover + analyze + print, but do NOT write.")
-def main(tab_arg, start, end, force, dry_run):
+def main(tab_arg, start, end, force, urls_only, dry_run):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = load_config()
     sheets = SheetsClient(
@@ -101,7 +102,14 @@ def main(tab_arg, start, end, force, dry_run):
                 name = str(p[NAME_COL]).strip()
                 if not name:
                     continue
-                if str(p[verdict_idx]).strip() and not force:
+                existing_url = str(p[tc_url_idx]).strip()
+                if urls_only:
+                    # --urls-only: never replace a T&C URL already in col E.
+                    if existing_url and not force:
+                        skipped += 1
+                        logger.info("[row %d] %s — col E already has T&C URL(s); skipping", data_row_no, name)
+                        continue
+                elif str(p[verdict_idx]).strip() and not force:
                     skipped += 1
                     logger.info("[row %d] %s — verdict already filled; skipping", data_row_no, name)
                     continue
@@ -130,6 +138,21 @@ def main(tab_arg, start, end, force, dry_run):
                     continue
 
                 urls = [d["tc_url"] for d in discovered]
+
+                # --urls-only: write the discovered URL(s) to col E and move on;
+                # no analysis, no verdict/reason. Only writes when we actually
+                # found URLs (never blanks an existing cell).
+                if urls_only:
+                    processed += 1
+                    found += 1 if urls else 0
+                    empty += 0 if urls else 1
+                    logger.info("[row %d] %s → %d T&C url(s): %s", data_row_no, name, len(urls), urls[:2])
+                    if dry_run:
+                        click.echo(f"  DRY [{data_row_no}] {name}: {len(urls)} url(s) | {urls[:3]}")
+                    elif urls:
+                        _write_cell(sheets, qtab, tc_letter, sheet_row, "\n".join(urls))
+                    continue
+
                 pairs = []
                 for u in urls:
                     try:
@@ -164,7 +187,8 @@ def main(tab_arg, start, end, force, dry_run):
                 if dry_run:
                     click.echo(f"  DRY [{data_row_no}] {name}: {overall} | {len(urls)} url(s) | reason={reason[:50]!r}")
                 else:
-                    if urls:
+                    # Never replace a T&C URL already in col E (unless --force).
+                    if urls and (not existing_url or force):
                         _write_cell(sheets, qtab, tc_letter, sheet_row, "\n".join(urls))
                     _write_cell(sheets, qtab, verdict_letter, sheet_row, overall)
                     _write_cell(sheets, qtab, reason_letter, sheet_row, reason)

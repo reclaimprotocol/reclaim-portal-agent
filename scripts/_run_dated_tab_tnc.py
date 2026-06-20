@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import re
 
 import _bootstrap  # noqa: F401  -- must come before agent.* imports
 import click
@@ -101,8 +102,9 @@ def _reason_for(overall: str, results: list[dict]) -> str:
 @click.option("--end", type=int, default=None, help="Last data row (inclusive).")
 @click.option("--force", is_flag=True, help="Re-analyse rows that already have a column-F verdict (also bypasses the per-URL analyzer cache).")
 @click.option("--only-verdict", "only_verdict", default=None, help="Re-analyse ONLY rows whose current column-F equals this (e.g. 'Maybe'). Implies force (re-fetch + bypass cache) for the matched rows.")
+@click.option("--orgid", "orgids", multiple=True, help="Only process these OrgID(s) from column A. Comma-separated and/or repeatable. Implies force for the matched rows.")
 @click.option("--dry-run", is_flag=True, help="Analyse and print, but do NOT write.")
-def main(tab_arg: str, start: int | None, end: int | None, force: bool, only_verdict: str | None, dry_run: bool) -> None:
+def main(tab_arg: str, start: int | None, end: int | None, force: bool, only_verdict: str | None, orgids: tuple[str, ...], dry_run: bool) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -135,6 +137,14 @@ def main(tab_arg: str, start: int | None, end: int | None, force: bool, only_ver
         header.append(REASON_HEADER)
     reason_letter = _col_letter(reason_idx + 1)
     pad_to = max(tc_url_idx, verdict_idx, reason_idx) + 1
+
+    # Accept comma-separated and/or repeated --orgid values.
+    orgid_filter = {
+        tok.strip()
+        for entry in orgids
+        for tok in re.split(r"[,\s]+", str(entry))
+        if tok.strip()
+    }
 
     click.echo("=" * 70)
     click.echo(f"  Spreadsheet : office consolidation ({PORTAL_SHEET_ID})")
@@ -169,9 +179,13 @@ def main(tab_arg: str, start: int | None, end: int | None, force: bool, only_ver
                 break
 
             padded = list(raw) + [""] * (pad_to - len(raw))
+            orgid_cell = str(padded[0]).strip()
             name = str(padded[1]).strip()
             tc_cell = str(padded[tc_url_idx]).strip()
             existing = str(padded[verdict_idx]).strip()
+
+            if orgid_filter and orgid_cell not in orgid_filter:
+                continue
 
             tc_urls = _parse_tc_urls(tc_cell)
             if not tc_urls:
@@ -184,13 +198,14 @@ def main(tab_arg: str, start: int | None, end: int | None, force: bool, only_ver
                 if existing != only_verdict:
                     skipped += 1
                     continue
-            elif existing and not force:
+            elif existing and not force and not orgid_filter:
                 skipped += 1
                 logger.info("[row %d] %s — column F already %r, skipping", data_row_no, name, existing)
                 continue
 
-            refresh = force or (only_verdict is not None)
-            orgid = str(padded[0]).strip() or f"row:{sheet_row}"
+            # A targeted --orgid run always re-analyzes the matched rows.
+            refresh = force or (only_verdict is not None) or bool(orgid_filter)
+            orgid = orgid_cell or f"row:{sheet_row}"
             verdicts: list[str] = []
             results: list[dict] = []
             pairs: list[tuple[str, str]] = []

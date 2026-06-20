@@ -102,9 +102,10 @@ def _resolve_tab_title(sheets: SheetsClient, wanted: str) -> str:
 @click.option("--tab", "tab_arg", required=True, help='Dated tab, e.g. "16June".')
 @click.option("--start", type=int, default=None, help="First data row (1-based, excl. header).")
 @click.option("--end", type=int, default=None, help="Last data row (inclusive).")
-@click.option("--force", is_flag=True, help="Re-run rows that already have a column-D value.")
+@click.option("--orgid", "orgids", multiple=True, help="Only process these OrgID(s) from column A. Comma-separated and/or repeatable, e.g. --orgid 664320,10256103.")
+@click.option("--force", is_flag=True, help="Re-run rows that already have a REAL column-D portal (markers like '(no portal found)' are always retried).")
 @click.option("--dry-run", is_flag=True, help="Discover and print, but do NOT write.")
-def main(tab_arg: str, start: int | None, end: int | None, force: bool, dry_run: bool) -> None:
+def main(tab_arg: str, start: int | None, end: int | None, orgids: tuple[str, ...], force: bool, dry_run: bool) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -130,8 +131,18 @@ def main(tab_arg: str, start: int | None, end: int | None, force: bool, dry_run:
     click.echo(f"  Columns     : name={header[NAME_COL]!r} website={header[SITE_COL]!r} "
                f"out={header[OUTPUT_COL]!r} (col {OUTPUT_LETTER})")
     click.echo(f"  Data rows   : {len(data_rows)}")
+    if orgids:
+        click.echo(f"  OrgID filter: {', '.join(orgids)}")
     click.echo(f"  Mode        : {'DRY RUN (no writes)' if dry_run else 'WRITE col D in-place'} force={force}")
     click.echo("=" * 70)
+
+    # Accept comma-separated and/or repeated --orgid values.
+    orgid_filter = {
+        tok.strip()
+        for entry in orgids
+        for tok in re.split(r"[,\s]+", str(entry))
+        if tok.strip()
+    }
 
     js_renderer: JSRenderer | None = None
     if config.enable_js_rendering:
@@ -152,15 +163,22 @@ def main(tab_arg: str, start: int | None, end: int | None, force: bool, dry_run:
                     break
 
                 padded = list(raw) + [""] * (OUTPUT_COL + 1 - len(raw))
+                orgid_cell = str(padded[0]).strip()
                 name = str(padded[NAME_COL]).strip()
                 website = str(padded[SITE_COL]).strip()
                 existing = str(padded[OUTPUT_COL]).strip()
 
                 if not name:
                     continue
-                if existing and not force:
+                if orgid_filter and orgid_cell not in orgid_filter:
+                    continue
+                # A REAL portal (an http URL) is never overwritten without
+                # --force. The "(no portal found)"/"(invalid website)" markers
+                # are treated as empty so a targeted re-run retries them.
+                existing_is_real = bool(existing) and existing not in (NO_PORTAL_MARKER, BAD_SEED_MARKER)
+                if existing_is_real and not force:
                     skipped += 1
-                    logger.info("[row %d] %s — column D already filled, skipping", data_row_no, name)
+                    logger.info("[row %d] %s — column D already has a portal, skipping", data_row_no, name)
                     continue
 
                 domain = _extract_domain(website)
