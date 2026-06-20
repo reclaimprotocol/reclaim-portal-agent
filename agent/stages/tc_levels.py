@@ -438,6 +438,19 @@ _GLOBAL_PLATFORM_HOSTS: frozenset[str] = frozenset({
 # root — this is the common Samarth case and was timing out at 116s/row.
 _PLATFORM_TC_AT_ROOT: frozenset[str] = frozenset({"samarth.edu.in", "samarth.ac.in"})
 
+# Registrable domains of KNOWN portal vendors (derived from VENDOR_TC_MAP),
+# mapped to their T&C URL. Used to recognise a known vendor that is LINKED on
+# the portal but not named in visible text. We accept ONLY known-vendor links
+# here — an arbitrary third-party link (ISO/NAAC/AICTE badge, a course platform
+# like Coursera/NPTEL, a library partner) is NOT the portal's builder and must
+# never be treated as the governing vendor.
+_KNOWN_VENDOR_TC_BY_DOMAIN: dict[str, str] = {}
+for _vinfo in VENDOR_TC_MAP.values():
+    _vtcu = (_vinfo.get("tc_url") or "").strip()
+    for _vsig in _vinfo.get("signatures", ()):
+        if "." in _vsig and " " not in _vsig:
+            _KNOWN_VENDOR_TC_BY_DOMAIN.setdefault(_vsig.lower(), _vtcu)
+
 
 def _on_allowed(host: str, allowed_domains: list[str]) -> bool:
     h = (host or "").lstrip(".")
@@ -548,6 +561,52 @@ def _gemini_university_for_portal(orgid: str, portal_url: str, *, http_timeout: 
         content = resp.json()["choices"][0]["message"]["content"]
     except Exception as err:
         logger.warning("[%s] university-for-portal search failed: %s", orgid, err)
+        return None
+    try:
+        start, end = content.find("["), content.rfind("]")
+        urls = json.loads(content[start:end + 1]) if start >= 0 and end > start else []
+    except Exception:
+        urls = []
+    for u in urls:
+        u = tc_finder._sanitize_gemini_url(str(u))
+        if u.startswith("http"):
+            return u
+    return None
+
+
+def _gemini_vendor_for_portal(orgid: str, portal_url: str, *, http_timeout: float = 30.0) -> str | None:
+    """Ask the LLM who BUILT/operates this student portal — the ERP/LMS/portal
+    software vendor or service provider — and return that vendor's official
+    homepage URL. Used by the vendor level (G) when the portal page carries no
+    explicit "developed by X" credit. Returns None when the portal was built
+    in-house by the institution itself (so we don't mistake the university for
+    a vendor)."""
+    if not OPENROUTER_API_KEY or not portal_url:
+        return None
+    prompt = (
+        f"This is a student login portal URL: {portal_url}\n"
+        f"Which company / software vendor / service provider BUILT or operates "
+        f"this student portal (the ERP / LMS / campus-software company behind it) "
+        f"— NOT the university or college that uses it? "
+        f"Return ONLY a JSON array with the single best official homepage URL of "
+        f'that vendor, e.g. ["https://www.vendor.com/"]. If the portal was built '
+        f"in-house by the institution itself, or you are not sure, return []. "
+        f"No other text."
+    )
+    try:
+        resp = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/reclaimprotocol",
+            },
+            json={"model": OPENROUTER_MODEL, "messages": [{"role": "user", "content": prompt}]},
+            timeout=http_timeout,
+        )
+        content = resp.json()["choices"][0]["message"]["content"]
+    except Exception as err:
+        logger.warning("[%s] vendor-for-portal search failed: %s", orgid, err)
         return None
     try:
         start, end = content.find("["), content.rfind("]")
@@ -754,18 +813,26 @@ def find_tc_levels(
                 res.winning_level = "parent_domain"
                 break
 
-    # Identify a university homepage linked from the portal (used by F + H).
+    # Identify the portal's parent university (used by F + H). Prefer a link on
+    # the portal page; otherwise Gemini-resolve it so F's backlink test can
+    # still run even when the portal page does NOT link to the university — the
+    # deciding signal for F is the university->portal backlink, not the
+    # portal->university link. Resolved once here and reused by H (no extra LLM
+    # call). Skipped when an earlier level already won.
     uni_home = _find_university_link(portal_html, portal_url, university_name, domains)
+    if not uni_home and not _stop():
+        uni_home = _gemini_university_for_portal(orgid, portal_url, http_timeout=http_timeout)
 
-    # ---- Level 8 (F) — Linked Parent University (bidirectional link) ----
+    # ---- Level 8 (F) — Linked Parent University (backlink-gated) ----
     if not _stop() and uni_home:
         uni_host = _host(uni_home)
         uni_html, uni_final = _fetch_body(
             uni_home, js_renderer=js_renderer, prefer_js=False,
             user_agent=user_agent, http_timeout=http_timeout,
         )
-        # F REQUIRES the bidirectional link: the university site must clearly
-        # hyperlink the student-login portal before we trust its T&C.
+        # F's gate: the UNIVERSITY HOMEPAGE must hyperlink the student-login
+        # portal — that backlink is the proof the university owns the portal,
+        # regardless of whether the portal links back to the university.
         if uni_html and _links_back_to(uni_html, uni_final or uni_home, portal_host):
             found = _all_tc_links_on_page(
                 uni_html, base_url=uni_final or uni_home, allowed_domains=[uni_host],
@@ -932,15 +999,22 @@ def _find_vendor_tc(
     user_agent: str, http_timeout: int, js_renderer: "JSRenderer | None",
     extra_pages: list[tuple[str, str]] | None = None,
 ) -> list[str]:
-    """Follow third-party vendor links — OR vendors merely NAMED ("powered/
-    developed by X" / known signatures, Gemini-resolved) — and collect T&C
-    pages that pass the vendor-relevance gate (must govern the service the
-    vendor provides to its clients, not just the marketing site).
+    """Find the T&C of whoever BUILT the portal — and ONLY that.
 
-    Harvests vendor links/credits from the login page AND the homepage /
-    parent-domain root pages already fetched in the cascade (`extra_pages`):
-    "website developed by X" credits typically sit in the homepage footer,
-    not on the login page (e.g. vivacollege.in -> vssdevelopers.com)."""
+    The vendor is the portal's builder, identified by an EXPLICIT signal:
+      * a "developed / designed / powered / built by X" credit in the page
+        text (Gemini-resolved to a homepage), or
+      * a known portal vendor (VENDOR_TC_MAP) named in the text or linked.
+    Arbitrary third-party links are deliberately IGNORED — an accreditation/
+    ISO/NAAC/AICTE badge, a course platform (Coursera/NPTEL), a digital-library
+    partner, a social link etc. are not the builder. If no builder signal is
+    found we assume nothing and return [] (the cascade then records the
+    institution's own T&C at the F/H levels, or "no T&C").
+
+    Builder credits are mined from the login page AND the homepage / parent-
+    domain root pages already fetched in the cascade (`extra_pages`), since the
+    "developed by X" credit usually sits in the site footer, not the login
+    page. The vendor-relevance gate still applies to any T&C captured."""
     portal_parent = _parent_domain(portal_host) or portal_host
     # Pages to mine for vendor links/credits: the login page first, then the
     # cascade's root pages (de-duped by URL).
@@ -968,23 +1042,27 @@ def _find_vendor_tc(
     vendor_hosts: list[str] = []
     known_urls: list[str] = []
     for html, base in pages:
+        # Vendor candidates come ONLY from explicit builder signals — NEVER from
+        # arbitrary outbound links. An accreditation/ISO/NAAC/AICTE badge, a
+        # course platform (Coursera/NPTEL), a digital-library partner, a social
+        # link etc. are NOT the portal's builder; if no builder signal exists we
+        # assume nothing (vendor stays empty). Two accepted signals:
+        #  (1) a KNOWN portal vendor (VENDOR_TC_MAP) that is linked on the page;
+        #  (2) an explicit "developed / designed / powered by X" credit (or a
+        #      known-vendor name/signature) in the page text.
         for abs_url, _text in _outbound_links(html, base):
-            h = _host(abs_url)
-            if not h or (_parent_domain(h) or h) == portal_parent:
-                continue
-            if h.endswith(".ac.in") or h.endswith(".edu.in") or h.endswith(".edu") or h.endswith(".gov.in"):
-                continue  # that's a university, not a vendor
-            vp = _parent_domain(h) or h
-            if vp in _GLOBAL_PLATFORM_HOSTS:
-                continue  # Google/Facebook/etc. — not the portal's vendor
-            # Any other external host is a vendor candidate; the relevance gate
-            # below decides whether its T&C actually governs the portal service.
-            if vp not in vendor_hosts:
-                vendor_hosts.append(vp)
-        # Vendors named but not linked (powered/developed-by / known signatures).
-        # A "developed by X" credit often names the UNIVERSITY itself (e.g.
-        # ouatams.in -> "OUAT" -> ouat.ac.in), so apply the same academic-host
-        # filter here — that's a university, handled by the F/H levels, not G.
+            reg = _registrable_domain(_host(abs_url))
+            if reg and reg != portal_parent and reg in _KNOWN_VENDOR_TC_BY_DOMAIN:
+                if reg not in vendor_hosts:
+                    vendor_hosts.append(reg)
+                tcu = _KNOWN_VENDOR_TC_BY_DOMAIN[reg]
+                if tcu and tcu not in known_urls:
+                    known_urls.append(tcu)
+        # Builder credits in the page text (powered/developed-by + known
+        # signatures, Gemini-resolved). A "developed by X" credit often names
+        # the UNIVERSITY itself (e.g. ouatams.in -> "OUAT" -> ouat.ac.in), so
+        # apply the academic-host filter — that's a university, handled by the
+        # F/H levels, not the vendor level.
         named_hosts, ku = _vendor_hosts_from_name(orgid, html, base, http_timeout=http_timeout)
         for h in named_hosts:
             if h.endswith(".ac.in") or h.endswith(".edu.in") or h.endswith(".edu") or h.endswith(".gov.in"):
@@ -994,6 +1072,18 @@ def _find_vendor_tc(
         for u in ku:
             if u not in known_urls:
                 known_urls.append(u)
+    # Direct "who built this portal?" — ask the LLM from the portal URL alone,
+    # so a vendor with NO on-page credit and not in VENDOR_TC_MAP is still
+    # found. Returns [] when the portal is in-house, so the institution is not
+    # mistaken for a vendor; the _looks_like_university filter + relevance gate
+    # below are the additional backstops.
+    g_vendor = _gemini_vendor_for_portal(orgid, portal_url, http_timeout=http_timeout)
+    if g_vendor:
+        gv = _registrable_domain(_host(g_vendor))
+        if (gv and gv != portal_parent and gv not in vendor_hosts
+                and gv not in _GLOBAL_PLATFORM_HOSTS
+                and not gv.endswith((".ac.in", ".edu.in", ".edu", ".gov.in"))):
+            vendor_hosts.append(gv)
     accepted: list[str] = []
     # Known registry T&C URLs (validated like any other) come first.
     for ku in known_urls:
