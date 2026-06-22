@@ -411,8 +411,15 @@ _TC_BODY_KEYWORDS = (
 _LEGAL_LINK_RE = re.compile(
     r"privacy|terms|conditions?|disclaimer|copyright|cookie|"
     r"\blegal\b|website[\s_-]*polic|data[\s_-]*protection|acceptable[\s_-]*use|"
-    r"refund|payment[\s_-]*polic|cancellation|hyperlink|\btnc\b|t&c",
+    r"hyperlink|\btnc\b|t&c",
     re.I,
+)
+# Slugs that look legal-ish but are NOT a portal/website T&C for an end user:
+# payment / refund / cancellation / fee policies (commerce, not usage terms) and
+# patents/IP pages. A segment matching this is never treated as a legal page,
+# even if it also contains "copyright" (e.g. "patents-copyrights").
+_EXCLUDED_LEGAL_SLUG_RE = re.compile(
+    r"payment|refund|cancellation|\bpatents?\b|\bfees?\b", re.I,
 )
 # NOT a T&C even though the word "legal" / etc. appears — legal-awareness/aid/
 # cell news & department pages, news/blog/event articles. Disqualifies a link
@@ -450,7 +457,7 @@ def _is_legal_page_url(url: str) -> bool:
     path = urlsplit(url).path.rstrip("/")
     segs = [seg for seg in path.split("/") if seg]
     if not segs:
-        return True  # host root / homepage — not a slug to judge here
+        return False  # bare host root / homepage is never itself a T&C page
     for seg in segs:
         s = seg.rsplit(".", 1)[0].replace("%20", "-").lower()  # drop extension
         if not s:
@@ -458,6 +465,8 @@ def _is_legal_page_url(url: str) -> bool:
         words = [w for w in re.split(r"[-_+]+", s) if w]
         if len(words) > 6 or any(w in _ARTICLE_SLUG_MARKERS for w in words):
             continue
+        if _EXCLUDED_LEGAL_SLUG_RE.search(s):
+            continue  # payment/refund/cancellation/patents — not a user T&C
         if _LEGAL_LINK_RE.search(s) and not _NOT_LEGAL_RE.search(s):
             return True
     return False
