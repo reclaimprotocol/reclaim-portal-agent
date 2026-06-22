@@ -141,6 +141,29 @@ def _is_blocked_page(html: str) -> bool:
     return any(m in low for m in _CHALLENGE_MARKERS)
 
 
+# Final-URL path segments that mark an auth/login gate (not a T&C page).
+_LOGIN_PATH_HINTS = ("/login", "/signin", "/sign-in", "/account/login", "/users/login")
+# Final-URL path segments that mark a custom error / not-found handler.
+_ERROR_PATH_HINTS = ("/error", "/errors", "/404", "/pagenotfound", "/page-not-found", "/oops")
+# A login form names a password field plus a sign-in affordance, and carries
+# little else — distinct from a real T&C page, which is mostly legal prose.
+_LOGIN_PAGE_MARKERS = ("forgot password", "remember me", "sign in", "log in", "login")
+
+
+def _looks_like_login_page(text: str) -> bool:
+    """True when a (rendered) page body is a login form: it has a password
+    prompt AND a sign-in affordance, but lacks the bulk of legal prose a real
+    T&C page carries. Used to reject auth gates that a T&C-slug request
+    redirected to (e.g. ASP.NET Default.aspx?ReturnUrl=%2fterms)."""
+    low = (text or "").lower()
+    if "password" not in low:
+        return False
+    if not any(m in low for m in _LOGIN_PAGE_MARKERS):
+        return False
+    # A genuine terms page is long-form legal prose; a login page is short.
+    return len(low) < 2500
+
+
 # Anchor text that unambiguously names a T&C / privacy page.
 _STRONG_TC_TEXT = ("privacy policy", "terms of use", "terms and conditions",
                    "terms of service", "terms & conditions", "legal", "disclaimer")
@@ -388,7 +411,7 @@ _TC_BODY_KEYWORDS = (
 _LEGAL_LINK_RE = re.compile(
     r"privacy|terms|conditions?|disclaimer|copyright|cookie|"
     r"\blegal\b|website[\s_-]*polic|data[\s_-]*protection|acceptable[\s_-]*use|"
-    r"refund|hyperlink|\btnc\b|t&c",
+    r"refund|payment[\s_-]*polic|cancellation|hyperlink|\btnc\b|t&c",
     re.I,
 )
 # NOT a T&C even though the word "legal" / etc. appears — legal-awareness/aid/
@@ -400,6 +423,44 @@ _NOT_LEGAL_RE = re.compile(
     r"/news/|/blog/|/events?/|/notice-?board|/gallery",
     re.I,
 )
+# Words that mark a slug as a news/event/course ARTICLE rather than a legal
+# page, even when it contains a legal word (…-copyright-DAY-2021, TOPIC-legal-
+# aspect-…, …-terms-frequency, …-iiird-SEMESTER). A real legal page is a short,
+# legal-named slug; an article buries the legal word in a long descriptive one.
+_ARTICLE_SLUG_MARKERS = frozenset({
+    "day", "week", "year", "semester", "topic", "aspect", "mechanism", "report",
+    "assessment", "seminar", "webinar", "workshop", "celebration", "event",
+    "news", "blog", "article", "notice", "circular", "result", "admission",
+    "scholarship", "souvenir", "magazine", "bulletin", "newsletter", "prospectus",
+    "syllabus", "brochure", "agenda", "minutes", "frequency", "transparent",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+})
+
+
+def _is_legal_page_url(url: str) -> bool:
+    """True when the URL names a *legal page* (privacy / terms / disclaimer /
+    copyright / refund / website-policy …) — a short, legal-named path segment —
+    rather than a news/event/course article that merely contains a legal word.
+    Checks EVERY path segment (legal pages live at /disclaimer, but also under
+    /Disclaimer/HF__11.html or /legal/privacy.pdf), accepting if ANY segment is
+    a clean legal slug. A segment is rejected when it's a long descriptive slug
+    or carries an article marker (date, "day", "topic", "semester", "magazine"
+    …). Bare host roots/homepages return True (handled by other validators)."""
+    path = urlsplit(url).path.rstrip("/")
+    segs = [seg for seg in path.split("/") if seg]
+    if not segs:
+        return True  # host root / homepage — not a slug to judge here
+    for seg in segs:
+        s = seg.rsplit(".", 1)[0].replace("%20", "-").lower()  # drop extension
+        if not s:
+            continue
+        words = [w for w in re.split(r"[-_+]+", s) if w]
+        if len(words) > 6 or any(w in _ARTICLE_SLUG_MARKERS for w in words):
+            continue
+        if _LEGAL_LINK_RE.search(s) and not _NOT_LEGAL_RE.search(s):
+            return True
+    return False
 
 # Curated T&C paths to probe on a host — broadened with the real-world naming
 # variety seen in the 17&18June gold reference (terms_and_conditions.html,
@@ -474,6 +535,14 @@ def _validate_tc_page(
         return None
     is_pdf = url.lower().split("?")[0].split("#")[0].endswith(".pdf")
     if is_pdf:
+        # A T&C PDF is NAMED like one (privacy-policy.pdf, terms.pdf, …). Footer
+        # PDFs whose filename is a non-legal document — AQAR / quality reports,
+        # e-bulletins / newsletters, magazines, prospectus, brochures — get the
+        # footer-PDF boost but are NOT terms; require a legal keyword in the
+        # filename (and no non-legal marker) before the content gate.
+        pdf_name = urlsplit(url).path.lower()
+        if not (_LEGAL_LINK_RE.search(pdf_name) and not _NOT_LEGAL_RE.search(pdf_name)):
+            return None
         return _accept_candidate(
             url, allowed_domains=allowed_domains, user_agent=user_agent,
             http_timeout=http_timeout, js_renderer=js_renderer,
@@ -497,7 +566,31 @@ def _validate_tc_page(
     req_tc = any(k in urlsplit(url).path.lower() for k in _TC_SLUG_HINTS)
     if req_tc and urlsplit(final).path.lower().rstrip("/") in [p.rstrip("/") for p in _HOME_PATHS]:
         return None
+    # Login-gate guard: an auth-protected path redirects to the portal's login
+    # page (ASP.NET Forms-auth: /terms -> /Default.aspx?ReturnUrl=%2fterms), so
+    # the "T&C" is really the login form. Reject when the final URL carries a
+    # ReturnUrl/redirect param, its path is a login/default page, or the body is
+    # a login form — none of which is a real terms page.
+    fp = urlsplit(final)
+    if any(k in fp.query.lower() for k in ("returnurl", "redirect", "redirecturl", "returnto")):
+        return None
+    if req_tc and (any(seg in fp.path.lower() for seg in _LOGIN_PATH_HINTS)
+                   or _looks_like_login_page(text)):
+        return None
+    # Error-page guard: a missing T&C path resolves to the site's custom error
+    # handler (ASP.NET: /terms -> /Error/Errors?aspxerrorpath=/terms), which is
+    # a soft-404 dressed as a 200. Reject on the tell-tale query param or an
+    # error path. All such probes collapse to the same error page.
+    if "aspxerrorpath" in fp.query.lower() or any(seg in fp.path.lower() for seg in _ERROR_PATH_HINTS):
+        return None
     if len(text) < 500 or any(m in text for m in _SOFT_404_MARKERS):
+        return None
+    # Article/news/event guard: a long descriptive slug that merely CONTAINS a
+    # legal word is a news/article/course page, not a legal page —
+    # /world-book-and-copyright-day-23rd-april-2021, /topic-legal-aspect-...,
+    # /251-...-terms-frequency-and-mode. Reject when the page-name slug is
+    # long-form or carries article markers (dates, "day"/"topic"/"semester"…).
+    if not _is_legal_page_url(url):
         return None
     # A page already NAMED as legal (privacy/terms/copyright/disclaimer/... in
     # its slug) only needs one body keyword; an unnamed candidate needs two.
@@ -1158,12 +1251,41 @@ def _legal_category(url: str) -> str | None:
     return None
 
 
+# A real portal/site exposes at most a handful of distinct T&C documents
+# (typically Terms + Privacy + Disclaimer + one of Cookie/Refund/Copyright).
+# More than this is a false-positive cluster (error-page clones, AQAR/bulletin
+# PDFs, homepage clones), so a level's output is capped here as a backstop.
+_MAX_TC_PER_LEVEL = 4
+
+# A "strong" website/portal T&C: Terms / Terms-of-Use, Privacy, Disclaimer,
+# Copyright, website-policy, cookie, generic legal. A payment / refund /
+# cancellation policy is NOT a portal T&C on its own — it only counts when it
+# accompanies one of these. Used to drop payment-only level results.
+_STRONG_LEGAL_RE = re.compile(
+    r"privacy|terms?|t&?c|tnc|disclaimer|copyright|conditions?|"
+    r"website[\s_-]*polic|cookie|\blegal\b",
+    re.I,
+)
+
+
+def _is_strong_legal_url(url: str) -> bool:
+    return bool(_STRONG_LEGAL_RE.search(urlsplit(url).path + " " + urlsplit(url).query))
+
+
 def _dedupe(urls: list[str]) -> list[str]:
     """De-dupe to ONE entry per (host, legal-category): path-variants of the
     same document (/disclaimer, /disclaimer.php, /disclaimer/) collapse to one
     row, but distinct legal types (terms / privacy / disclaimer / copyright …)
     each keep a row. URLs with no recognizable category fall back to a
-    scheme/trailing-slash-normalized key so they're not lost."""
+    scheme/trailing-slash-normalized key so they're not lost.
+
+    Capped at `_MAX_TC_PER_LEVEL`: a page can't legitimately have more than a
+    handful of T&C docs, so anything beyond the cap (kept best-score-first) is
+    dropped as a false-positive cluster.
+
+    Payment-only guard: if the level found ONLY payment/refund/cancellation
+    policies and no strong website/portal T&C, the whole result is dropped — a
+    payment policy alone is not the portal's terms."""
     seen: set = set()
     out: list[str] = []
     for u in urls:
@@ -1174,4 +1296,11 @@ def _dedupe(urls: list[str]) -> list[str]:
         if key not in seen:
             seen.add(key)
             out.append(u)
+    if out and not any(_is_strong_legal_url(u) for u in out):
+        logger.info("dropping payment/refund-only T&C (no website/portal terms present): %s", out)
+        return []
+    if len(out) > _MAX_TC_PER_LEVEL:
+        logger.info("capping %d T&C URLs to %d (suspected false-positive cluster): %s",
+                    len(out), _MAX_TC_PER_LEVEL, out[_MAX_TC_PER_LEVEL:])
+        out = out[:_MAX_TC_PER_LEVEL]
     return out
