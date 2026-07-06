@@ -1,0 +1,35 @@
+# Keep the backend image small — none of this belongs in it.
+.git
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.egg-info
+
+# The whole frontend is deployed separately (Vercel); backend doesn't need it.
+genie/web
+
+# Local data / state / artifacts
+*.db
+*.db-*
+*.sqlite*
+*.bak
+*.bak-*
+*.csv
+*.CSV
+eval_logs
+logs
+*.log
+prompts
+
+# Secrets — never bake into an image (set as env vars on the host instead)
+.env
+.env.*
+token.json
+*.token.json
+credentials.json
+client_secret*.json
+.tokens
+
+.DS_Store
