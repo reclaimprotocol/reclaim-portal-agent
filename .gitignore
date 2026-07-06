@@ -52,6 +52,11 @@ env/
 node_modules/
 .next/
 
+# DB backups / dumps
+*.bak
+*.bak-*
+*.dump
+
 # Playwright
 playwright-report/
 test-results/
