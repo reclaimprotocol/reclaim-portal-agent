@@ -13,6 +13,7 @@ Run:  .venv/bin/uvicorn genie.api.main:app --reload --port 8000
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import sys
@@ -30,7 +31,7 @@ sys.path.insert(0, str(_ROOT / "genie" / "core"))
 import csv  # noqa: E402
 import io  # noqa: E402
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import Response  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
@@ -38,7 +39,37 @@ from sse_starlette.sse import EventSourceResponse  # noqa: E402
 
 import genie_core  # noqa: E402
 
-app = FastAPI(title="Genie API", version="0.1.0")
+# --- API-key auth --------------------------------------------------------
+# Shared-secret gate. If GENIE_API_KEY is unset, auth is DISABLED (local dev
+# keeps working). When set, every route except the open ones below requires
+# the key via `X-API-Key: <key>` or `Authorization: Bearer <key>`.
+_API_KEY = os.getenv("GENIE_API_KEY", "").strip()
+_OPEN_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
+if not _API_KEY:
+    print("⚠️  GENIE_API_KEY not set — API auth is DISABLED (dev mode).", file=sys.stderr)
+
+
+async def require_api_key(request: Request) -> None:
+    if not _API_KEY:
+        return  # auth disabled
+    if request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
+        return  # never gate CORS preflight or health/docs
+    provided = request.headers.get("x-api-key", "")
+    if not provided:
+        auth = request.headers.get("authorization", "")
+        if auth[:7].lower() == "bearer ":
+            provided = auth[7:]
+    if not provided:
+        # SSE (EventSource) and anchor/download URLs can't send headers,
+        # so /stream and /export accept the key as a ?key= query param.
+        provided = request.query_params.get("key", "")
+    if not hmac.compare_digest(provided, _API_KEY):
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+
+
+# Global dependency: runs inside routing (after CORS middleware), so 401s
+# still carry CORS headers and the browser sees the real status.
+app = FastAPI(title="Genie API", version="0.1.0", dependencies=[Depends(require_api_key)])
 
 # Ensure schema + migrations are current on boot (idempotent).
 genie_core.db.init_db()
