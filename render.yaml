@@ -1,0 +1,27 @@
+# Render Blueprint for the Genie backend.
+# In Render: New → Blueprint → point at this repo. Then fill the secret
+# values (marked sync:false) in the dashboard — they are NOT stored in git.
+services:
+  - type: web
+    name: genie-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # Free plan sleeps after ~15 min and cold-starts slowly with the big
+    # Playwright image; use 'starter' (or higher) for reliable discovery.
+    plan: starter
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: GENIE_DB_URL        # Neon connection string
+        sync: false
+      - key: GENIE_API_KEY       # shared secret (same value the frontend sends)
+        sync: false
+      - key: GENIE_CORS_ORIGINS  # https://<your-app>.vercel.app
+        sync: false
+      - key: ANTHROPIC_API_KEY   # discovery agent
+        sync: false
+      - key: OPR_API_KEY         # optional — OpenPageRank metric
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
