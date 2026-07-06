@@ -14,10 +14,48 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# Cloudflare (and similar) "checking your browser" interstitials: the JS
+# challenge auto-solves for a real browser, but the real page content only
+# loads a moment AFTER the challenge clears. If our first capture still shows
+# the interstitial, we wait and re-capture until it clears. These are the
+# phrases that mark the interstitial (NOT the real content).
+_CHALLENGE_MARKERS: tuple[str, ...] = (
+    "just a moment",
+    "checking your browser",
+    "performing security verification",
+    "verify you are human",
+    "verifying you are human",
+    "cf_chl",
+    "cf-challenge",
+    "needs to review the security of your connection",
+)
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _visible_len(html: str) -> int:
+    """Crude visible-text length (tags stripped) — used to pick the richest DOM
+    snapshot across polls without importing the heavier HTML extractor."""
+    return len(_TAG_RE.sub(" ", html or "").strip())
+
+
+def _looks_like_challenge(html: str) -> bool:
+    if not html:
+        return False
+    low = html.lower()
+    # Only treat as a challenge if the body is dominated by it — a real T&C
+    # page mentioning "just a moment" in prose is long, so gate on brevity.
+    if len(low) > 6000:
+        return False
+    return any(m in low for m in _CHALLENGE_MARKERS)
 
 
 # Bug 2 — local copy of the password-input regex used by the
@@ -101,6 +139,23 @@ class JSRenderer:
                 pass
             html = page.content()
 
+            # Cloudflare-style interstitial: the JS challenge auto-solves but
+            # the real content loads a beat later. If we captured the "checking
+            # your browser" / "waiting for host to respond" page, poll for it to
+            # clear (up to ~20s) and re-capture the settled DOM.
+            if _looks_like_challenge(html):
+                deadline = time.monotonic() + 20.0
+                while time.monotonic() < deadline:
+                    try:
+                        page.wait_for_timeout(2500)
+                        page.wait_for_load_state("networkidle", timeout=5_000)
+                    except Exception:
+                        pass
+                    html = page.content()
+                    if not _looks_like_challenge(html):
+                        logger.info("JS render: security interstitial cleared for %s", url)
+                        break
+
             # Bug 2 — modal-login click. Some sites (mmumullana.org's
             # `onlinelms.mmumullana.org`, similar) render a homepage
             # without a static login form; the form lives inside a
@@ -118,6 +173,61 @@ class JSRenderer:
                         pass
 
             return RenderResult(ok=True, final_url=page.url, html=html)
+        except Exception as err:
+            return RenderResult(ok=False, final_url=url, html="", error=f"{type(err).__name__}: {err}")
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            if context is not None:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+
+    def render_poll(self, url: str, *, polls: int = 10, interval_ms: int = 2000,
+                    settle_len: int = 500) -> RenderResult:
+        """Early-capture polling render for SPAs whose content is fragile in
+        time: some render the body then a client-side auth guard *redirects*
+        (content vanishes — davccfbd.ac.in), others render the body only *after*
+        a delay (zmchlms.com). A single late `render()` capture misses both.
+        We poll the DOM and keep the snapshot with the MOST visible text (that
+        isn't a security interstitial), stopping early once it stabilises."""
+        if not self._ensure_browser():
+            return RenderResult(ok=False, final_url=url, html="", error="unavailable")
+        context = page = None
+        try:
+            context = self._browser.new_context(
+                user_agent=self.user_agent, ignore_https_errors=True,
+                extra_http_headers=_BROWSER_EXTRA_HTTP_HEADERS,
+            )
+            page = context.new_page()
+            try:
+                page.goto(url, timeout=self.timeout_seconds * 1000, wait_until="commit")
+            except Exception:
+                pass  # keep whatever loaded; we poll below
+            best_html, best_len, stagnant = "", 0, 0
+            for _ in range(max(1, polls)):
+                try:
+                    page.wait_for_timeout(interval_ms)
+                    html = page.content()
+                except Exception:
+                    break
+                if _looks_like_challenge(html):
+                    stagnant = 0
+                    continue
+                vl = _visible_len(html)
+                if vl > best_len + 20:
+                    best_html, best_len, stagnant = html, vl, 0
+                else:
+                    stagnant += 1
+                if best_len >= settle_len and stagnant >= 2:
+                    break  # content has loaded and stopped growing
+            final_url = page.url if page is not None else url
+            return RenderResult(ok=True, final_url=final_url,
+                                html=best_html or (page.content() if page is not None else ""))
         except Exception as err:
             return RenderResult(ok=False, final_url=url, html="", error=f"{type(err).__name__}: {err}")
         finally:

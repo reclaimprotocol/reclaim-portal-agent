@@ -12,3 +12,8 @@ playwright>=1.45.0
 pdfplumber>=0.11.0
 googlesearch-python>=1.2.5
 publicsuffix2>=2.20191221
+# Genie: API server + optional Postgres backend (SQLite works without psycopg)
+fastapi>=0.111.0
+uvicorn>=0.30.0
+sse-starlette>=2.1.0
+psycopg[binary]>=3.2.0

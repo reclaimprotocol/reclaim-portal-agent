@@ -48,6 +48,10 @@ env/
 *.swp
 *.swo
 
+# Node
+node_modules/
+.next/
+
 # Playwright
 playwright-report/
 test-results/

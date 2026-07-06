@@ -99,9 +99,43 @@ def _tab_gid(sheets: SheetsClient, title: str) -> int:
     raise SystemExit(f"tab {title!r} not found")
 
 
+def _execute_retry(request, *, what: str, tries: int = 6):
+    """Execute a Google API request, retrying transient failures with
+    exponential backoff. A long run must not die on a single flaky write:
+    handles both HTTP 429/5xx (observed 500 'Internal error') AND raw transport
+    drops (observed ConnectionResetError [Errno 54] mid-run). OSError covers
+    ConnectionReset/BrokenPipe/SSL/socket-timeout; http.client.HTTPException
+    covers protocol-level glitches."""
+    import http.client
+
+    from googleapiclient.errors import HttpError
+    delay = 2.0
+    for attempt in range(1, tries + 1):
+        try:
+            return request.execute()
+        except HttpError as e:
+            status = int(getattr(e.resp, "status", 0) or 0)
+            if status in (429, 500, 502, 503, 504) and attempt < tries:
+                logger.warning("%s: transient HTTP %s (attempt %d/%d) — retrying in %.0fs",
+                               what, status, attempt, tries, delay)
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+                continue
+            raise
+        except (OSError, http.client.HTTPException) as e:
+            # ConnectionResetError/BrokenPipeError/SSLError/timeout etc.
+            if attempt < tries:
+                logger.warning("%s: transient transport error %s (attempt %d/%d) — retrying in %.0fs",
+                               what, type(e).__name__, attempt, tries, delay)
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+                continue
+            raise
+
+
 def _insert_blank_rows(sheets: SheetsClient, gid: int, after_row_1based: int, count: int) -> None:
     """Insert `count` blank rows directly after `after_row_1based`."""
-    sheets._service.spreadsheets().batchUpdate(
+    _execute_retry(sheets._service.spreadsheets().batchUpdate(
         spreadsheetId=PORTAL_SHEET_ID,
         body={"requests": [{
             "insertDimension": {
@@ -110,18 +144,18 @@ def _insert_blank_rows(sheets: SheetsClient, gid: int, after_row_1based: int, co
                 "inheritFromBefore": True,
             }
         }]},
-    ).execute()
+    ), what=f"insert_rows@{after_row_1based}")
 
 
 def _write_row_block(sheets: SheetsClient, qtab: str, row_1based: int, values: list[str]) -> None:
     """Write a contiguous A..N block for one row."""
     end = _col_letter(len(values))
-    sheets._service.spreadsheets().values().update(
+    _execute_retry(sheets._service.spreadsheets().values().update(
         spreadsheetId=PORTAL_SHEET_ID,
         range=f"{qtab}!A{row_1based}:{end}{row_1based}",
         valueInputOption="USER_ENTERED",
         body={"values": [values]},
-    ).execute()
+    ), what=f"write_row@{row_1based}")
 
 
 def _build_row_values(
@@ -152,6 +186,7 @@ def _build_row_values(
 
 @click.command()
 @click.option("--tab", "tab_arg", default=DEFAULT_TAB, show_default=True)
+@click.option("--header-row", "header_row", type=int, default=HEADER_ROW, show_default=True, help="Row (1-based) holding the column headers; data starts at the next row. Most tabs use 2 (row 1 is the 'TNCs' banner), but some tabs put the header on row 1.")
 @click.option("--start", type=int, default=None, help="First sheet row to process (1-based).")
 @click.option("--end", type=int, default=None, help="Last sheet row (inclusive).")
 @click.option("--orgid", "orgids", multiple=True, help="Only these OrgID(s). Comma-sep/repeatable.")
@@ -160,7 +195,7 @@ def _build_row_values(
 @click.option("--no-analysis", "no_analysis", is_flag=True, help="DISCOVERY ONLY: find + write the T&C URL(s) to the level columns; leave verdict/reason (I/J) blank for a later pass.")
 @click.option("--row-budget", type=int, default=90, show_default=True, help="Per-row wall-clock cap (seconds); a slow host gives up and the remaining levels are skipped.")
 @click.option("--dry-run", is_flag=True, help="Compute + print proposed rows; do NOT write.")
-def main(tab_arg, start, end, orgids, force, workers, no_analysis, row_budget, dry_run):
+def main(tab_arg, header_row, start, end, orgids, force, workers, no_analysis, row_budget, dry_run):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = load_config()
     from agent.config import TC_FORCE_CLAUDE
@@ -173,7 +208,7 @@ def main(tab_arg, start, end, orgids, force, workers, no_analysis, row_budget, d
     qtab = f"'{title}'"
     gid = _tab_gid(sheets, title)
 
-    header = (sheets._get_values(qtab, f"{HEADER_ROW}:{HEADER_ROW}") or [[]])[0]
+    header = (sheets._get_values(qtab, f"{header_row}:{header_row}") or [[]])[0]
     orgid_idx = _find_col(header, ORGID_HEADER, 0)
     portal_idx = _find_col(header, PORTAL_HEADER, 1)
     level_idx_map = {lvl: _find_col(header, h) for lvl, h in LEVEL_HEADERS.items()}
@@ -190,12 +225,12 @@ def main(tab_arg, start, end, orgids, force, workers, no_analysis, row_budget, d
     orgid_filter = {tok.strip() for e in orgids for tok in re.split(r"[,\s]+", str(e)) if tok.strip()}
 
     click.echo("=" * 70)
-    click.echo(f"  Tab        : {title!r} (gid={gid})")
+    click.echo(f"  Tab        : {title!r} (gid={gid}, header_row={header_row})")
     click.echo(f"  Analyzer   : mode={config.tc_analyzer_mode} force_claude={TC_FORCE_CLAUDE}")
     click.echo(f"  Mode       : {'DRY RUN' if dry_run else 'WRITE in-place + insert rows'} force={force}")
     click.echo("=" * 70)
 
-    data_first = HEADER_ROW + 1
+    data_first = header_row + 1
     rows = sheets._get_values(qtab, f"{data_first}:100000")
     seeds: list[tuple[int, str, str]] = []
     for ridx, raw in enumerate(rows):
