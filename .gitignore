@@ -55,6 +55,6 @@ node_modules/
 # Playwright
 playwright-report/
 test-results/
-# Indian state college/university lists — local data, not for the repo
-*_new_colleges.csv
-*_universities.csv
+# CSV data — local only, never commit
+*.csv
+*.CSV
