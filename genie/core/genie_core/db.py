@@ -385,7 +385,9 @@ def list_universities(offset: int = 0, limit: int = 40, country: str | None = No
         where.append("(lower(u.name) LIKE ? OR lower(u.website) LIKE ?)")
         params += [like, like]
     clause = ("WHERE " + " AND ".join(where)) if where else ""
-    having = "HAVING pcount = 0" if only_missing else ""
+    # NB: Postgres can't reference the SELECT alias `pcount` in HAVING (SQLite
+    # can); use the aggregate expression so both backends work.
+    having = "HAVING COUNT(p.id) = 0" if only_missing else ""
     with connect(path) as c:
         base = f"""FROM universities u
                    LEFT JOIN portals p ON p.orgid = u.orgid
