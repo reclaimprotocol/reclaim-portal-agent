@@ -7,23 +7,7 @@ import Curate from "../components/Curate";
 import Training from "../components/Training";
 import ProfileProvider from "../components/ProfileContext";
 import { getCountries, getStates, exportUrl } from "./lib/api";
-
-// Country → flag emoji. Known countries mapped explicitly; anything else
-// falls back to a globe so new countries still render cleanly.
-const COUNTRY_FLAGS = {
-  India: "🇮🇳",
-  Bangladesh: "🇧🇩",
-  Indonesia: "🇮🇩",
-  Argentina: "🇦🇷",
-  Pakistan: "🇵🇰",
-  Nepal: "🇳🇵",
-  "Sri Lanka": "🇱🇰",
-  Philippines: "🇵🇭",
-  Brazil: "🇧🇷",
-  Mexico: "🇲🇽",
-  Nigeria: "🇳🇬",
-};
-const countryFlag = (name) => COUNTRY_FLAGS[name] || "🌐";
+import { countryFlag } from "./lib/flags";
 
 export default function Home() {
   const [tab, setTab] = useState("search");

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getInsights, browsePortals, getCategories, updatePortalCategory } from "../lib/api";
+import { countryFlag } from "../lib/flags";
 
 const MPAGE = 50;
 
@@ -148,7 +149,7 @@ export default function InsightsPage() {
           <tbody>
             {d.by_country.map((c) => (
               <tr key={c.country}>
-                <td><b>{c.country}</b></td>
+                <td><b>{c.country}</b> <span className="flag">{countryFlag(c.country)}</span></td>
                 <td>{c.universities.toLocaleString()}</td>
                 <td>{c.with_portal.toLocaleString()}</td>
                 <td>{c.portals.toLocaleString()}</td>
