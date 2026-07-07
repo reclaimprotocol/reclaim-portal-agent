@@ -843,7 +843,10 @@ class _DiscoveryBudget:
 
 # Max parallelism for candidate validation. 10 keeps load well below the
 # session pool ceiling (20) while saturating most slow Indian-uni hosts.
-_VALIDATE_MAX_WORKERS: int = 10
+# Env-tunable: lower it on memory/socket-constrained hosts (e.g. Render free
+# tier) where the fan-out exhausts the DNS resolver and real hosts spuriously
+# fail with gaierror.
+_VALIDATE_MAX_WORKERS: int = int(os.getenv("VALIDATE_MAX_WORKERS", "10"))
 
 
 def run(ctx: "PipelineContext") -> dict[str, Any]:

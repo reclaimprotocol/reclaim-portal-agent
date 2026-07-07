@@ -28,5 +28,9 @@ services:
         sync: false
       - key: GEMINI_SEARCH_ENABLED  # Stage-A discovery: Gemini via OpenRouter
         value: "true"                # needs only OPENROUTER_API_KEY, no Google creds
+      - key: VALIDATE_MAX_WORKERS   # low fan-out so free-tier DNS/sockets don't exhaust
+        value: "3"
+      - key: ENABLE_JS_RENDERING    # off on free tier — Chromium is too heavy for 512 MB
+        value: "false"
       - key: PYTHONUNBUFFERED
         value: "1"
