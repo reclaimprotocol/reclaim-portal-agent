@@ -382,6 +382,49 @@ def parse_domains(raw: str) -> list[str]:
     return [d.strip().lower().lstrip(".") for d in (raw or "").split(",") if d.strip()]
 
 
+# Subdomain labels that are never student portals — skip them when they turn
+# up in certificate-transparency enumeration (infra/mail/dev hosts).
+_NON_PORTAL_CT_LABELS: frozenset[str] = frozenset({
+    "mail", "webmail", "smtp", "imap", "pop", "pop3", "mx", "mx1", "mx2",
+    "email", "ns", "ns1", "ns2", "ns3", "dns", "vpn", "ftp", "sftp",
+    "cpanel", "whm", "webdisk", "autodiscover", "autoconfig", "cpcalendars",
+    "cpcontacts", "test", "dev", "staging", "demo", "backup", "cdn",
+    "static", "assets", "img", "media", "video", "stream", "git", "gitlab",
+    "jenkins", "proxy", "gateway", "remote", "owa", "exchange", "voip",
+})
+
+
+def crt_sh_subdomains(domain: str, timeout: float = 15.0, cap: int = 40) -> list[str]:
+    """Enumerate subdomains of `domain` from crt.sh certificate-transparency
+    logs. Surfaces non-obvious portal hosts (e.g. ``cmsys.eng.rizvi.edu.in``)
+    that the agent can neither guess from a functional-label list nor find via
+    homepage links. Best-effort: any network / parse failure returns []."""
+    domain = (domain or "").lower().strip().lstrip(".")
+    if not domain:
+        return []
+    try:
+        r = HTTP_SESSION.get(
+            f"https://crt.sh/?q=%25.{domain}&output=json",
+            timeout=timeout, verify=False,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+    except Exception:
+        return []
+    subs: set[str] = set()
+    for row in data:
+        for nv in str(row.get("name_value", "")).split("\n"):
+            h = nv.strip().lower().lstrip("*.")
+            if not h or h == domain or not h.endswith("." + domain):
+                continue
+            prefix = h[: -(len(domain) + 1)]
+            if prefix.split(".")[0] in _NON_PORTAL_CT_LABELS:
+                continue
+            subs.add(h)
+    return sorted(subs)[:cap]
+
+
 # --- URL normalisation / session-ID stripping -----------------------------
 
 _SESSION_ID_PATH_RE = re.compile(r";jsessionid=[^/?#]*", re.IGNORECASE)

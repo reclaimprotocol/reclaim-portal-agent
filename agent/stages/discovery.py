@@ -270,6 +270,31 @@ def _resolve_affiliation_domain(orgid: str, name: str, city: str) -> str | None:
     return None
 
 
+def _affiliation_corroborated(
+    orgid: str, primary: str, parent_domain: str,
+    http_timeout: int, user_agent: str,
+) -> bool:
+    """Guard against hallucinated affiliations. Only trust a Gemini-resolved
+    parent university if the college's OWN homepage references it (a link to or
+    mention of the parent's registrable domain). Real affiliations are stated on
+    the college site — a wrong guess (e.g. Anna University for a Mumbai college,
+    whose site links mu.ac.in) is not. Fetch failure → not corroborated
+    (conservative: better to skip than attach a wrong university's portals)."""
+    if not (primary and parent_domain):
+        return False
+    root = discovery_rules.registrable_root(parent_domain) or parent_domain
+    try:
+        r = discovery_rules.HTTP_SESSION.get(
+            f"https://{primary}/", timeout=http_timeout, verify=False,
+            headers={"User-Agent": user_agent},
+        )
+        html = (r.text or "").lower()
+    except Exception:
+        return False
+    # Boundary before the root so "mu.ac.in" isn't matched inside "skmu.ac.in".
+    return re.search(r"(^|[^a-z0-9.-])" + re.escape(root), html) is not None
+
+
 def _discover_parent_portals(ctx: "PipelineContext", parent_domain: str) -> list[dict]:
     """Run the SAME discovery pipeline on the affiliating university's domain
     and return its portal dicts. Cached per parent domain; recursion-guarded
@@ -855,6 +880,11 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     orgid = ctx.orgid
     row = ctx.row
     js_renderer: "JSRenderer | None" = ctx.deps.get("js_renderer")
+    # Whether to do ANY affiliating-university work. Driven by the UI's
+    # "Also find the affiliating university's portals" checkbox (which sets
+    # _skip_affiliation_discovery when unchecked). When off, no affiliation
+    # probing/attach runs and no affiliation progress lines are emitted.
+    affiliation_enabled = not ctx.deps.get("_skip_affiliation_discovery")
 
     name = str(row.get(UNIVERSITY_NAME_COL, "")).strip()
     domains = discovery_rules.parse_domains(str(row.get(DOMAINS_COL, "")))
@@ -1333,6 +1363,30 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
                 orgid, region_pack.name, region_added,
             )
 
+    # Certificate-transparency subdomain enumeration. Surfaces real portal
+    # hosts the agent can neither guess (non-standard labels like `cmsys`) nor
+    # reach via homepage links. Each CT subdomain becomes a candidate; the
+    # login-form validation gate keeps only the ones that are actually portals.
+    if os.environ.get("CT_SUBDOMAIN_ENUM", "true").strip().lower() in ("1", "true", "yes", "on"):
+        ct_targets = [d for d in owned_domains if not _is_never_probe_domain(d)]
+        ct_hosts: set[str] = set()
+        for d in ct_targets[:3]:
+            for sub in discovery_rules.crt_sh_subdomains(d):
+                ct_hosts.add(sub)
+        ct_added = 0
+        for host_ in sorted(ct_hosts):
+            rule_candidates.append(Candidate(
+                url=f"https://{host_}/",
+                category="Student Portal",
+                discovery_source="rule:ct-subdomain",
+                discovery_reasoning=f"certificate-transparency subdomain of {ct_targets[:1]}",
+            ))
+            ct_added += 1
+        if ct_added:
+            logger.info(
+                "[%s] cert-transparency subdomains: +%d candidates", orgid, ct_added,
+            )
+
     rule_candidates = _dedupe(rule_candidates)
     logger.info(
         "[%s] phase=probes took=%.1fs candidates=%d",
@@ -1787,7 +1841,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     t_phase = time.monotonic()
     affiliation_added = 0
     name_lower = name.lower()
-    if aff_locale:
+    if affiliation_enabled and aff_locale:
         existing_urls = {c.url for c in rule_candidates}
         for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
             if not _affiliation_matches(aff_info, aff_locale, name_lower):
@@ -1831,10 +1885,11 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         )
     if affiliation_added:
         rule_candidates = _dedupe(rule_candidates)
-    logger.info(
-        "[%s] phase=affiliation_probe took=%.1fs added=%d state=%r",
-        orgid, time.monotonic() - t_phase, affiliation_added, org_state,
-    )
+    if affiliation_enabled:
+        logger.info(
+            "[%s] phase=affiliation_probe took=%.1fs added=%d state=%r",
+            orgid, time.monotonic() - t_phase, affiliation_added, org_state,
+        )
 
     # ---- Phase: same-host student-login probes (parallel) ------------------
     # Restrict to hosts on the university's own domains OR confirmed sibling
@@ -2306,7 +2361,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     # and trusted only (skips `verify` entries); gated by state alias +
     # optional `name_tokens` (category). Validation is bypassed because
     # these URLs are operator-verified. score=3 clears the negative gate.
-    if aff_locale:
+    if affiliation_enabled and aff_locale:
         existing_final = {c.url for c, _ in consolidated}
         for aff_domain, aff_info in AFFILIATING_UNIVERSITY_PORTALS.items():
             if aff_info.get("verify") or not aff_info.get("always_attach"):
@@ -2385,7 +2440,7 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     # budget is spent. Gated by AFFILIATION_DISCOVERY_ENABLED.
     if (
         AFFILIATION_DISCOVERY_ENABLED
-        and not ctx.deps.get("_skip_affiliation_discovery")
+        and affiliation_enabled
         and not budget.expired()
     ):
         parent_domain = _resolve_affiliation_domain(orgid, name, org_city)
@@ -2397,6 +2452,25 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             h == parent_domain or h.endswith("." + parent_domain)
             for h in existing_hosts
         ) if parent_domain else True
+        # Corroboration guard: reject a hallucinated parent (e.g. Anna
+        # University for a Mumbai college) before running its expensive
+        # discovery. Only checked when the parent would otherwise be attached.
+        if (
+            parent_domain
+            and parent_domain not in own_domains_set
+            and not already_covered
+            and not discovery_rules.host_is_known_shared_platform(parent_domain)
+            and not _affiliation_corroborated(
+                orgid, primary, parent_domain,
+                config.http_timeout_seconds, config.user_agent,
+            )
+        ):
+            logger.info(
+                "[%s] dynamic affiliation: parent %s not referenced on %s — "
+                "skipping (likely wrong affiliation)",
+                orgid, parent_domain, primary,
+            )
+            parent_domain = None
         if (
             parent_domain
             and parent_domain not in own_domains_set
