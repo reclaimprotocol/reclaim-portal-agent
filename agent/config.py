@@ -3158,7 +3158,9 @@ def load_config() -> Config:
     return Config(
         anthropic_api_key=anthropic_api_key,
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7"),
-        google_sheet_id=_require("GOOGLE_SHEET_ID"),
+        # Optional: Genie's live discovery writes to Postgres, not Sheets, so it
+        # runs without a Sheet ID. Sheets-based ETL/eval flows still need it set.
+        google_sheet_id=os.environ.get("GOOGLE_SHEET_ID", ""),
         universities_tab=os.environ.get("UNIVERSITIES_TAB_NAME", "Universities"),
         portals_tab=os.environ.get("PORTALS_TAB_NAME", "Portals"),
         google_credentials_path=_resolve(

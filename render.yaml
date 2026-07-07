@@ -20,9 +20,13 @@ services:
         sync: false
       - key: GENIE_CORS_ORIGINS  # https://<your-app>.vercel.app
         sync: false
-      - key: ANTHROPIC_API_KEY   # discovery agent
+      - key: OPENROUTER_API_KEY  # LLM for live discovery (the agent's real key)
+        sync: false
+      - key: ANTHROPIC_API_KEY   # optional Claude fallback (leave blank)
         sync: false
       - key: OPR_API_KEY         # optional — OpenPageRank metric
         sync: false
+      - key: GEMINI_SEARCH_ENABLED  # off on the server (no Google OAuth creds here)
+        value: "false"
       - key: PYTHONUNBUFFERED
         value: "1"
