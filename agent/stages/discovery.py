@@ -1004,13 +1004,23 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         if d and d not in owned_domains:
             owned_domains.append(d)
 
-    # Geography gate: only run a country's specific rule set for that country's
-    # domains. India-only logic (Samarth / shared-platform tenant probes,
-    # state affiliators) must NOT fire on a .br / .ar / etc. domain, and vice
-    # versa. TLD is the signal (.in → India). The Argentina region pack is
-    # already TLD-gated in `regions`; this gates the India-specific probes.
-    india_domain = any(
-        d.endswith(".in") for d in owned_domains
+    # Geography gate — detect the university's country ONCE, up front, from its
+    # own domain, then run only that country's logic. Indian rules (Samarth /
+    # shared-platform tenant probes, state affiliators) must NOT fire on a .kr /
+    # .br / .ar site, and vice versa; the cross-country consolidation veto and
+    # the region packs (Argentina, …) also key off this. Generic gTLDs
+    # (.edu/.com/.org) carry no geography → country is "" → no country rules.
+    geo_country = ""
+    for d in owned_domains:
+        geo_country = regions.country_of_domain(d)
+        if geo_country:
+            break
+    india_domain = geo_country == "India"
+    logger.info(
+        "[%s] geography detected: %s%s", orgid,
+        geo_country or "unknown (generic TLD) — no country-specific rules",
+        " — India-specific rules enabled" if india_domain
+        else (" — Indian rules disabled" if geo_country else ""),
     )
 
     shortname_candidates = discovery_rules.extract_shortname_candidates(

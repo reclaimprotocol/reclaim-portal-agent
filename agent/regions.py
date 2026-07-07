@@ -104,6 +104,73 @@ _ARGENTINA = RegionPack(
 REGION_PACKS: tuple[RegionPack, ...] = (_ARGENTINA,)
 
 
+# --------------------------------------------------------------------------- geo
+# TLD → country. This is the ONE geography signal the pipeline uses: detect the
+# university's country from its domain up front, then only run that country's
+# logic (never Indian rules on a .kr site, never Argentine probes on a .br site).
+# Country-code and common academic TLDs only; generic gTLDs (.edu/.com/.org/…)
+# carry no geography, so they map to "" (unknown → run no country-specific rule).
+_TLD_COUNTRY: dict[str, str] = {
+    "in": "India", "ac.in": "India", "edu.in": "India",
+    "ar": "Argentina", "edu.ar": "Argentina",
+    "br": "Brazil", "edu.br": "Brazil",
+    "kr": "South Korea", "ac.kr": "South Korea",
+    "jp": "Japan", "ac.jp": "Japan",
+    "cn": "China", "edu.cn": "China",
+    "uk": "United Kingdom", "ac.uk": "United Kingdom",
+    "au": "Australia", "edu.au": "Australia",
+    "nz": "New Zealand", "ac.nz": "New Zealand",
+    "za": "South Africa", "ac.za": "South Africa",
+    "ng": "Nigeria", "edu.ng": "Nigeria",
+    "ke": "Kenya", "ac.ke": "Kenya",
+    "pk": "Pakistan", "edu.pk": "Pakistan",
+    "bd": "Bangladesh", "ac.bd": "Bangladesh",
+    "lk": "Sri Lanka", "ac.lk": "Sri Lanka",
+    "id": "Indonesia", "ac.id": "Indonesia",
+    "my": "Malaysia", "edu.my": "Malaysia",
+    "ph": "Philippines", "edu.ph": "Philippines",
+    "th": "Thailand", "ac.th": "Thailand",
+    "vn": "Vietnam", "edu.vn": "Vietnam",
+    "tw": "Taiwan", "edu.tw": "Taiwan",
+    "hk": "Hong Kong", "edu.hk": "Hong Kong",
+    "sg": "Singapore", "edu.sg": "Singapore",
+    "mx": "Mexico", "edu.mx": "Mexico",
+    "cl": "Chile", "co": "Colombia", "edu.co": "Colombia",
+    "pe": "Peru", "edu.pe": "Peru", "uy": "Uruguay", "edu.uy": "Uruguay",
+    "de": "Germany", "fr": "France", "es": "Spain", "it": "Italy",
+    "pt": "Portugal", "nl": "Netherlands", "be": "Belgium", "ch": "Switzerland",
+    "at": "Austria", "se": "Sweden", "no": "Norway", "fi": "Finland",
+    "dk": "Denmark", "pl": "Poland", "cz": "Czechia", "gr": "Greece",
+    "ie": "Ireland", "ru": "Russia", "ua": "Ukraine", "tr": "Turkey",
+    "edu.tr": "Turkey", "ir": "Iran", "ac.ir": "Iran",
+    "sa": "Saudi Arabia", "edu.sa": "Saudi Arabia",
+    "ae": "United Arab Emirates", "ac.ae": "United Arab Emirates",
+    "eg": "Egypt", "edu.eg": "Egypt", "il": "Israel", "ac.il": "Israel",
+    "ca": "Canada", "ghana": "Ghana", "gh": "Ghana", "edu.gh": "Ghana",
+}
+
+
+def country_of_domain(domain: str) -> str:
+    """The university's country inferred from its domain TLD, or "" if the TLD
+    carries no geography (generic gTLD like .edu / .com / .org / .io). Matches
+    the longest known suffix first so ``ac.uk`` beats ``uk``.
+
+    This is the single source of truth for "what country is this?". Callers
+    gate country-specific logic on it and compare two domains' countries to
+    decide whether a portal is genuinely *foreign* to its university."""
+    d = (domain or "").lower().strip().rstrip(".")
+    if not d:
+        return ""
+    labels = d.split(".")
+    # Try the two-label academic suffix (ac.in, edu.ar) then the ccTLD.
+    for n in (2, 1):
+        if len(labels) >= n:
+            suf = ".".join(labels[-n:])
+            if suf in _TLD_COUNTRY:
+                return _TLD_COUNTRY[suf]
+    return ""
+
+
 def detect_region(domains: list[str] | tuple[str, ...],
                   country: str = "") -> RegionPack | None:
     """Return the region pack for these domains / country, or None.

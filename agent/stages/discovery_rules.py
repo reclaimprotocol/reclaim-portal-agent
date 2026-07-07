@@ -2995,6 +2995,14 @@ def _url_is_login_shaped(url: str) -> str:
     parts = urlsplit(url)
     host = parts.netloc.lower().split(":")[0]
     path = parts.path.lower()
+    # Never treat an error / status page as a login surface — a portal-ish host
+    # (portal.yonsei.ac.kr) serving /error.html, /404, /page-not-found, /oops …
+    # is a dead end, not a student login. Guards rule-E from accepting it.
+    if any(t in path for t in (
+        "error", "/404", "/403", "/500", "notfound", "not-found",
+        "page-not-found", "unavailable", "maintenance", "/oops",
+    )):
+        return ""
     leftmost = host.split(".", 1)[0] if "." in host else host
     if any(leftmost == lbl or leftmost.startswith(lbl) for lbl in _PORTAL_HOST_LABELS):
         return "host"
@@ -3445,14 +3453,23 @@ def consolidate_candidates(
                 "tenant (policy)", orgid, c.url,
             )
             continue
-        # Foreign-TLD veto. All institutions here are Indian, so a host on a
-        # foreign academic/country TLD (e.g. moodle.amity.ac.uk) is a same-
-        # brand overseas campus, not the target portal — drop it even though
-        # the 'amity' shortname matched during membership.
-        if is_foreign_academic_host(host):
+        # Cross-country veto — geography-first, no India assumption. Detect the
+        # university's country from its own domain, and the candidate host's
+        # country from its TLD; drop the candidate only when both are known and
+        # DIFFERENT, on a different registrable domain (a same-brand campus in
+        # another country — e.g. moodle.amity.ac.uk for an Indian 'amity').
+        # A Korean uni's own .kr portals share its country → kept. When either
+        # country is unknown (generic gTLD), we can't tell → don't veto.
+        uni_country = regions.country_of_domain(primary or "")
+        host_country = regions.country_of_domain(host)
+        if (
+            uni_country and host_country and host_country != uni_country
+            and registrable_root(host) != (registrable_root(primary or "") or host)
+        ):
             logger.info(
-                "[%s] consolidate: drop %s — foreign academic TLD (Indian "
-                "institution expected)", orgid, c.url,
+                "[%s] consolidate: drop %s — portal on %s TLD but university is "
+                "in %s (overseas same-brand campus)",
+                orgid, c.url, host_country, uni_country,
             )
             continue
         # Section 9 — drop bare-homepage candidates that survived
