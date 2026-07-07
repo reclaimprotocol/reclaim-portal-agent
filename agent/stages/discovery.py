@@ -73,6 +73,7 @@ from ..config import (
 )
 from . import discovery_claude, discovery_rules
 from .discovery_rules import Candidate
+from .. import regions
 
 if TYPE_CHECKING:
     from ..pipeline import PipelineContext
@@ -868,6 +869,20 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     primary = domains[0]
     overrides = config.domain_overrides.get(str(orgid), {}) or {}
     extra_allowed_labels = [str(x) for x in overrides.get("extra_allowed_subdomains", []) if x]
+
+    # Geography-aware discovery: if this is a known region (e.g. an Argentine
+    # university on a .edu.ar TLD), activate its rule pack. Local-language
+    # subdomain labels are allow-listed so discovered portals like
+    # autogestion./campus. survive the (English-centric) functional-label
+    # filter; the pack also drives region subdomain probes further below.
+    region_country = str(row.get("Country", "") or row.get("country", "")).strip()
+    region_pack = regions.detect_region(domains, region_country)
+    if region_pack:
+        extra_allowed_labels.extend(sorted(region_pack.functional_labels))
+        logger.info(
+            "[%s] region detected: %s — +%d local subdomain labels allow-listed",
+            orgid, region_pack.name, len(region_pack.functional_labels),
+        )
     extra_allowed_roots = [
         str(x).lower().lstrip(".")
         for x in overrides.get("extra_allowed_root_domains", [])
@@ -1294,6 +1309,29 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             "(shortnames=%s)",
             orgid, platform_added, sorted(platform_probe_shortnames),
         )
+
+    # Region probes: {label}.{owned-domain}{login_path} for the detected
+    # country's local platforms (e.g. AR → autogestion./guarani. SIU-Guaraní,
+    # campus./aulavirtual. Moodle). Analogous to the Samarth tenant probes but
+    # keyed off the university's OWN domains. Validation drops NXDOMAIN/404.
+    if region_pack:
+        region_probe_targets = [
+            d for d in owned_domains if not _is_never_probe_domain(d)
+        ]
+        region_added = 0
+        for desc in regions.region_probe_urls(region_pack, region_probe_targets):
+            rule_candidates.append(Candidate(
+                url=desc["url"],
+                category=desc["category"],
+                discovery_source="rule:region-probe",
+                discovery_reasoning=desc["reasoning"],
+            ))
+            region_added += 1
+        if region_added:
+            logger.info(
+                "[%s] %s region probes: +%d candidates",
+                orgid, region_pack.name, region_added,
+            )
 
     rule_candidates = _dedupe(rule_candidates)
     logger.info(
@@ -3079,6 +3117,11 @@ def _validate_candidates(
         if discovery_rules.host_is_known_shared_platform(host):
             final_out.append(c)
             continue
+        # Region platforms (rule-D, e.g. SIU-Guaraní) are real portals whose
+        # login renders via JS — preserve them here like rule-C hosts.
+        if regions.url_is_region_login_surface(c.url) is not None:
+            final_out.append(c)
+            continue
         if not discovery_rules.is_homepage_url(c.url):
             # Non-homepage URL with no password input shouldn't have
             # passed the new gate at all; if one does (e.g. someone
@@ -3559,7 +3602,12 @@ def _validate_one(
     # already verified the platform identity. Bypass `static_gate_ok`
     # only for rule-C; rule-A and rule-B still require the static
     # interactive-form evidence.
-    rule_c_bypass = gate_ok and "rule-C" in gate_reason
+    # Rule-D (known *regional* platform, e.g. SIU-Guaraní) gets the same
+    # bypass for the same reason — the login renders via JS with no static
+    # form. The wildcard-canary guard below still applies.
+    rule_c_bypass = gate_ok and (
+        "rule-C" in gate_reason or "rule-D" in gate_reason
+    )
 
     # Non-student subdomain veto — applies to rule-A and rule-B
     # accepts only (rule-C / known-shared-platform tenants are

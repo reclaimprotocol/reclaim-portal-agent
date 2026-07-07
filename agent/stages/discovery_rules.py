@@ -81,6 +81,7 @@ from ..config import (
     host_in_external_blocklist,
     host_in_instance_blocklist,
 )
+from .. import regions
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 
@@ -2962,6 +2963,12 @@ def passes_login_signal_gate(
     if is_homepage_url(final_url):
         if find_strict_login_anchor_target(html, base_url=final_url) is not None:
             return True, "rule-B: strict login anchor (link-follow will upgrade)"
+    # Rule D — known *regional* platform (e.g. SIU-Guaraní, Moodle). Like
+    # rule C, these render login via JS / multi-step flows with no static
+    # form; the host/path signature is specific enough to accept directly.
+    region_plat = regions.url_is_region_login_surface(final_url)
+    if region_plat is not None:
+        return True, f"rule-D: region platform ({region_plat[0]})"
     return False, "no login form, no login redirect, not on known platform"
 
 
