@@ -7,9 +7,10 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
-    # Free plan sleeps after ~15 min and cold-starts slowly with the big
-    # Playwright image; use 'starter' (or higher) for reliable discovery.
-    plan: starter
+    # Free plan (no card required). NOTE: 512 MB RAM — browsing/search work,
+    # but live discovery (Chromium) may OOM or time out. Bump to 'starter'
+    # (paid) later for reliable discovery.
+    plan: free
     autoDeploy: true
     branch: main
     envVars:
