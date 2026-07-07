@@ -13,7 +13,7 @@ const PHASES = [
   { re: /gemini|web search|searching|search:/i, label: "searching the web for its portals", pct: 20 },
   { re: /path|subdomain|probe|owned domain|same-host/i, label: "probing common portal addresses", pct: 40 },
   { re: /sibling|homepage|crawl|extract|link/i, label: "scanning the homepage for portal links", pct: 55 },
-  { re: /affiliat|parent/i, label: "checking the affiliating university", pct: 70 },
+  { re: /affiliat|parent/i, label: "checking the affiliating university", pct: 70, aff: true },
   { re: /validat|reject|keep|render|dns|http|form|membership/i, label: "validating the portals it found", pct: 88 },
 ];
 
@@ -36,11 +36,14 @@ export default function Discover() {
   const esRef = useRef(null);
   const logRef = useRef(null);
   const pctRef = useRef(0);
+  const affiliatedRef = useRef(true); // mirrors `affiliated` for the log handler
 
   function onLog(msg) {
     setLogLines((L) => [...L, msg]);
     requestAnimationFrame(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; });
     for (const ph of PHASES) {
+      // Skip the affiliating-university stage entirely when the checkbox is off.
+      if (ph.aff && !affiliatedRef.current) continue;
       if (ph.re.test(msg) && ph.pct > pctRef.current) {
         pctRef.current = ph.pct; setPct(ph.pct); setStatus(ph.label);
       }
@@ -81,6 +84,7 @@ export default function Discover() {
     setRunning(true); setDone(false); setSource("live"); setRanLive(true);
     setLogLines([]); setChecked(0); setStatus("getting started");
     setPct(6); pctRef.current = 6;
+    affiliatedRef.current = affiliated;
     const orgid = seed.orgid ?? meta?.orgid ?? "";
     const name = seed.university ?? meta?.university ?? "";
     startDiscover(url.trim(), affiliated, { name, orgid })
