@@ -2987,16 +2987,20 @@ _PORTAL_HOST_LABELS: tuple[str, ...] = (
 )
 
 
-def _url_is_login_shaped(url: str) -> bool:
-    """True if the URL names a login/portal surface (path token anywhere, or a
-    portal-ish leftmost host label). Used by rule-E's loosened acceptance."""
+def _url_is_login_shaped(url: str) -> str:
+    """Return how a URL names a login/portal surface: 'host' (portal-ish
+    leftmost host label — legit app root), 'path' (login token in the path —
+    could be a probe-generated path on a catch-all host, so the caller applies
+    a wildcard guard), or '' (neither). Used by rule-E's loosened acceptance."""
     parts = urlsplit(url)
     host = parts.netloc.lower().split(":")[0]
     path = parts.path.lower()
-    if any(t in path for t in _LOGIN_PATH_TOKENS_LOOSE):
-        return True
     leftmost = host.split(".", 1)[0] if "." in host else host
-    return any(leftmost == lbl or leftmost.startswith(lbl) for lbl in _PORTAL_HOST_LABELS)
+    if any(leftmost == lbl or leftmost.startswith(lbl) for lbl in _PORTAL_HOST_LABELS):
+        return "host"
+    if any(t in path for t in _LOGIN_PATH_TOKENS_LOOSE):
+        return "path"
+    return ""
 
 
 def passes_login_signal_gate(
@@ -3048,8 +3052,9 @@ def passes_login_signal_gate(
     # still enforces a body-length floor, audience checks, and off-domain
     # rejection, and results get human review in Training — so this widens
     # recall for global universities without opening the floodgates.
-    if _url_is_login_shaped(final_url):
-        return True, "rule-E: login-shaped url"
+    shaped = _url_is_login_shaped(final_url)
+    if shaped:
+        return True, f"rule-E: login-shaped url ({shaped})"
     return False, "no login form, no login redirect, not on known platform"
 
 

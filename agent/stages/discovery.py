@@ -3747,6 +3747,28 @@ def _validate_one(
         and "rule-E" in gate_reason
         and len(body) > _HARD_GATE_MIN_BODY_LEN
     )
+    # Path-wildcard guard: a PATH-based rule-E match (a /login-ish path) is a
+    # false positive when the host serves the SAME shell for ANY path (a
+    # catch-all like intranet.ufrj.br answering every probed /login variant).
+    # Compare the candidate body to a bogus-path canary on the same host; if
+    # they match, this isn't a distinct portal. Host-label matches (legit app
+    # roots like portalservicos.usp.br/) are exempt — only "(path)" is guarded.
+    if rule_e_ok and "(path)" in gate_reason:
+        try:
+            canary = discovery_rules.HTTP_SESSION.get(
+                f"https://{host}/genie-canary-9x7q-not-a-real-path",
+                timeout=http_timeout, verify=False,
+                headers={"User-Agent": user_agent}, allow_redirects=True,
+            )
+            if (canary.status_code < 400
+                    and _body_fingerprint(canary.text or "") == _body_fingerprint(body)):
+                logger.info(
+                    "[%s] rule-E path-wildcard: %s host serves a catch-all shell "
+                    "— rejecting", orgid, final_url,
+                )
+                rule_e_ok = False
+        except Exception:  # noqa: BLE001 — guard is best-effort
+            pass
 
     # Non-student subdomain veto — applies to rule-A and rule-B
     # accepts only (rule-C / known-shared-platform tenants are
