@@ -26,7 +26,7 @@ services:
         sync: false
       - key: OPR_API_KEY         # optional — OpenPageRank metric
         sync: false
-      - key: GEMINI_SEARCH_ENABLED  # off on the server (no Google OAuth creds here)
-        value: "false"
+      - key: GEMINI_SEARCH_ENABLED  # Stage-A discovery: Gemini via OpenRouter
+        value: "true"                # needs only OPENROUTER_API_KEY, no Google creds
       - key: PYTHONUNBUFFERED
         value: "1"
