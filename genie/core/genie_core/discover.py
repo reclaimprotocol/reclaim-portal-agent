@@ -58,6 +58,15 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
         return
     yield ProgressEvent("log", f"▶ discovering portals for {domain}  (affiliated={include_affiliated})")
 
+    # Self-improving: feed the agent the subdomain patterns it learned for this
+    # domain's country in earlier runs (e.g. Brazil learned 'portalservicos').
+    from . import db as _db
+    country = _db.country_from_domain(domain)
+    learned_probes = _db.get_learned_patterns(country) if country != "Global" else []
+    if learned_probes:
+        yield ProgressEvent("log",
+            f"🧠 applying {len(learned_probes)} learned {country} portal pattern(s)")
+
     config = load_config()
     loop = asyncio.get_running_loop()
     q: asyncio.Queue = asyncio.Queue()
@@ -91,6 +100,8 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
                         "http_timeout": config.http_timeout_seconds}
                 if not include_affiliated:
                     deps["_skip_affiliation_discovery"] = True
+                if learned_probes:
+                    deps["learned_probes"] = learned_probes
                 # The pipeline requires a non-empty university name (it seeds
                 # Gemini search + affiliation lookup). Genie's paste-a-URL flow
                 # only has the URL, so fall back to a name derived from the
@@ -185,6 +196,28 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
                 if score > 0 and cat != p.category:
                     p.category = cat
         except Exception:  # noqa: BLE001 — categorization is best-effort
+            pass
+
+    # Self-improving: record this run's validated portals as per-country
+    # subdomain patterns, so future runs in this country probe them first.
+    if country != "Global" and portals:
+        try:
+            from agent.stages.discovery_rules import registrable_root
+            root = registrable_root(domain) or domain
+            learned_now = 0
+            for p in portals:
+                if getattr(p, "flag", ""):
+                    continue  # don't learn from flagged/disputed portals
+                phost = urlparse(p.url).netloc.lower().split(":")[0]
+                if phost.endswith("." + root) and (registrable_root(phost) or phost) == root:
+                    label = phost[: -(len(root) + 1)]
+                    if label:
+                        _db.record_learned_pattern(country, label, p.category or "")
+                        learned_now += 1
+            if learned_now:
+                yield ProgressEvent("log",
+                    f"🧠 learned {learned_now} {country} portal pattern(s) from this run")
+        except Exception:  # noqa: BLE001 — learning is best-effort
             pass
 
     if suppressed:

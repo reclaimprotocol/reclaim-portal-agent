@@ -1765,20 +1765,24 @@ def gemini_search(
         return []
 
     prompt = (
-        f"Find the student LOGIN portal URLs for {university_name} "
-        f"in India (official domain: {primary_domain}). "
+        f"Find the student LOGIN portal URLs for the university "
+        f"{university_name} (official domain: {primary_domain}). "
+        f"This university may be in ANY country — use the official domain to "
+        f"anchor your answer, and do not assume a specific country. "
         f"I need URLs where enrolled students can actually LOG IN — "
         f"pages with a username/password form. "
-        f"Include: student ERP login, LMS/Moodle login, exam portal "
-        f"login, fee payment login, library login. "
+        f"Include the local equivalents of: student ERP / SIS login, "
+        f"LMS / Moodle / campus-virtual login, academic self-service "
+        f"(e.g. 'portal do aluno', 'autogestión', 'sistema académico'), "
+        f"exam, fee, and library login. "
         f"Do NOT include: homepages, news pages, PDF documents, "
         f"admission/application forms, staff/admin login, or any page "
         f"without a login form. Do NOT include URLs from other "
         f"universities. "
         f"Return ONLY a JSON array of login page URLs, nothing else, "
         f"no explanation, no markdown. "
-        f'Example: ["https://erp.xyz.ac.in/login", '
-        f'"https://lms.xyz.ac.in/student"]'
+        f'Example: ["https://portal.{primary_domain}/login", '
+        f'"https://campus.{primary_domain}/student"]'
     )
 
     try:
@@ -1864,16 +1868,17 @@ def gemini_search_broad(
         return []
 
     prompt = (
-        f"What is the official student portal or ERP system "
-        f"website for {university_name} in India "
-        f"(domain: {primary_domain})? "
+        f"What is the official student portal or ERP/SIS system "
+        f"website for the university {university_name} "
+        f"(domain: {primary_domain})? The university may be in ANY "
+        f"country — anchor on the official domain, don't assume a country. "
         f"I just need the main URL of whatever system students "
         f"use to access their academic information — grades, "
         f"attendance, fees, exam results. "
         f"Return ONLY a JSON array of URLs, nothing else, no "
         f"explanation, no markdown. "
-        f'Example: ["https://erp.xyz.ac.in", '
-        f'"https://student.xyz.ac.in"]'
+        f'Example: ["https://portal.{primary_domain}", '
+        f'"https://student.{primary_domain}"]'
     )
 
     try:

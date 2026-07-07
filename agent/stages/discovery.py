@@ -913,6 +913,14 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             "[%s] region detected: %s — +%d local subdomain labels allow-listed",
             orgid, region_pack.name, len(region_pack.functional_labels),
         )
+    # Self-improving: subdomain patterns the agent learned for this country in
+    # earlier runs (supplied by the caller via deps). Allow-list their leftmost
+    # labels so discovered hits survive filtering; probed further below.
+    learned_probes = ctx.deps.get("learned_probes") or []
+    for _lp in learned_probes:
+        _lbl = str(_lp.get("label", "")).split(".")[0]
+        if _lbl:
+            extra_allowed_labels.append(_lbl)
     extra_allowed_roots = [
         str(x).lower().lstrip(".")
         for x in overrides.get("extra_allowed_root_domains", [])
@@ -1376,6 +1384,34 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             logger.info(
                 "[%s] %s region probes: +%d candidates",
                 orgid, region_pack.name, region_added,
+            )
+
+    # Self-improving: probe subdomain patterns learned for this country in
+    # earlier runs (e.g. Brazil learned 'portalservicos' from USP → probe it on
+    # every Brazil uni). Supplied by the caller via deps["learned_probes"].
+    if learned_probes:
+        learned_added = 0
+        learned_targets = [d for d in owned_domains if not _is_never_probe_domain(d)]
+        seen_learned = {c.url for c in rule_candidates}
+        for lp in learned_probes:
+            label = str(lp.get("label", "")).strip().lstrip(".")
+            cat = lp.get("category") or "Student Portal"
+            if not label:
+                continue
+            for dom in learned_targets:
+                url = f"https://{label}.{dom}/"
+                if url in seen_learned:
+                    continue
+                seen_learned.add(url)
+                rule_candidates.append(Candidate(
+                    url=url, category=cat,
+                    discovery_source="rule:learned-probe",
+                    discovery_reasoning=f"learned pattern {label!r} for this country",
+                ))
+                learned_added += 1
+        if learned_added:
+            logger.info(
+                "[%s] learned-pattern probes: +%d candidates", orgid, learned_added,
             )
 
     # Certificate-transparency subdomain enumeration. Surfaces real portal

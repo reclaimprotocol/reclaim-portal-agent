@@ -181,7 +181,67 @@ def init_db(path: str | None = None) -> None:
                        login_urls TEXT, provider_ids TEXT, terms_urls TEXT,
                        notes TEXT, source TEXT )""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_verified_namenorm ON verified_orgs(name_norm)")
+        # Self-improving: portal subdomain patterns learned per country from
+        # each discovery run. A validated portal on a university's own domain
+        # teaches a label (Brazil → 'portalservicos', Argentina → 'autogestion');
+        # future runs in that country probe the learned labels first.
+        c.execute("""CREATE TABLE IF NOT EXISTS learned_patterns (
+                       country TEXT NOT NULL, label TEXT NOT NULL,
+                       category TEXT DEFAULT '', hits INTEGER DEFAULT 1,
+                       last_seen TEXT,
+                       PRIMARY KEY (country, label) )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_learned_country ON learned_patterns(country)")
         c.commit()
+
+
+# --- self-improving: learned per-country portal patterns ------------------
+
+_TLD_COUNTRY = {
+    "in": "India", "ar": "Argentina", "br": "Brazil", "bd": "Bangladesh",
+    "id": "Indonesia", "pk": "Pakistan", "np": "Nepal", "lk": "Sri Lanka",
+    "ph": "Philippines", "mx": "Mexico", "ng": "Nigeria", "ke": "Kenya",
+    "za": "South Africa", "eg": "Egypt", "my": "Malaysia", "cl": "Chile",
+    "co": "Colombia", "pe": "Peru", "th": "Thailand", "vn": "Vietnam",
+}
+
+
+def country_from_domain(domain: str, default: str = "Global") -> str:
+    """Best-effort country from a domain's TLD (e.g. usp.br → Brazil)."""
+    tld = (domain or "").lower().strip(".").rsplit(".", 1)[-1]
+    return _TLD_COUNTRY.get(tld, default)
+
+
+def record_learned_pattern(country: str, label: str, category: str = "",
+                           path: str | None = None) -> None:
+    """Record/increment a portal subdomain pattern learned for a country."""
+    if not (country and label):
+        return
+    with connect(path) as c:
+        c.execute(
+            """INSERT INTO learned_patterns (country, label, category, hits, last_seen)
+               VALUES (?,?,?,1,CURRENT_TIMESTAMP)
+               ON CONFLICT (country, label) DO UPDATE SET
+                 hits = learned_patterns.hits + 1,
+                 category = CASE WHEN excluded.category <> '' THEN excluded.category
+                                 ELSE learned_patterns.category END,
+                 last_seen = CURRENT_TIMESTAMP""",
+            (country, label, category),
+        )
+        c.commit()
+
+
+def get_learned_patterns(country: str, limit: int = 40, min_hits: int = 1,
+                         path: str | None = None) -> list[dict]:
+    """Learned portal patterns for a country, most-hit first."""
+    if not country:
+        return []
+    with connect(path) as c:
+        rows = c.execute(
+            """SELECT label, category, hits FROM learned_patterns
+               WHERE country=? AND hits>=? ORDER BY hits DESC, label ASC LIMIT ?""",
+            (country, min_hits, limit),
+        ).fetchall()
+    return [{"label": r[0], "category": r[1], "hits": r[2]} for r in rows]
 
 
 def backfill_universities_from_portals(path: str | None = None) -> int:
