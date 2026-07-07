@@ -996,6 +996,15 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         if d and d not in owned_domains:
             owned_domains.append(d)
 
+    # Geography gate: only run a country's specific rule set for that country's
+    # domains. India-only logic (Samarth / shared-platform tenant probes,
+    # state affiliators) must NOT fire on a .br / .ar / etc. domain, and vice
+    # versa. TLD is the signal (.in → India). The Argentina region pack is
+    # already TLD-gated in `regions`; this gates the India-specific probes.
+    india_domain = any(
+        d.endswith(".in") for d in owned_domains
+    )
+
     shortname_candidates = discovery_rules.extract_shortname_candidates(
         owned_domains, extra_allowed_roots
     )
@@ -1240,6 +1249,12 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         if s and len(s) >= 2:
             samarth_shortnames.add(s.lower())
     samarth_acronym = (acronym or "").lower()
+    # Geography gate: Samarth + shared-platform tenant probes are India-only.
+    # Empty the inputs for non-India domains so both loops (and their logs)
+    # no-op — no Indian platform probing on a Brazil/Argentina/etc. domain.
+    if not india_domain:
+        samarth_shortnames = set()
+        samarth_acronym = ""
     samarth_added = 0
     # Only `samarth.edu.in` is probed. Samarth eGov splits its
     # platform across two apex domains by design:
@@ -3196,6 +3211,11 @@ def _validate_candidates(
         if regions.url_is_region_login_surface(c.url) is not None:
             final_out.append(c)
             continue
+        # Rule-E: login/portal-shaped URLs (e.g. portalservicos.usp.br) are
+        # SPA logins with no static form — preserve them here too.
+        if discovery_rules._url_is_login_shaped(c.url):
+            final_out.append(c)
+            continue
         if not discovery_rules.is_homepage_url(c.url):
             # Non-homepage URL with no password input shouldn't have
             # passed the new gate at all; if one does (e.g. someone
@@ -3682,6 +3702,15 @@ def _validate_one(
     rule_c_bypass = gate_ok and (
         "rule-C" in gate_reason or "rule-D" in gate_reason
     )
+    # Rule E (loosened, global): a login/portal-shaped URL is accepted without a
+    # static form, but ONLY if the page is a real one (body-length floor) — this
+    # keeps error/parked pages out while widening recall for SPA logins across
+    # countries. Non-student subdomain + audience vetoes below still apply.
+    rule_e_ok = (
+        gate_ok
+        and "rule-E" in gate_reason
+        and len(body) > _HARD_GATE_MIN_BODY_LEN
+    )
 
     # Non-student subdomain veto — applies to rule-A and rule-B
     # accepts only (rule-C / known-shared-platform tenants are
@@ -3722,12 +3751,14 @@ def _validate_one(
 
     if (
         gate_ok
-        and (static_gate_ok or rule_c_bypass)
+        and (static_gate_ok or rule_c_bypass or rule_e_ok)
         and audience_reject_reason is None
         and subdomain_reject_reason is None
         and rule_c_wildcard_reject_reason is None
     ):
         signals = []
+        if rule_e_ok and not static_gate_ok:
+            signals.append("rule-E-loose")
         if has_password:
             signals.append("password-input")
         if has_text:

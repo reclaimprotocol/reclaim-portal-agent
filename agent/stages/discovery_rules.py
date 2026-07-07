@@ -2969,6 +2969,31 @@ def classify_login_form_audience(html: str) -> tuple[str, str]:
     return "non_student", "no student identity field or context"
 
 
+# Strong login-PATH tokens (any position) + portal/student host-label tokens
+# (leftmost label only, to avoid matching them mid-string). Multilingual.
+_LOGIN_PATH_TOKENS_LOOSE: tuple[str, ...] = (
+    "login", "signin", "sign-in", "logon", "/sso", "/auth", "acesso",
+    "entrar", "ingresar", "acceso", "autenticacao", "autogestion",
+)
+_PORTAL_HOST_LABELS: tuple[str, ...] = (
+    "portal", "portais", "campus", "campusvirtual", "aulavirtual", "moodle",
+    "autogestion", "guarani", "siu", "alumno", "alumnos", "aluno",
+    "estudiante", "estudiantes", "student", "students", "sso", "id", "auth",
+)
+
+
+def _url_is_login_shaped(url: str) -> bool:
+    """True if the URL names a login/portal surface (path token anywhere, or a
+    portal-ish leftmost host label). Used by rule-E's loosened acceptance."""
+    parts = urlsplit(url)
+    host = parts.netloc.lower().split(":")[0]
+    path = parts.path.lower()
+    if any(t in path for t in _LOGIN_PATH_TOKENS_LOOSE):
+        return True
+    leftmost = host.split(".", 1)[0] if "." in host else host
+    return any(leftmost == lbl or leftmost.startswith(lbl) for lbl in _PORTAL_HOST_LABELS)
+
+
 def passes_login_signal_gate(
     *,
     final_url: str,
@@ -3012,6 +3037,14 @@ def passes_login_signal_gate(
     region_plat = regions.url_is_region_login_surface(final_url)
     if region_plat is not None:
         return True, f"rule-D: region platform ({region_plat[0]})"
+    # Rule E — login/portal-shaped URL (loosened, geography-agnostic). When a
+    # URL's path or leftmost host label clearly names a login/portal surface,
+    # accept even without a static form (SPA logins render via JS). The caller
+    # still enforces a body-length floor, audience checks, and off-domain
+    # rejection, and results get human review in Training — so this widens
+    # recall for global universities without opening the floodgates.
+    if _url_is_login_shaped(final_url):
+        return True, "rule-E: login-shaped url"
     return False, "no login form, no login redirect, not on known platform"
 
 
