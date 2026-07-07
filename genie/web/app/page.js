@@ -8,6 +8,23 @@ import Training from "../components/Training";
 import ProfileProvider from "../components/ProfileContext";
 import { getCountries, getStates, exportUrl } from "./lib/api";
 
+// Country → flag emoji. Known countries mapped explicitly; anything else
+// falls back to a globe so new countries still render cleanly.
+const COUNTRY_FLAGS = {
+  India: "🇮🇳",
+  Bangladesh: "🇧🇩",
+  Indonesia: "🇮🇩",
+  Argentina: "🇦🇷",
+  Pakistan: "🇵🇰",
+  Nepal: "🇳🇵",
+  "Sri Lanka": "🇱🇰",
+  Philippines: "🇵🇭",
+  Brazil: "🇧🇷",
+  Mexico: "🇲🇽",
+  Nigeria: "🇳🇬",
+};
+const countryFlag = (name) => COUNTRY_FLAGS[name] || "🌐";
+
 export default function Home() {
   const [tab, setTab] = useState("search");
   const [country, setCountry] = useState("India");
@@ -40,7 +57,7 @@ export default function Home() {
             disabled={c.count === 0 && c.country !== "India"}
             title={c.count === 0 ? "list coming soon" : `${(c.universities ?? c.count).toLocaleString()} universities · ${(c.portals ?? 0).toLocaleString()} portals`}
           >
-            {c.country} <span className="cnt">{(c.count ?? 0).toLocaleString()}</span>
+            {c.country} <span className="flag">{countryFlag(c.country)}</span> <span className="cnt">{(c.count ?? 0).toLocaleString()}</span>
           </button>
         ))}
         {states.length > 0 && (
