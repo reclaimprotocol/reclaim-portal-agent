@@ -7,17 +7,30 @@ export const API_BASE =
 // key server-side.
 export const API_KEY = process.env.NEXT_PUBLIC_GENIE_API_KEY || "";
 
-// fetch wrapper that injects the API key header and merges any caller headers.
+import { getToken, clearToken } from "./auth";
+
+// fetch wrapper: send the Google-session token (Bearer) if signed in, else the
+// API key. On 401 the token is stale → clear it and reload to show sign-in.
 async function afetch(url, opts = {}) {
   const headers = { ...(opts.headers || {}) };
-  if (API_KEY) headers["X-API-Key"] = API_KEY;
-  return fetch(url, { ...opts, headers });
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  else if (API_KEY) headers["X-API-Key"] = API_KEY;
+  const r = await fetch(url, { ...opts, headers });
+  if (r.status === 401 && typeof window !== "undefined" && getToken()) {
+    clearToken();
+    window.location.reload();
+  }
+  return r;
 }
 
-// append ?key= for URLs consumed without headers (SSE EventSource, downloads).
+// append token/key for URLs consumed without headers (SSE EventSource, downloads).
 function withKey(url) {
-  if (!API_KEY) return url;
-  return url + (url.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(API_KEY);
+  const token = getToken();
+  const sep = url.includes("?") ? "&" : "?";
+  if (token) return url + sep + "token=" + encodeURIComponent(token);
+  if (API_KEY) return url + sep + "key=" + encodeURIComponent(API_KEY);
+  return url;
 }
 
 export async function searchPortals(q, limit = 20, country = "", state = "") {

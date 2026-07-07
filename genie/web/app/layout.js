@@ -1,5 +1,6 @@
 import "./globals.css";
 import Link from "next/link";
+import AuthGate from "../components/AuthGate";
 
 export const metadata = {
   title: "Genie — student login portal finder",
@@ -20,7 +21,7 @@ export default function RootLayout({ children }) {
             <span className="muted">Reclaim Protocol</span>
           </div>
         </nav>
-        {children}
+        <AuthGate>{children}</AuthGate>
       </body>
     </html>
   );

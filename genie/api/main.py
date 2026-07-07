@@ -13,10 +13,13 @@ Run:  .venv/bin/uvicorn genie.api.main:app --reload --port 8000
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import hmac
 import json
 import os
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,37 +42,90 @@ from sse_starlette.sse import EventSourceResponse  # noqa: E402
 
 import genie_core  # noqa: E402
 
-# --- API-key auth --------------------------------------------------------
-# Shared-secret gate. If GENIE_API_KEY is unset, auth is DISABLED (local dev
-# keeps working). When set, every route except the open ones below requires
-# the key via `X-API-Key: <key>` or `Authorization: Bearer <key>`.
+# --- Auth: Google Sign-In (per-user) + API key (scripts) -----------------
+# Primary auth is "Sign in with Google", restricted to a single email domain
+# (ALLOWED_EMAIL_DOMAIN, default reclaimprotocol.org). The frontend obtains a
+# Google ID token, POSTs it to /auth/google, and we return a signed session
+# token the browser sends as `Authorization: Bearer <token>`.
+# GENIE_API_KEY is kept as a fallback for scripts/CLI. If NOTHING is
+# configured, auth is disabled (local dev).
 _API_KEY = os.getenv("GENIE_API_KEY", "").strip()
-_OPEN_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
-if not _API_KEY:
-    print("⚠️  GENIE_API_KEY not set — API auth is DISABLED (dev mode).", file=sys.stderr)
+_GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+_SESSION_SECRET = os.getenv("GENIE_SESSION_SECRET", "").strip()
+_ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "reclaimprotocol.org").strip().lower()
+_OPEN_PATHS = {"/health", "/docs", "/redoc", "/openapi.json", "/auth/google", "/auth/config"}
+if not (_API_KEY or _SESSION_SECRET):
+    print("⚠️  No GENIE_API_KEY / GENIE_SESSION_SECRET — API auth DISABLED (dev).", file=sys.stderr)
 
 
-async def require_api_key(request: Request) -> None:
-    if not _API_KEY:
-        return  # auth disabled
+def _b64e(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _b64d(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def make_session_token(email: str, ttl_seconds: int = 7 * 24 * 3600) -> str:
+    """Signed session token (HS256, stdlib) — payload.signature."""
+    payload = _b64e(json.dumps({"email": email, "exp": int(time.time()) + ttl_seconds}).encode())
+    sig = _b64e(hmac.new(_SESSION_SECRET.encode(), payload.encode(), hashlib.sha256).digest())
+    return f"{payload}.{sig}"
+
+
+def verify_session_token(token: str) -> str | None:
+    """Return the email if the token is valid + unexpired, else None."""
+    if not _SESSION_SECRET or not token or "." not in token:
+        return None
+    payload, sig = token.split(".", 1)
+    expected = _b64e(hmac.new(_SESSION_SECRET.encode(), payload.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(sig, expected):
+        return None
+    try:
+        data = json.loads(_b64d(payload))
+    except Exception:
+        return None
+    if int(data.get("exp", 0)) < int(time.time()):
+        return None
+    return data.get("email")
+
+
+def verify_google_credential(credential: str) -> str | None:
+    """Verify a Google ID token; return the verified email or None."""
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as grequests
+    try:
+        info = id_token.verify_oauth2_token(credential, grequests.Request(), _GOOGLE_CLIENT_ID)
+    except Exception:
+        return None
+    if not info.get("email_verified"):
+        return None
+    return (info.get("email") or "").lower()
+
+
+async def require_auth(request: Request) -> None:
     if request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
-        return  # never gate CORS preflight or health/docs
-    provided = request.headers.get("x-api-key", "")
-    if not provided:
-        auth = request.headers.get("authorization", "")
-        if auth[:7].lower() == "bearer ":
-            provided = auth[7:]
-    if not provided:
-        # SSE (EventSource) and anchor/download URLs can't send headers,
-        # so /stream and /export accept the key as a ?key= query param.
-        provided = request.query_params.get("key", "")
-    if not hmac.compare_digest(provided, _API_KEY):
-        raise HTTPException(status_code=401, detail="invalid or missing API key")
+        return
+    if not (_API_KEY or _SESSION_SECRET):
+        return  # auth disabled (dev)
+    auth = request.headers.get("authorization", "")
+    bearer = auth[7:] if auth[:7].lower() == "bearer " else ""
+    # 1) session token (Google-signed-in user)
+    tok = bearer or request.query_params.get("token", "")
+    email = verify_session_token(tok)
+    if email and email.endswith("@" + _ALLOWED_DOMAIN):
+        return
+    # 2) API-key fallback (scripts/CLI): X-API-Key, Bearer, or ?key=
+    if _API_KEY:
+        provided = request.headers.get("x-api-key", "") or bearer or request.query_params.get("key", "")
+        if provided and hmac.compare_digest(provided, _API_KEY):
+            return
+    raise HTTPException(status_code=401, detail="authentication required")
 
 
 # Global dependency: runs inside routing (after CORS middleware), so 401s
 # still carry CORS headers and the browser sees the real status.
-app = FastAPI(title="Genie API", version="0.1.0", dependencies=[Depends(require_api_key)])
+app = FastAPI(title="Genie API", version="0.1.0", dependencies=[Depends(require_auth)])
 
 # Ensure schema + migrations are current on boot (idempotent).
 genie_core.db.init_db()
@@ -80,6 +136,32 @@ app.add_middleware(
     CORSMiddleware, allow_origins=_origins, allow_methods=["*"],
     allow_headers=["*"], allow_credentials=False,
 )
+
+# --- Sign-in endpoints (open — see _OPEN_PATHS) --------------------------
+class GoogleAuthIn(BaseModel):
+    credential: str
+
+
+@app.get("/auth/config")
+def auth_config() -> dict:
+    """Tells the frontend whether Google sign-in is on + the client id/domain."""
+    return {"enabled": bool(_GOOGLE_CLIENT_ID and _SESSION_SECRET),
+            "client_id": _GOOGLE_CLIENT_ID, "domain": _ALLOWED_DOMAIN}
+
+
+@app.post("/auth/google")
+def auth_google(body: GoogleAuthIn) -> dict:
+    """Verify a Google ID token, enforce the allowed email domain, and return a
+    session token the browser sends as `Authorization: Bearer <token>`."""
+    if not (_GOOGLE_CLIENT_ID and _SESSION_SECRET):
+        raise HTTPException(status_code=500, detail="sign-in not configured on the server")
+    email = verify_google_credential(body.credential)
+    if not email:
+        raise HTTPException(status_code=401, detail="invalid Google credential")
+    if not email.endswith("@" + _ALLOWED_DOMAIN):
+        raise HTTPException(status_code=403, detail=f"only @{_ALLOWED_DOMAIN} accounts can access Genie")
+    return {"token": make_session_token(email), "email": email}
+
 
 # In-memory job registry: job_id -> {"url","include_affiliated","name"}.
 # Fine for a single-instance MVP; swap for Redis when it scales.
