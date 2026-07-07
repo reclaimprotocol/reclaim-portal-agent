@@ -63,3 +63,6 @@ test-results/
 # CSV data — local only, never commit
 *.csv
 *.CSV
+
+# Vercel CLI (holds pulled prod env — never commit)
+.vercel
