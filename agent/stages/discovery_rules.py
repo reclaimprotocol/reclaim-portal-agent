@@ -394,7 +394,7 @@ _NON_PORTAL_CT_LABELS: frozenset[str] = frozenset({
 })
 
 
-def crt_sh_subdomains(domain: str, timeout: float = 15.0, cap: int = 40) -> list[str]:
+def crt_sh_subdomains(domain: str, timeout: float = 8.0, cap: int = 40) -> list[str]:
     """Enumerate subdomains of `domain` from crt.sh certificate-transparency
     logs. Surfaces non-obvious portal hosts (e.g. ``cmsys.eng.rizvi.edu.in``)
     that the agent can neither guess from a functional-label list nor find via
@@ -404,21 +404,18 @@ def crt_sh_subdomains(domain: str, timeout: float = 15.0, cap: int = 40) -> list
         return []
     # crt.sh throttles the shared browser-UA HTTP_SESSION (reliably read-times
     # out → CT enumeration silently returned []). A dedicated request with a
-    # curl-style UA gets a fast 200. Retry once — crt.sh is flaky.
-    data = None
-    for attempt in range(2):
-        try:
-            r = requests.get(
-                f"https://crt.sh/?q=%25.{domain}&output=json",
-                headers={"User-Agent": "curl/8.4.0", "Accept": "application/json"},
-                timeout=timeout, verify=False,
-            )
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            break
-        except Exception:
-            continue
+    # curl-style UA gets a fast 200. SINGLE attempt with a short timeout —
+    # crt.sh latency swings 0.3s..>60s, and a retry would double the worst case
+    # (this is best-effort enrichment, not a required source).
+    try:
+        r = requests.get(
+            f"https://crt.sh/?q=%25.{domain}&output=json",
+            headers={"User-Agent": "curl/8.4.0", "Accept": "application/json"},
+            timeout=timeout, verify=False,
+        )
+        data = r.json() if r.status_code == 200 else None
+    except Exception:
+        data = None
     if not data:
         return []
     subs: set[str] = set()

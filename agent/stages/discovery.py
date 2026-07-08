@@ -1130,11 +1130,24 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
         logger.info("[%s] Gemini returned 0 — running web search fallback", orgid)
         web_candidates = _do_web()
 
+    # Optional cap on web-search candidates (OFF by default). Measured: capping
+    # here hurts recall badly — web hits seed the sibling-walk that finds the
+    # real portals (rizvi 5->1 when capped at 12), while barely denting latency
+    # (the true cost is the same-host probe fan-out, bounded separately below).
+    # Left as an opt-in knob for pathological cases. 0 = no cap.
+    try:
+        web_cap = int(os.environ.get("WEB_SEARCH_MAX_CANDIDATES", "0"))
+    except ValueError:
+        web_cap = 0
+    n_web_found = len(web_candidates)
+    if web_cap > 0 and n_web_found > web_cap:
+        web_candidates = web_candidates[:web_cap]
     rule_candidates.extend(web_candidates)
-    if web_candidates:
+    if n_web_found:
         logger.info(
-            "[%s] web search (top results): +%d candidates",
+            "[%s] web search (top results): +%d candidates%s",
             orgid, len(web_candidates),
+            f" (capped from {n_web_found})" if n_web_found > len(web_candidates) else "",
         )
     if gemini_urls and web_candidates:
         search_source = "gemini+web"
@@ -1461,8 +1474,11 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             if root and root != d and root not in ct_targets \
                     and not _is_never_probe_domain(root):
                 ct_targets.append(root)
+        # At most 2 crt.sh queries (input host + its registrable root). crt.sh
+        # is the most volatile phase (0.3s..>60s); one query per target with a
+        # short timeout and no retry bounds the worst case to ~16s.
         ct_hosts: set[str] = set()
-        for d in ct_targets[:4]:
+        for d in ct_targets[:2]:
             for sub in discovery_rules.crt_sh_subdomains(d):
                 ct_hosts.add(sub)
         ct_added = 0
@@ -2075,9 +2091,32 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
             orgid, sorted(skipped_wildcard_hosts),
         )
 
+    # Bound the same-host login-path probe fan-out — THE dominant latency
+    # source. Each seed host gets ~19 login-path probes; on catch-all / soft-404
+    # hosts (Korean sim./www., etc.) most return 200 and must all be validated
+    # (yonsei: 271 candidates, 53s). Cap the hosts probed, own-domain first
+    # (most likely to hold real portals) then shortest host, so worst-case stays
+    # bounded without dropping high-value targets. Tune SAME_HOST_PROBE_MAX_HOSTS.
+    try:
+        host_cap = int(os.environ.get("SAME_HOST_PROBE_MAX_HOSTS", "8"))
+    except ValueError:
+        host_cap = 8
+    ranked_hosts = sorted(
+        filtered_seed_hosts,
+        key=lambda h: (
+            0 if any(h == d or h.endswith("." + d) for d in owned_domains) else 1,
+            len(h),
+        ),
+    )
+    if host_cap > 0 and len(ranked_hosts) > host_cap:
+        logger.info(
+            "[%s] same_host_probes: capping %d hosts -> %d (own-domain first)",
+            orgid, len(ranked_hosts), host_cap,
+        )
+        ranked_hosts = ranked_hosts[:host_cap]
     rule_candidates.extend(
         discovery_rules.run_same_host_student_probes(
-            filtered_seed_hosts,
+            set(ranked_hosts),
             http_timeout=config.http_timeout_seconds,
             user_agent=config.user_agent,
         )
