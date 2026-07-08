@@ -1,0 +1,12 @@
+{"name": "National University of Singapore", "domain": "nus.edu.sg", "country": "Singapore", "expected": ["myportal.nus.edu.sg", "vafs.nus.edu.sg", "nus.edu.sg/canvas", "myaces.nus.edu.sg"], "note": "verified 2026-07: myportal SIS, vafs ADFS SSO, canvas LMS, myaces applicant"}
+{"name": "Yonsei University", "domain": "yonsei.ac.kr", "country": "South Korea", "expected": ["portal.yonsei.ac.kr", "idol.yonsei.ac.kr"], "note": "verified 2026-07: portal SIS, idol LMS"}
+{"name": "Rizvi College of Engineering", "domain": "eng.rizvi.edu.in", "country": "India", "expected": ["cmsys.eng.rizvi.edu.in", "eng.rizvi.acadmin.in"], "note": "verified 2026-07: cmsys ERP, acadmin student login"}
+{"name": "University of Sao Paulo", "domain": "usp.br", "country": "Brazil", "expected": ["uspdigital.usp.br", "edisciplinas.usp.br", "id.usp.br"], "note": "labeled 2026-07 from judge run: Jupiterweb SIS, e-Disciplinas Moodle, Senha Unica SSO"}
+{"name": "Federal University of Rio de Janeiro", "domain": "ufrj.br", "country": "Brazil", "expected": [], "note": "unlabeled"}
+{"name": "University of Buenos Aires", "domain": "uba.ar", "country": "Argentina", "expected": [], "note": "unlabeled — expect SIU-Guarani autogestion"}
+{"name": "University of Oxford", "domain": "ox.ac.uk", "country": "United Kingdom", "expected": [], "note": "unlabeled"}
+{"name": "Technical University of Munich", "domain": "tum.de", "country": "Germany", "expected": [], "note": "unlabeled"}
+{"name": "University of Tokyo", "domain": "u-tokyo.ac.jp", "country": "Japan", "expected": ["utas.adm.u-tokyo.ac.jp"], "note": "labeled 2026-07 from judge run: UTAS academic system"}
+{"name": "University of Delhi", "domain": "du.ac.in", "country": "India", "expected": [], "note": "unlabeled"}
+{"name": "University of California Berkeley", "domain": "berkeley.edu", "country": "USA", "expected": [], "note": "unlabeled"}
+{"name": "University of Cape Town", "domain": "uct.ac.za", "country": "South Africa", "expected": [], "note": "unlabeled"}
