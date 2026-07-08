@@ -1071,55 +1071,77 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     search_source = "none"
 
     gemini_used = bool(GEMINI_SEARCH_ENABLED and OPENROUTER_API_KEY)
-    if gemini_used:
-        primary_shortname = (
-            sorted(shortname_candidates)[0] if shortname_candidates else ""
-        )
-        gemini_urls = discovery_rules.gemini_search(
-            orgid,
-            name,
-            primary,
-            primary_shortname,
-        )
-        rule_candidates.extend(
-            Candidate(
-                url=u,
-                category="Student Portal",
-                discovery_source="rule",
-                discovery_reasoning="gemini search",
-            )
-            for u in gemini_urls
-        )
-        if rule_candidates:
-            search_source = "gemini"
-        logger.info(
-            "[%s] Gemini search: %d candidates",
-            orgid, len(rule_candidates),
-        )
+    # Web search runs ALONGSIDE Gemini (not as a fallback). Gemini is the
+    # high-precision primary; a real search-engine query surfaces the top
+    # public results (ERP/LMS/library/results hosts, sibling-college portals)
+    # Gemini misses. Both feed the same membership/validation gates. Disable
+    # the always-on web search with WEB_SEARCH_ALWAYS=false.
+    web_always = os.environ.get("WEB_SEARCH_ALWAYS", "true").strip().lower() in (
+        "1", "true", "yes", "on")
+    primary_shortname = (
+        sorted(shortname_candidates)[0] if shortname_candidates else ""
+    )
 
-    if not rule_candidates:
-        if gemini_used:
-            logger.info(
-                "[%s] Gemini returned 0 — falling back to DDG", orgid,
-            )
-        else:
-            logger.info(
-                "[%s] Gemini disabled / no API key — using DDG", orgid,
-            )
-        ddg_candidates = list(discovery_rules.run_searches(
+    def _do_gemini() -> list[str]:
+        return discovery_rules.gemini_search(
+            orgid, name, primary, primary_shortname,
+        ) if gemini_used else []
+
+    def _do_web() -> list[Candidate]:
+        return list(discovery_rules.run_searches(
             name,
             domains=owned_domains,
-            max_results_per_query=config.discovery_max_results_per_query,
+            max_results_per_query=max(10, config.discovery_max_results_per_query),
             http_timeout=config.http_timeout_seconds,
             user_agent=config.user_agent,
         ))
-        rule_candidates.extend(ddg_candidates)
-        if ddg_candidates:
-            search_source = "ddg"
-        logger.info(
-            "[%s] DDG fallback: %d candidates",
-            orgid, len(ddg_candidates),
+
+    # Run both concurrently — total search latency = max(gemini, web), not sum.
+    gemini_urls: list[str] = []
+    web_candidates: list[Candidate] = []
+    with ThreadPoolExecutor(max_workers=2) as exe:
+        f_gem = exe.submit(_do_gemini)
+        f_web = exe.submit(_do_web) if web_always else None
+        try:
+            gemini_urls = f_gem.result() or []
+        except Exception as err:  # noqa: BLE001 — search is best-effort
+            logger.warning("[%s] Gemini search error: %s", orgid, err)
+        if f_web is not None:
+            try:
+                web_candidates = f_web.result() or []
+            except Exception as err:  # noqa: BLE001
+                logger.warning("[%s] web search error: %s", orgid, err)
+
+    # Gemini FIRST — it is the highest-precision source, so its URLs lead the
+    # candidate list and win ties during consolidation. Tagged `rule:gemini`
+    # so validation can extend trusted-source form-leniency to them.
+    rule_candidates.extend(
+        Candidate(
+            url=u, category="Student Portal",
+            discovery_source="rule:gemini", discovery_reasoning="gemini search",
         )
+        for u in gemini_urls
+    )
+    logger.info("[%s] Gemini search: %d candidates", orgid, len(gemini_urls))
+
+    # If Gemini returned nothing and the web search was disabled, run it now as
+    # a fallback so we never search with zero sources.
+    if not web_always and not rule_candidates:
+        logger.info("[%s] Gemini returned 0 — running web search fallback", orgid)
+        web_candidates = _do_web()
+
+    rule_candidates.extend(web_candidates)
+    if web_candidates:
+        logger.info(
+            "[%s] web search (top results): +%d candidates",
+            orgid, len(web_candidates),
+        )
+    if gemini_urls and web_candidates:
+        search_source = "gemini+web"
+    elif gemini_urls:
+        search_source = "gemini"
+    elif web_candidates:
+        search_source = "web"
 
     logger.info(
         "[%s] phase=search took=%.1fs candidates=%d source=%s",
@@ -1430,8 +1452,17 @@ def run(ctx: "PipelineContext") -> dict[str, Any]:
     # login-form validation gate keeps only the ones that are actually portals.
     if os.environ.get("CT_SUBDOMAIN_ENUM", "true").strip().lower() in ("1", "true", "yes", "on"):
         ct_targets = [d for d in owned_domains if not _is_never_probe_domain(d)]
+        # Also enumerate the registrable ROOT of each owned domain. A pasted
+        # subdomain (eng.rizvi.edu.in) only surfaces its own leaves, but the
+        # root (rizvi.edu.in) surfaces sibling colleges + ERP hosts
+        # (cmsys.eng…, bed.rizvi…, law.rizvi…) that share the institution.
+        for d in list(ct_targets):
+            root = discovery_rules.registrable_root(d)
+            if root and root != d and root not in ct_targets \
+                    and not _is_never_probe_domain(root):
+                ct_targets.append(root)
         ct_hosts: set[str] = set()
-        for d in ct_targets[:3]:
+        for d in ct_targets[:4]:
             for sub in discovery_rules.crt_sh_subdomains(d):
                 ct_hosts.add(sub)
         ct_added = 0
@@ -2811,6 +2842,34 @@ def extract_login_links_from_html(
     return found
 
 
+_ERROR_PATH_TOKENS: tuple[str, ...] = (
+    "error", "/404", "/403", "/500", "notfound", "not-found",
+    "page-not-found", "unavailable", "maintenance", "/oops",
+)
+
+
+def _is_error_path(url: str) -> bool:
+    """True if the URL path names an error / not-found / maintenance page — a
+    dead end, never a real portal (guards the rule-T trusted bypass)."""
+    p = urlsplit(url).path.lower()
+    return any(t in p for t in _ERROR_PATH_TOKENS)
+
+
+def _is_trusted_own_domain(c: Candidate, domains: list[str]) -> bool:
+    """A Gemini-returned URL on the university's OWN domain is trusted: Gemini
+    explicitly asserted it's this university's student portal, and membership
+    (the effective-domains allow-list) confirms it's not another institution.
+    Such URLs get form-gate leniency in `_validate_one` (rule-T) so a real
+    JS-rendered login with no static password field isn't wrongly rejected.
+    Bounded to the own domain, so it can never re-admit a cross-org host."""
+    if c.discovery_source != "rule:gemini":
+        return False
+    host = urlsplit(c.url).netloc.lower().split(":")[0]
+    return bool(host) and any(
+        host == d or host.endswith("." + d) for d in domains if d
+    )
+
+
 def _validate_candidates(
     candidates: list[Candidate],
     *,
@@ -2878,6 +2937,7 @@ def _validate_candidates(
                     js_suspicion_threshold=js_suspicion_threshold,
                     orgid=orgid,
                     defer_js_render=True,
+                    trusted=_is_trusted_own_domain(c, domains),
                 ): c
                 for c in to_validate
             }
@@ -3523,6 +3583,7 @@ def _validate_one(
     js_suspicion_threshold: int = 2,
     orgid: str = "",
     defer_js_render: bool = False,
+    trusted: bool = False,
 ) -> _ValResult:
     # --- Pre-GET rejects ---
     # Fix 3 — instance blocklist (defensive: pre-filter normally drops
@@ -3787,8 +3848,25 @@ def _validate_one(
     # Catches `career.uni.ac.in`, `alumni.uni.ac.in`,
     # `news.uni.ac.in` etc. that have a real login form but serve
     # the wrong audience.
+    # Rule T — trusted-source form-gate bypass. A Gemini-returned URL on the
+    # university's OWN domain (see `_is_trusted_own_domain`) is accepted without
+    # the strict static-form requirement, as long as the page is real (body
+    # floor), isn't an error/not-found page, and shows SOME login signal
+    # (password field, login text, or a login/portal-shaped URL). This stops
+    # the hard rules from rejecting a correct JS-rendered portal that Gemini
+    # explicitly returned; the own-domain bound + body/error guards keep junk
+    # out. Never fires for web-search / probe candidates — only trusted Gemini.
+    trusted_bypass = (
+        trusted
+        and bool(body)
+        and len(body) > _HARD_GATE_MIN_BODY_LEN
+        and not _is_error_path(final_url_clean)
+        and (has_password or has_text
+             or bool(discovery_rules._url_is_login_shaped(final_url_clean)))
+    )
+
     subdomain_reject_reason: str | None = None
-    if gate_ok and not rule_c_bypass:
+    if (gate_ok and not rule_c_bypass) or trusted_bypass:
         leftmost = host.split(".", 1)[0] if "." in host else host
         if leftmost in NON_STUDENT_SUBDOMAIN_BLOCKLIST:
             subdomain_reject_reason = (
@@ -3817,9 +3895,9 @@ def _validate_one(
                     f"tenant does not exist"
                 )
 
+    accept_core = gate_ok and (static_gate_ok or rule_c_bypass or rule_e_ok)
     if (
-        gate_ok
-        and (static_gate_ok or rule_c_bypass or rule_e_ok)
+        (accept_core or trusted_bypass)
         and audience_reject_reason is None
         and subdomain_reject_reason is None
         and rule_c_wildcard_reject_reason is None
@@ -3833,8 +3911,11 @@ def _validate_one(
             signals.append("login-text")
         if rule_c_bypass and not static_gate_ok:
             signals.append("rule-C-bypass")
+        if trusted_bypass and not accept_core:
+            signals.append("rule-T-trusted-gemini")
         notes.append("signals: " + ",".join(signals))
-        notes.append(gate_reason)
+        notes.append(gate_reason if accept_core
+                     else "rule-T: trusted source (gemini, own domain)")
         return _ValResult(
             ok=True, final_url=final_url_clean, notes="; ".join(notes),
             has_password_input=has_password, has_login_text=has_text,

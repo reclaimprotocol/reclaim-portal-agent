@@ -402,15 +402,24 @@ def crt_sh_subdomains(domain: str, timeout: float = 15.0, cap: int = 40) -> list
     domain = (domain or "").lower().strip().lstrip(".")
     if not domain:
         return []
-    try:
-        r = HTTP_SESSION.get(
-            f"https://crt.sh/?q=%25.{domain}&output=json",
-            timeout=timeout, verify=False,
-        )
-        if r.status_code != 200:
-            return []
-        data = r.json()
-    except Exception:
+    # crt.sh throttles the shared browser-UA HTTP_SESSION (reliably read-times
+    # out → CT enumeration silently returned []). A dedicated request with a
+    # curl-style UA gets a fast 200. Retry once — crt.sh is flaky.
+    data = None
+    for attempt in range(2):
+        try:
+            r = requests.get(
+                f"https://crt.sh/?q=%25.{domain}&output=json",
+                headers={"User-Agent": "curl/8.4.0", "Accept": "application/json"},
+                timeout=timeout, verify=False,
+            )
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            break
+        except Exception:
+            continue
+    if not data:
         return []
     subs: set[str] = set()
     for row in data:
@@ -746,7 +755,28 @@ def extract_shortname_candidates(
         label = d.split(".")[0]
         if len(label) >= 2:
             out.add(label)
+        # When the configured domain is a SUBDOMAIN of a public-suffix
+        # registrable root (e.g. `eng.rizvi.edu.in` → `rizvi.edu.in`), the
+        # leftmost label ('eng') names the sub-site, not the institution. The
+        # real institution identity is the registrable root's leading label
+        # ('rizvi') — add it so same-institution alternate domains
+        # (`rizvi-engg.edu.in`, `rizvi.edu.in`) pass the sibling membership
+        # gate instead of being dropped as "shortname mismatch". Skip generic
+        # public-suffix fragments so a wrong root (e.g. 'ac.kr' on TLDs this
+        # helper doesn't fully model) never injects 'ac'/'edu' as a shortname.
+        rroot = registrable_root(d)
+        if rroot and rroot != d:
+            rlabel = rroot.split(".")[0]
+            if len(rlabel) >= 3 and rlabel not in _PUBLIC_SUFFIX_LABELS:
+                out.add(rlabel)
     return out
+
+
+# Leading labels of common public suffixes — never a real institution name, so
+# excluded from auto-derived shortnames when a registrable root is imperfect.
+_PUBLIC_SUFFIX_LABELS = frozenset({
+    "ac", "edu", "co", "gov", "org", "net", "com", "in", "sch", "res", "gen",
+})
 
 
 def compute_acronym(name: str) -> str | None:
