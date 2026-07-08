@@ -10,3 +10,16 @@
 {"name": "University of Delhi", "domain": "du.ac.in", "country": "India", "expected": [], "note": "unlabeled"}
 {"name": "University of California Berkeley", "domain": "berkeley.edu", "country": "USA", "expected": [], "note": "unlabeled"}
 {"name": "University of Cape Town", "domain": "uct.ac.za", "country": "South Africa", "expected": [], "note": "unlabeled"}
+{"name": "University of Toronto", "domain": "utoronto.ca", "country": "Canada", "expected": [], "note": "unlabeled"}
+{"name": "University of Melbourne", "domain": "unimelb.edu.au", "country": "Australia", "expected": [], "note": "unlabeled"}
+{"name": "Tsinghua University", "domain": "tsinghua.edu.cn", "country": "China", "expected": [], "note": "unlabeled"}
+{"name": "Sorbonne University", "domain": "sorbonne-universite.fr", "country": "France", "expected": [], "note": "unlabeled"}
+{"name": "University of Amsterdam", "domain": "uva.nl", "country": "Netherlands", "expected": [], "note": "unlabeled"}
+{"name": "National Autonomous University of Mexico", "domain": "unam.mx", "country": "Mexico", "expected": [], "note": "unlabeled"}
+{"name": "University of Lagos", "domain": "unilag.edu.ng", "country": "Nigeria", "expected": [], "note": "unlabeled"}
+{"name": "University of Indonesia", "domain": "ui.ac.id", "country": "Indonesia", "expected": [], "note": "unlabeled"}
+{"name": "University of Malaya", "domain": "um.edu.my", "country": "Malaysia", "expected": [], "note": "unlabeled"}
+{"name": "University of the Philippines", "domain": "up.edu.ph", "country": "Philippines", "expected": [], "note": "unlabeled"}
+{"name": "Bogazici University", "domain": "boun.edu.tr", "country": "Turkey", "expected": [], "note": "unlabeled"}
+{"name": "IIT Bombay", "domain": "iitb.ac.in", "country": "India", "expected": [], "note": "unlabeled"}
+{"name": "Amity University", "domain": "amity.edu", "country": "India", "expected": [], "note": "unlabeled"}

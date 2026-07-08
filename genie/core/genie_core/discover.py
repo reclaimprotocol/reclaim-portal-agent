@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -27,6 +28,26 @@ def host_of(url: str) -> str:
         u = "http://" + u
     h = (urlparse(u).netloc or "").lower().split(":")[0]
     return h[4:] if h.startswith("www.") else h
+
+
+def _portal_key(url: str) -> str:
+    p = urlparse(url if "://" in url else "http://" + url)
+    h = (p.netloc or "").lower().split(":")[0]
+    h = h[4:] if h.startswith("www.") else h
+    return h + (p.path or "").rstrip("/")
+
+
+def _log_shadow(log, rules_res: dict, judge_res: dict) -> None:
+    """Log a recall comparison rules-vs-judge (shadow mode). Output is
+    unchanged; this is pure measurement of what the judge would add/miss."""
+    r = {_portal_key(p.get("url", "")) for p in rules_res.get("portals", [])}
+    j = {_portal_key(p.get("url", "")) for p in judge_res.get("portals", [])}
+    log.info("[shadow] rules=%d judge=%d  shared=%d  judge-only=%d  rules-only=%d",
+             len(r), len(j), len(r & j), len(j - r), len(r - j))
+    if j - r:
+        log.info("[shadow] judge FOUND (rules missed): %s", sorted(j - r))
+    if r - j:
+        log.info("[shadow] rules found (judge missed): %s", sorted(r - j))
 
 
 def _name_from_domain(domain: str) -> str:
@@ -88,9 +109,32 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
 
     box: dict = {}
 
+    # Discovery engine selector (local/experimental; prod default = rules):
+    #   rules  — the legacy rule pipeline (agent.stages.discovery), unchanged.
+    #   judge  — the rules-free global LLM-judge agent (agent.global_agent).
+    #   shadow — run rules for the OUTPUT, also run the judge and log a
+    #            recall comparison (judge-only hosts) without changing output.
+    engine = os.environ.get("DISCOVERY_ENGINE", "rules").strip().lower()
+    uni_name = (name or "").strip() or _name_from_domain(domain)
+    _aglog = logging.getLogger("agent")
+
+    def _judge_result() -> dict:
+        from agent import global_agent
+        ctry = _db.country_from_domain(domain)
+        portals = global_agent.discover(uni_name, domain,
+                                        "" if ctry == "Global" else ctry)
+        return {"university_name": uni_name, "portals": [{
+            "url": p["url"], "category": p.get("category", ""),
+            "discovery_source": "judge:" + str(p.get("provenance", "")),
+            "discovery_reasoning": p.get("reason", ""),
+        } for p in portals]}
+
     def _run() -> None:
         jr = None
         try:
+            if engine == "judge":
+                box["res"] = _judge_result()
+                return
             if config.enable_js_rendering:
                 jr = JSRenderer(timeout_seconds=config.js_rendering_timeout_seconds,
                                 user_agent=config.user_agent)
@@ -102,11 +146,6 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
                     deps["_skip_affiliation_discovery"] = True
                 if learned_probes:
                     deps["learned_probes"] = learned_probes
-                # The pipeline requires a non-empty university name (it seeds
-                # Gemini search + affiliation lookup). Genie's paste-a-URL flow
-                # only has the URL, so fall back to a name derived from the
-                # domain (Gemini resolves it fine from that + the domain).
-                uni_name = (name or "").strip() or _name_from_domain(domain)
                 ctx = PipelineContext(
                     orgid=f"genie:{domain}",
                     row={"SheerID University Name": uni_name,
@@ -114,6 +153,12 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
                     deps=deps,
                 )
                 box["res"] = discovery.run(ctx)
+            if engine == "shadow":
+                try:
+                    jr_res = _judge_result()
+                    _log_shadow(_aglog, box.get("res") or {}, jr_res)
+                except Exception as e:  # noqa: BLE001
+                    _aglog.warning("[shadow] judge run failed: %s", e)
         except Exception as e:  # noqa: BLE001
             box["err"] = e
         finally:
