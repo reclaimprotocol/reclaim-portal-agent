@@ -56,8 +56,11 @@ USER_AGENT = os.getenv(
 )
 HTTP_TIMEOUT = float(os.getenv("GLOBAL_HTTP_TIMEOUT", "12"))
 CONFIDENCE_THRESHOLD = float(os.getenv("GLOBAL_JUDGE_THRESHOLD", "0.6"))
-MAX_CANDIDATES = int(os.getenv("GLOBAL_MAX_CANDIDATES", "60"))
-FETCH_WORKERS = int(os.getenv("GLOBAL_FETCH_WORKERS", "10"))
+MAX_CANDIDATES = int(os.getenv("GLOBAL_MAX_CANDIDATES", "45"))
+FETCH_WORKERS = int(os.getenv("GLOBAL_FETCH_WORKERS", "12"))
+# Link-follow bounds — the dominant latency source on link-heavy homepages.
+FOLLOW_MAX_PAGES = int(os.getenv("GLOBAL_FOLLOW_MAX_PAGES", "12"))
+FOLLOW_MAX_LINKS = int(os.getenv("GLOBAL_FOLLOW_MAX_LINKS", "20"))
 
 # Common portal subdomain labels — a country-AGNOSTIC recall aid (not a
 # recognition rule; every candidate still faces the judge). Covers SIS/ERP,
@@ -106,6 +109,7 @@ class Candidate:
     error: str = ""
     # filled by judge:
     is_portal: bool = False
+    central: bool = False
     category: str = ""
     belongs: bool = False
     confidence: float = 0.0
@@ -163,6 +167,34 @@ def _extract_json(text: str):
 def _norm_host(url: str) -> str:
     h = (urlsplit(url).netloc or "").lower().split(":")[0]
     return h[4:] if h.startswith("www.") else h
+
+
+# Path tokens that are generic login plumbing, not a distinct system name.
+_GENERIC_PATH_SEGS = frozenset({
+    "", "login", "signin", "sign-in", "logon", "auth", "sso", "cas", "account",
+    "accounts", "user", "users", "oauth2", "oauth", "adfs", "saml2", "idp",
+    "connect", "session", "index.php", "index.jsp", "index.html", "home",
+    "home_login", "default", "portal", "main", "ls", "authorize", "identifier",
+})
+# Login SUB-pages that are never the portal entry point itself.
+_SUBPAGE_RE = re.compile(
+    r"forgot|reset|recover|register|signup|sign-up|logout|change.?password|"
+    r"first.?access|primeiro.?acesso|esqueci", re.I)
+
+
+def _is_login_subpage(url: str) -> bool:
+    return bool(_SUBPAGE_RE.search(urlsplit(url).path))
+
+
+def _distinguishing_segment(url: str) -> str:
+    """First path segment that names a distinct system (skips generic login
+    plumbing). '' for a pure login/root URL — so login-path variants on one
+    host collapse together, while /jupiterweb, /apolo stay distinct."""
+    for seg in urlsplit(url).path.strip("/").split("/"):
+        s = seg.lower()
+        if s and s not in _GENERIC_PATH_SEGS:
+            return s
+    return ""
 
 
 # --------------------------------------------------------------------------- #
@@ -392,10 +424,13 @@ def _followup_links(fetched: list[Candidate], domain: str,
     login/portal-hinted links (the myaces -> ADFS SSO / portal -> LMS case).
     Country-agnostic; the judge still decides. Only follows links whose text or
     URL carries a login hint, capped."""
-    root = _registrable_root(domain)
     new: dict[str, Candidate] = {}
-    for c in fetched:
-        if c.error or not c.text_snippet and not c.title:
+    # Follow only the most promising pages, and cap TOTAL new links (not
+    # per-page) so a link-heavy homepage can't explode the fetch/judge budget.
+    for c in fetched[:FOLLOW_MAX_PAGES]:
+        if len(new) >= FOLLOW_MAX_LINKS:
+            break
+        if c.error or (not c.text_snippet and not c.title):
             continue
         try:
             r = requests.get(c.final_url or c.url, headers={"User-Agent": USER_AGENT},
@@ -404,6 +439,8 @@ def _followup_links(fetched: list[Candidate], domain: str,
         except Exception:  # noqa: BLE001
             continue
         for a in soup.find_all("a", href=True):
+            if len(new) >= FOLLOW_MAX_LINKS:
+                break
             href = urljoin(r.url or c.url, a["href"])
             if not href.lower().startswith("http"):
                 continue
@@ -414,12 +451,8 @@ def _followup_links(fetched: list[Candidate], domain: str,
             blob = href.lower() + " " + text
             if not any(h in blob for h in _LINK_HINTS):
                 continue
-            # keep links on the institution's registrable root or a known SSO/LMS
-            # vendor host (broad — judge filters); cap growth.
             new[key] = Candidate(url=href, provenance=f"link-follow<-{_norm_host(c.url)}",
                                  anchor_text=text[:80])
-            if len(new) >= 25:
-                break
     return list(new.values())
 
 
@@ -492,28 +525,40 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
             "text": c.text_snippet, "fetch_error": c.error,
         })
     prompt = (
-        f"You are verifying student LOGIN portals for the university "
+        f"You are verifying CENTRAL student LOGIN portals for the university "
         f"\"{name}\" (official domain: {domain}). You will receive fetched web "
         f"pages. For EACH item decide, like a human who reads the page in any "
-        f"language, whether it is a place where an ENROLLED STUDENT logs in — "
-        f"a student information system / ERP / self-service, an LMS "
-        f"(Moodle/Canvas/Blackboard/etc.), an SSO/CAS/Shibboleth/ADFS/OAuth "
-        f"login that fronts student services, exam/results, fees, library, or "
-        f"student webmail. A JavaScript app with an empty body, or an SSO "
-        f"redirect (adfs/oauth/cas/shibboleth), still COUNTS if the URL, "
-        f"title, redirect, or fingerprints indicate a student login — you do "
-        f"NOT require a visible password field.\n"
-        f"EXCLUDE: the plain homepage, news/marketing pages, admissions/"
-        f"application forms for prospective applicants, staff/faculty/admin-"
-        f"only logins, dead pages (fetch_error or status>=400 with no useful "
-        f"content), and anything belonging to a DIFFERENT institution.\n"
-        f"'belongs' = the portal is for THIS university (its own domain, or a "
-        f"vendor tenant clearly branded/scoped to it).\n\n"
+        f"language, whether it is a login used by the GENERAL STUDENT BODY of "
+        f"the whole university — i.e. a student information system / ERP / "
+        f"self-service, an LMS (Moodle/Canvas/Blackboard/etc.), a CENTRAL "
+        f"SSO/CAS/Shibboleth/ADFS/OAuth login that fronts student services, "
+        f"exam/results, tuition/fees, the main library, or student webmail. A "
+        f"JavaScript app with an empty body, or an SSO redirect "
+        f"(adfs/oauth/cas/shibboleth), still COUNTS if the URL/title/redirect/"
+        f"fingerprints indicate a central student login — you do NOT require a "
+        f"visible password field.\n"
+        f"Set is_portal=FALSE for logins that are NOT for the general student "
+        f"body, even if they are on the university's domain and have a login "
+        f"form, specifically:\n"
+        f"  - a single research lab / research group / institute / centre tool "
+        f"(e.g. an astronomy-group or engineering-lab app),\n"
+        f"  - one department's private internal app,\n"
+        f"  - developer/IT infrastructure (gitlab, jenkins, jira, grafana, "
+        f"VPN/ssl-vpn gateways, admin consoles),\n"
+        f"  - e-commerce/shops, intramural/club sign-ups, event/conference "
+        f"sites, alumni/donor logins,\n"
+        f"  - staff/faculty/admin-only logins, HR/payroll,\n"
+        f"  - the plain homepage, news/marketing, admissions/application forms "
+        f"for PROSPECTIVE applicants, dead pages (fetch_error or status>=400).\n"
+        f"When unsure whether a niche subdomain serves ALL students, give it a "
+        f"LOW confidence (<0.5) rather than 1.0.\n"
+        f"'belongs' = for THIS university (its own domain, or a vendor tenant "
+        f"clearly branded/scoped to it).\n\n"
         f"Items:\n{json.dumps(items, ensure_ascii=False)}\n\n"
         f"Return ONLY a JSON array, one object per item, same order:\n"
-        f'[{{"i":0,"is_portal":true,"belongs":true,"category":"Student Portal|'
-        f'LMS|SSO|Library|Webmail|Exam/Results|Fees|Other","confidence":0.0-1.0,'
-        f'"reason":"short"}}]'
+        f'[{{"i":0,"is_portal":true,"belongs":true,"central_student":true,'
+        f'"category":"Student Portal|LMS|SSO|Library|Webmail|Exam/Results|Fees|'
+        f'Other","confidence":0.0-1.0,"reason":"short"}}]'
     )
     verdicts = _extract_json(_chat(prompt, model=JUDGE_MODEL))
     if not isinstance(verdicts, list):
@@ -523,6 +568,9 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
     for i, c in enumerate(batch):
         v = by_i.get(i, {})
         c.is_portal = bool(v.get("is_portal"))
+        # central_student defaults to True when the model omits it (older
+        # replies) so we don't silently drop everything.
+        c.central = bool(v.get("central_student", True))
         c.belongs = bool(v.get("belongs"))
         c.category = str(v.get("category", "") or "")
         try:
@@ -569,17 +617,23 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
     judge(name, domain, alive)
 
     accepted = [c for c in alive
-                if c.is_portal and c.belongs and c.confidence >= CONFIDENCE_THRESHOLD]
-    # Dedup by final host+path; keep highest confidence.
-    best: dict[str, Candidate] = {}
+                if c.is_portal and c.central and c.belongs
+                and c.confidence >= CONFIDENCE_THRESHOLD
+                and not _is_login_subpage(c.final_url or c.url)]
+    # Dedup: one entry per (host, distinguishing-path-segment). Pure login-path
+    # variants on a host (/, /login, /users/login, /login/index.php) collapse to
+    # one, but genuinely distinct systems on a shared host survive (USP's
+    # uspdigital.usp.br/jupiterweb vs /apolo vs /mercurioweb).
+    best: dict[tuple[str, str], Candidate] = {}
     for c in sorted(accepted, key=lambda x: -x.confidence):
-        key = _norm_host(c.final_url or c.url) + urlsplit(c.final_url or c.url).path.rstrip("/")
+        u = c.final_url or c.url
+        key = (_norm_host(u), _distinguishing_segment(u))
         if key not in best:
             best[key] = c
     out = [{
         "url": c.final_url or c.url, "category": c.category or "Student Portal",
         "confidence": round(c.confidence, 2), "provenance": c.provenance,
         "reason": c.reason,
-    } for c in best.values()]
-    logger.info("global-agent: %d portals accepted", len(out))
+    } for c in sorted(best.values(), key=lambda x: -x.confidence)]
+    logger.info("global-agent: %d portals accepted (from %d judged)", len(out), len(alive))
     return out
