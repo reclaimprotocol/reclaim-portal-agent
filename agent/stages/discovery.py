@@ -3887,21 +3887,26 @@ def _validate_one(
     # Catches `career.uni.ac.in`, `alumni.uni.ac.in`,
     # `news.uni.ac.in` etc. that have a real login form but serve
     # the wrong audience.
-    # Rule T — trusted-source form-gate bypass. A Gemini-returned URL on the
-    # university's OWN domain (see `_is_trusted_own_domain`) is accepted without
-    # the strict static-form requirement, as long as the page is real (body
-    # floor), isn't an error/not-found page, and shows SOME login signal
-    # (password field, login text, or a login/portal-shaped URL). This stops
-    # the hard rules from rejecting a correct JS-rendered portal that Gemini
-    # explicitly returned; the own-domain bound + body/error guards keep junk
-    # out. Never fires for web-search / probe candidates — only trusted Gemini.
+    # Rule T — trusted-source acceptance. A Gemini-returned URL on the
+    # university's OWN domain (see `_is_trusted_own_domain`) is accepted as long
+    # as it is REACHABLE (we have a non-error GET body here — 404 / DNS / 5xx
+    # were already rejected upstream) and isn't an error page or the bare
+    # university homepage. Deliberately NO static-form / body-size / login-token
+    # requirement: modern portals (Canvas, NUS myportal, ADFS/OAuth SSO, most
+    # non-Indian unis) render login via JavaScript with a tiny static shell
+    # (NUS canvas = 212 bytes) and no static <form> — exactly the pages the hard
+    # gate wrongly rejects. Gemini is the trusted oracle and membership confirms
+    # the institution, so trust it. Bounded to own-domain + Gemini source, so it
+    # can never admit a cross-org host; the bare-homepage guard stops a returned
+    # homepage from being mistaken for a portal.
+    _tb_prim = domains[0] if domains else ""
+    _tb_path = urlsplit(final_url_clean).path.strip("/")
+    _tb_is_bare_home = host in (_tb_prim, "www." + _tb_prim) and not _tb_path
     trusted_bypass = (
         trusted
         and bool(body)
-        and len(body) > _HARD_GATE_MIN_BODY_LEN
         and not _is_error_path(final_url_clean)
-        and (has_password or has_text
-             or bool(discovery_rules._url_is_login_shaped(final_url_clean)))
+        and not _tb_is_bare_home
     )
 
     subdomain_reject_reason: str | None = None
