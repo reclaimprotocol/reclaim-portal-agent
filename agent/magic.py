@@ -74,9 +74,10 @@ HTTP_TIMEOUT = float(_env("MAGIC_HTTP_TIMEOUT", "GLOBAL_HTTP_TIMEOUT", default="
 CONFIDENCE_THRESHOLD = float(_env("MAGIC_THRESHOLD", "GLOBAL_JUDGE_THRESHOLD", default="0.6"))
 MAX_CANDIDATES = int(_env("MAGIC_MAX_CANDIDATES", "GLOBAL_MAX_CANDIDATES", default="45"))
 FETCH_WORKERS = int(_env("MAGIC_FETCH_WORKERS", "GLOBAL_FETCH_WORKERS", default="12"))
-# Link-follow bounds — the dominant latency source on link-heavy homepages.
-FOLLOW_MAX_PAGES = int(_env("MAGIC_FOLLOW_MAX_PAGES", "GLOBAL_FOLLOW_MAX_PAGES", default="12"))
-FOLLOW_MAX_LINKS = int(_env("MAGIC_FOLLOW_MAX_LINKS", "GLOBAL_FOLLOW_MAX_LINKS", default="20"))
+# Link-follow bounds — raised so a real login buried in a footer/quick-links of
+# a deeper page (e.g. knimbus login linked from a library page) is still reached.
+FOLLOW_MAX_PAGES = int(_env("MAGIC_FOLLOW_MAX_PAGES", "GLOBAL_FOLLOW_MAX_PAGES", default="25"))
+FOLLOW_MAX_LINKS = int(_env("MAGIC_FOLLOW_MAX_LINKS", "GLOBAL_FOLLOW_MAX_LINKS", default="40"))
 
 # Common portal subdomain labels — a country-AGNOSTIC recall aid (not a
 # recognition rule; every candidate still faces the judge). Covers SIS/ERP,
@@ -533,20 +534,41 @@ def harvest(name: str, domain: str, country: str, use_cache: bool = True) -> lis
     return out[:MAX_CANDIDATES]
 
 
+# A link's HREF (not just its anchor text) is the strongest signal it points at
+# a real login — a footer/quick-links "Knimbus" or "Portal do Aluno" link whose
+# href is …/portal/…/login must be chased even when its visible text says
+# nothing login-y. Global: universal login/SSO path tokens + common ed-platform
+# vendor hosts (any country).
+_LOGIN_URL_RE = re.compile(
+    r"(?:^|[/.?=])(?:login|signin|sign-in|logon|sso|cas|oauth2?|authorize|adfs|"
+    r"saml2?|shibboleth|idp|webmail|portal|self[-_]?service|myaccount|auth)"
+    r"(?:[/?.=&#]|$)"
+    r"|knimbus|moodle|instructure|canvas|blackboard|brightspace|/d2l/|"
+    r"samarth|digitaledu|acadmin|sumsraj|core-campus|digiicampus|siu|guarani",
+    re.I,
+)
+
+
 def _followup_links(fetched: list[Candidate], domain: str,
                     already: set[str]) -> list[Candidate]:
-    """One-hop link-follow: from pages that responded, harvest outbound
-    login/portal-hinted links (the myaces -> ADFS SSO / portal -> LMS case).
-    Country-agnostic; the judge still decides. Only follows links whose text or
-    URL carries a login hint, capped."""
+    """One-hop link-follow to reach the ACTUAL login page. Many pages Magic
+    surfaces are info/landing pages with no login fields (e.g. a library page)
+    but link to the real credential form in their footer / quick-links. We
+    re-crawl each live candidate and harvest outbound links that look like a
+    login by URL shape (`_LOGIN_URL_RE`) OR anchor text (`_LINK_HINTS`).
+
+    Pages WITHOUT their own login form are followed FIRST (they're the ones that
+    need resolving); pages that already have a login form rarely need it. The
+    harvested links become candidates the judge then rates (a page with a real
+    password form scores high), so the specific credential URL gets returned."""
+    # formless pages first — they're the ones that link out to the real login
+    pages = [c for c in fetched
+             if not c.error and (c.text_snippet or c.title)]
+    pages.sort(key=lambda c: (c.has_password, c.form_count))  # no-form first
     new: dict[str, Candidate] = {}
-    # Follow only the most promising pages, and cap TOTAL new links (not
-    # per-page) so a link-heavy homepage can't explode the fetch/judge budget.
-    for c in fetched[:FOLLOW_MAX_PAGES]:
+    for c in pages[:FOLLOW_MAX_PAGES]:
         if len(new) >= FOLLOW_MAX_LINKS:
             break
-        if c.error or (not c.text_snippet and not c.title):
-            continue
         try:
             r = requests.get(c.final_url or c.url, headers={"User-Agent": USER_AGENT},
                              timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True)
@@ -563,8 +585,9 @@ def _followup_links(fetched: list[Candidate], domain: str,
             if key in already or key in new:
                 continue
             text = (a.get_text() or "").strip().lower()
-            blob = href.lower() + " " + text
-            if not any(h in blob for h in _LINK_HINTS):
+            hrefl = href.lower()
+            if not (_LOGIN_URL_RE.search(hrefl)
+                    or any(h in (hrefl + " " + text) for h in _LINK_HINTS)):
                 continue
             new[key] = Candidate(url=href, provenance=f"link-follow<-{_norm_host(c.url)}",
                                  anchor_text=text[:80])
