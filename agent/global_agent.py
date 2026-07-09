@@ -58,7 +58,7 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
-HTTP_TIMEOUT = float(os.getenv("GLOBAL_HTTP_TIMEOUT", "8"))
+HTTP_TIMEOUT = float(os.getenv("GLOBAL_HTTP_TIMEOUT", "12"))
 CONFIDENCE_THRESHOLD = float(os.getenv("GLOBAL_JUDGE_THRESHOLD", "0.6"))
 MAX_CANDIDATES = int(os.getenv("GLOBAL_MAX_CANDIDATES", "45"))
 FETCH_WORKERS = int(os.getenv("GLOBAL_FETCH_WORKERS", "12"))
@@ -131,12 +131,17 @@ def _cache_put(key: str, value) -> None:
 
 
 def _cached(key: str, produce):
-    """Return cached value for key, else call produce(), cache, and return it."""
+    """Return cached value for key, else call produce(), cache, and return it.
+    NEVER caches an empty/falsy result — a transient throttle/timeout that
+    returns [] must not poison the cache for 7 days (that silently drops real
+    portals like cmsys/edisciplinas on every later run). Empty → retry next run.
+    """
     hit = _cache_get(key)
-    if hit is not None:
+    if hit:  # truthy only — empty list/None is treated as a miss
         return hit
     val = produce()
-    _cache_put(key, val)
+    if val:
+        _cache_put(key, val)
     return val
 
 
@@ -163,6 +168,7 @@ class Candidate:
     belongs: bool = False
     confidence: float = 0.0
     reason: str = ""
+    judged: bool = False   # True only if the LLM actually returned a verdict
 
 
 # --------------------------------------------------------------------------- #
@@ -661,7 +667,10 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
         return
     by_i = {v.get("i"): v for v in verdicts if isinstance(v, dict)}
     for i, c in enumerate(batch):
-        v = by_i.get(i, {})
+        if i not in by_i:
+            continue  # no verdict for this item — leave unjudged (don't cache)
+        v = by_i[i]
+        c.judged = True
         c.is_portal = bool(v.get("is_portal"))
         # central_student defaults to True when the model omits it (older
         # replies) so we don't silently drop everything.
@@ -685,6 +694,7 @@ def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) 
     for c in cands:
         v = _cache_get(_judge_cache_key(domain, c))
         if isinstance(v, dict):
+            c.judged = True
             c.is_portal = bool(v.get("is_portal"))
             c.central = bool(v.get("central", True))
             c.belongs = bool(v.get("belongs"))
@@ -703,6 +713,8 @@ def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) 
     with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as exe:
         list(exe.map(lambda b: _judge_batch(name, domain, b), batches))
     for c in todo:
+        if not c.judged:
+            continue  # batch failed/throttled for this one — don't cache a false verdict
         _cache_put(_judge_cache_key(domain, c), {
             "is_portal": c.is_portal, "central": c.central, "belongs": c.belongs,
             "category": c.category, "confidence": c.confidence, "reason": c.reason,
