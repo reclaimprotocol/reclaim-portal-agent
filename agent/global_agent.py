@@ -130,17 +130,19 @@ def _cache_put(key: str, value) -> None:
         pass
 
 
-def _cached(key: str, produce):
+def _cached(key: str, produce, use_cache: bool = True):
     """Return cached value for key, else call produce(), cache, and return it.
     NEVER caches an empty/falsy result — a transient throttle/timeout that
     returns [] must not poison the cache for 7 days (that silently drops real
     portals like cmsys/edisciplinas on every later run). Empty → retry next run.
+    use_cache=False bypasses read+write entirely (the zero-result retry).
     """
-    hit = _cache_get(key)
-    if hit:  # truthy only — empty list/None is treated as a miss
-        return hit
+    if use_cache:
+        hit = _cache_get(key)
+        if hit:  # truthy only — empty list/None is treated as a miss
+            return hit
     val = produce()
-    if val:
+    if use_cache and val:
         _cache_put(key, val)
     return val
 
@@ -482,7 +484,7 @@ def _subdomain_candidates(domain: str) -> list[str]:
     return found
 
 
-def harvest(name: str, domain: str, country: str) -> list[Candidate]:
+def harvest(name: str, domain: str, country: str, use_cache: bool = True) -> list[Candidate]:
     """Run all harvest routes concurrently and merge into a deduped candidate
     list (capped)."""
     cands: dict[str, Candidate] = {}
@@ -497,12 +499,12 @@ def harvest(name: str, domain: str, country: str) -> list[Candidate]:
 
     with _cf.ThreadPoolExecutor(max_workers=5) as exe:
         f_llm = exe.submit(_cached, f"llm:{name}|{domain}",
-                           lambda: _llm_suggest(name, domain, country))
+                           lambda: _llm_suggest(name, domain, country), use_cache)
         f_web = exe.submit(_cached, f"web:{name}|{domain}",
-                           lambda: _web_search(name, domain, country))
-        f_site = exe.submit(_cached, f"site:{domain}", lambda: _own_site_links(domain))
-        f_sub = exe.submit(_cached, f"sub:{domain}", lambda: _subdomain_candidates(domain))
-        f_ct = exe.submit(_cached, f"ct:{domain}", lambda: _ct_candidates(domain))
+                           lambda: _web_search(name, domain, country), use_cache)
+        f_site = exe.submit(_cached, f"site:{domain}", lambda: _own_site_links(domain), use_cache)
+        f_sub = exe.submit(_cached, f"sub:{domain}", lambda: _subdomain_candidates(domain), use_cache)
+        f_ct = exe.submit(_cached, f"ct:{domain}", lambda: _ct_candidates(domain), use_cache)
         for u in _safe(f_llm):
             add(u, "llm-suggest")
         for u in _safe(f_web):
@@ -688,11 +690,12 @@ def _judge_cache_key(domain: str, c: Candidate) -> str:
     return f"judge:{domain}:{c.final_url or c.url}"
 
 
-def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) -> None:
+def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10,
+          use_cache: bool = True) -> None:
     # Apply cached verdicts first; only LLM-judge the URLs we haven't seen.
     todo: list[Candidate] = []
     for c in cands:
-        v = _cache_get(_judge_cache_key(domain, c))
+        v = _cache_get(_judge_cache_key(domain, c)) if use_cache else None
         if isinstance(v, dict):
             c.judged = True
             c.is_portal = bool(v.get("is_portal"))
@@ -712,6 +715,8 @@ def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) 
     workers = int(os.getenv("GLOBAL_JUDGE_WORKERS", "2"))
     with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as exe:
         list(exe.map(lambda b: _judge_batch(name, domain, b), batches))
+    if not use_cache:
+        return
     for c in todo:
         if not c.judged:
             continue  # batch failed/throttled for this one — don't cache a false verdict
@@ -725,11 +730,24 @@ def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) 
 #  ORCHESTRATE                                                                 #
 # --------------------------------------------------------------------------- #
 def discover(name: str, domain: str, country: str = "") -> list[dict]:
-    """Full rules-free discovery. Returns accepted portals as dicts."""
+    """Full rules-free discovery. Returns accepted portals as dicts.
+
+    Self-healing: if the first (cache-enabled) pass finds ZERO portals — usually
+    a transient throttle or a stale/empty cache entry — it AUTOMATICALLY retries
+    once with the cache bypassed (fresh harvest + judge), no human needed. This
+    recovers the batch-run zeros (like TecNM/IPN/UAM) on their own."""
     domain = _norm_host("http://" + domain) if "://" not in domain else _norm_host(domain)
     logger.info("global-agent: discovering %s (%s)", name, domain)
 
-    cands = harvest(name, domain, country)
+    out = _discover_once(name, domain, country, use_cache=True)
+    if not out and _CACHE_ENABLED:
+        logger.info("global-agent: 0 portals — auto-retrying with cache bypassed")
+        out = _discover_once(name, domain, country, use_cache=False)
+    return out
+
+
+def _discover_once(name: str, domain: str, country: str, use_cache: bool = True) -> list[dict]:
+    cands = harvest(name, domain, country, use_cache=use_cache)
     if not cands:
         return []
 
@@ -758,7 +776,7 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
                     len(alive), judge_max)
         alive = alive[:judge_max]
 
-    judge(name, domain, alive)
+    judge(name, domain, alive, use_cache=use_cache)
 
     accepted = [c for c in alive
                 if c.is_portal and c.central and c.belongs
