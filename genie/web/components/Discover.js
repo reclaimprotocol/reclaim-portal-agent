@@ -201,7 +201,8 @@ export default function Discover() {
               <div className="portal" key={j}>
                 <span className="pill">{p.category || "Portal"}{p.affiliated_from ? " · affiliated" : ""}</span>
                 <a href={p.url} target="_blank" rel="noreferrer">{p.url}</a>
-                <span className={"origin " + (p._db ? "saved" : "new")}>{p._db ? "saved" : "live"}</span>
+                <span className={"origin " + (p._db ? "saved" : "new")}
+                      title={p._db ? "Saved in our database" : "Newly discovered by live search — not verified"}>{p._db ? "saved" : "new"}</span>
                 {p.verified && <span className="livechip" title="This portal is live in production">● live</span>}
                 {p.flag && <span className="flagchip" title={`Learned rule: "${p.flag}" — likely not a student portal`}>⚠ likely wrong</span>}
                 <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
