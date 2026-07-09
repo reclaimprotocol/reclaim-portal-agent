@@ -25,6 +25,7 @@ call shape and the DuckDuckGo fetcher) — never any recognition rule.
 from __future__ import annotations
 
 import concurrent.futures as _cf
+import hashlib
 import json
 import logging
 import os
@@ -33,6 +34,7 @@ import re
 import socket
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 import requests
@@ -56,7 +58,7 @@ USER_AGENT = os.getenv(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
-HTTP_TIMEOUT = float(os.getenv("GLOBAL_HTTP_TIMEOUT", "12"))
+HTTP_TIMEOUT = float(os.getenv("GLOBAL_HTTP_TIMEOUT", "8"))
 CONFIDENCE_THRESHOLD = float(os.getenv("GLOBAL_JUDGE_THRESHOLD", "0.6"))
 MAX_CANDIDATES = int(os.getenv("GLOBAL_MAX_CANDIDATES", "45"))
 FETCH_WORKERS = int(os.getenv("GLOBAL_FETCH_WORKERS", "12"))
@@ -91,6 +93,51 @@ _LINK_HINTS = (
     "einloggen", "accedi", "entrar", "masuk", "登录", "登入", "ログイン",
     "로그인", "登錄", "تسجيل الدخول", "вход", "войти",
 )
+
+
+# --------------------------------------------------------------------------- #
+#  Disk cache — per-domain harvest + per-URL judge verdicts.                   #
+#  Fixes three things at once: latency (repeat runs skip the network/LLM),     #
+#  run-to-run variance (same cached candidate set + verdicts each time), and   #
+#  rate-limit pressure (fewer OpenRouter calls). TTL-bounded.                  #
+# --------------------------------------------------------------------------- #
+_CACHE_ENABLED = os.getenv("GLOBAL_CACHE", "1").strip().lower() in ("1", "true", "yes", "on")
+_CACHE_DIR = Path(os.getenv("GLOBAL_CACHE_DIR", "")
+                  or (Path(__file__).resolve().parents[1] / ".cache" / "global_agent"))
+_CACHE_TTL = float(os.getenv("GLOBAL_CACHE_TTL", str(7 * 86400)))  # 7 days
+
+
+def _cache_get(key: str):
+    if not _CACHE_ENABLED:
+        return None
+    p = _CACHE_DIR / (hashlib.sha1(key.encode("utf-8")).hexdigest() + ".json")
+    try:
+        if p.exists() and (time.time() - p.stat().st_mtime) < _CACHE_TTL:
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _cache_put(key: str, value) -> None:
+    if not _CACHE_ENABLED:
+        return
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        p = _CACHE_DIR / (hashlib.sha1(key.encode("utf-8")).hexdigest() + ".json")
+        p.write_text(json.dumps(value), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _cached(key: str, produce):
+    """Return cached value for key, else call produce(), cache, and return it."""
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+    val = produce()
+    _cache_put(key, val)
+    return val
 
 
 @dataclass
@@ -191,6 +238,15 @@ def _norm_host(url: str) -> str:
     return h[4:] if h.startswith("www.") else h
 
 
+_SESSION_RE = re.compile(r";jsessionid=[^/?#]*", re.I)
+
+
+def _clean_url(url: str) -> str:
+    """Strip volatile session tokens (;jsessionid=…) so stored/deduped URLs are
+    stable across runs (otherwise the same portal looks different each fetch)."""
+    return _SESSION_RE.sub("", url or "")
+
+
 # Path tokens that are generic login plumbing, not a distinct system name.
 _GENERIC_PATH_SEGS = frozenset({
     "", "login", "signin", "sign-in", "logon", "auth", "sso", "cas", "account",
@@ -206,6 +262,21 @@ _SUBPAGE_RE = re.compile(
 
 def _is_login_subpage(url: str) -> bool:
     return bool(_SUBPAGE_RE.search(urlsplit(url).path))
+
+
+_RANK_PATH_HINTS = ("login", "signin", "sso", "portal", "account", "auth",
+                    "moodle", "canvas", "cas", "oauth", "adfs", "saml")
+
+
+def _candidate_rank(c: "Candidate") -> tuple:
+    """Sort key: portal-ish candidates first (so the judge cap keeps the likely
+    portals). 0 = promising, 1 = not."""
+    u = (c.final_url or c.url).lower()
+    host = urlsplit(u).netloc.split(":")[0]
+    label = host.split(".", 1)[0] if "." in host else host
+    hinted = (any(t in label for t in _SUBDOMAIN_WORDLIST)
+              or any(h in u for h in _RANK_PATH_HINTS))
+    return (0 if hinted else 1, len(u))
 
 
 def _distinguishing_segment(url: str) -> str:
@@ -419,11 +490,13 @@ def harvest(name: str, domain: str, country: str) -> list[Candidate]:
             cands[key] = Candidate(url=u, provenance=prov, anchor_text=anchor)
 
     with _cf.ThreadPoolExecutor(max_workers=5) as exe:
-        f_llm = exe.submit(_llm_suggest, name, domain, country)
-        f_web = exe.submit(_web_search, name, domain, country)
-        f_site = exe.submit(_own_site_links, domain)
-        f_sub = exe.submit(_subdomain_candidates, domain)
-        f_ct = exe.submit(_ct_candidates, domain)
+        f_llm = exe.submit(_cached, f"llm:{name}|{domain}",
+                           lambda: _llm_suggest(name, domain, country))
+        f_web = exe.submit(_cached, f"web:{name}|{domain}",
+                           lambda: _web_search(name, domain, country))
+        f_site = exe.submit(_cached, f"site:{domain}", lambda: _own_site_links(domain))
+        f_sub = exe.submit(_cached, f"sub:{domain}", lambda: _subdomain_candidates(domain))
+        f_ct = exe.submit(_cached, f"ct:{domain}", lambda: _ct_candidates(domain))
         for u in _safe(f_llm):
             add(u, "llm-suggest")
         for u in _safe(f_web):
@@ -602,13 +675,38 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
         c.reason = str(v.get("reason", "") or "")[:300]
 
 
+def _judge_cache_key(domain: str, c: Candidate) -> str:
+    return f"judge:{domain}:{c.final_url or c.url}"
+
+
 def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) -> None:
+    # Apply cached verdicts first; only LLM-judge the URLs we haven't seen.
+    todo: list[Candidate] = []
+    for c in cands:
+        v = _cache_get(_judge_cache_key(domain, c))
+        if isinstance(v, dict):
+            c.is_portal = bool(v.get("is_portal"))
+            c.central = bool(v.get("central", True))
+            c.belongs = bool(v.get("belongs"))
+            c.category = v.get("category", "") or ""
+            c.confidence = float(v.get("confidence", 0) or 0)
+            c.reason = v.get("reason", "") or ""
+        else:
+            todo.append(c)
+    logger.info("judge: %d cached, %d to judge", len(cands) - len(todo), len(todo))
+    if not todo:
+        return
     # Fewer, larger batches at low concurrency — keeps us under OpenRouter's
-    # rate limit (bursty concurrency was silently 429'ing whole universities).
-    batches = [cands[i:i + batch_size] for i in range(0, len(cands), batch_size)]
+    # rate limit (bursty concurrency silently 429'd whole universities).
+    batches = [todo[i:i + batch_size] for i in range(0, len(todo), batch_size)]
     workers = int(os.getenv("GLOBAL_JUDGE_WORKERS", "2"))
     with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as exe:
         list(exe.map(lambda b: _judge_batch(name, domain, b), batches))
+    for c in todo:
+        _cache_put(_judge_cache_key(domain, c), {
+            "is_portal": c.is_portal, "central": c.central, "belongs": c.belongs,
+            "category": c.category, "confidence": c.confidence, "reason": c.reason,
+        })
 
 
 # --------------------------------------------------------------------------- #
@@ -639,6 +737,15 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
         logger.info("link-follow: +%d links, %d alive", len(followups), len(new_alive))
         alive += new_alive
 
+    # Cap the judged set on first runs (repeat runs are cache-cheap). Rank
+    # portal-ish candidates first so the cap never drops the likely portals.
+    judge_max = int(os.getenv("GLOBAL_JUDGE_MAX", "50"))
+    if len(alive) > judge_max:
+        alive.sort(key=_candidate_rank)
+        logger.info("judge cap: %d -> %d candidates (portal-ish first)",
+                    len(alive), judge_max)
+        alive = alive[:judge_max]
+
     judge(name, domain, alive)
 
     accepted = [c for c in alive
@@ -651,12 +758,12 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
     # uspdigital.usp.br/jupiterweb vs /apolo vs /mercurioweb).
     best: dict[tuple[str, str], Candidate] = {}
     for c in sorted(accepted, key=lambda x: -x.confidence):
-        u = c.final_url or c.url
+        u = _clean_url(c.final_url or c.url)
         key = (_norm_host(u), _distinguishing_segment(u))
         if key not in best:
             best[key] = c
     out = [{
-        "url": c.final_url or c.url, "category": c.category or "Student Portal",
+        "url": _clean_url(c.final_url or c.url), "category": c.category or "Student Portal",
         "confidence": round(c.confidence, 2), "provenance": c.provenance,
         "reason": c.reason,
     } for c in sorted(best.values(), key=lambda x: -x.confidence)]

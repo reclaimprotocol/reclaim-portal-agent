@@ -66,3 +66,6 @@ test-results/
 
 # Vercel CLI (holds pulled prod env — never commit)
 .vercel
+
+# global-agent disk cache
+.cache/
