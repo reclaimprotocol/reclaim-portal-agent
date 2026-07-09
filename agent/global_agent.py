@@ -28,8 +28,10 @@ import concurrent.futures as _cf
 import json
 import logging
 import os
+import random
 import re
 import socket
+import time
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
@@ -119,31 +121,51 @@ class Candidate:
 # --------------------------------------------------------------------------- #
 #  OpenRouter (generic chat call — the only thing borrowed in spirit)          #
 # --------------------------------------------------------------------------- #
-def _chat(prompt: str, *, model: str, timeout: float = 60.0) -> str:
+def _chat(prompt: str, *, model: str, timeout: float = 60.0, retries: int = 4) -> str:
+    """OpenRouter chat call with retry+backoff on rate limits / transient
+    errors. CRITICAL: without this, a throttled judge call returns '' and the
+    candidate is silently dropped — under batch load whole universities came
+    back with 0 portals purely from 429s, not from bad judging."""
     if not OPENROUTER_API_KEY:
         return ""
-    try:
-        r = requests.post(
-            OPENROUTER_URL,
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/reclaimprotocol",
-            },
-            json={"model": model, "messages": [{"role": "user", "content": prompt}]},
-            timeout=timeout,
-        )
-        data = r.json()
-    except Exception as err:  # noqa: BLE001
-        logger.warning("openrouter call failed: %s", err)
-        return ""
-    if isinstance(data, dict) and data.get("error"):
-        logger.warning("openrouter error: %s", data["error"])
-        return ""
-    try:
-        return data["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, TypeError, AttributeError):
-        return ""
+    for attempt in range(retries):
+        try:
+            r = requests.post(
+                OPENROUTER_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/reclaimprotocol",
+                },
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}]},
+                timeout=timeout,
+            )
+            status = r.status_code
+            data = r.json()
+        except Exception as err:  # noqa: BLE001 — network/timeout: retry
+            status, data = 0, None
+            if attempt == retries - 1:
+                logger.warning("openrouter call failed after %d tries: %s",
+                               retries, err)
+        else:
+            err_obj = data.get("error") if isinstance(data, dict) else None
+            err_code = (err_obj or {}).get("code") if isinstance(err_obj, dict) else None
+            rate_limited = status == 429 or err_code == 429 or (
+                status in (500, 502, 503, 529))
+            if not err_obj and not rate_limited:
+                try:
+                    return data["choices"][0]["message"]["content"].strip()
+                except (KeyError, IndexError, TypeError, AttributeError):
+                    pass  # malformed — retry
+            if err_obj and not rate_limited:
+                logger.warning("openrouter error (no retry): %s", err_obj)
+                return ""
+        # backoff before the next attempt (exponential + jitter)
+        if attempt < retries - 1:
+            time.sleep(min(20.0, 2.0 * (2 ** attempt)) + random.uniform(0, 1.0))
+    logger.warning("openrouter: giving up after %d attempts (model=%s)", retries, model)
+    return ""
 
 
 def _extract_json(text: str):
@@ -580,9 +602,12 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
         c.reason = str(v.get("reason", "") or "")[:300]
 
 
-def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 8) -> None:
+def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10) -> None:
+    # Fewer, larger batches at low concurrency — keeps us under OpenRouter's
+    # rate limit (bursty concurrency was silently 429'ing whole universities).
     batches = [cands[i:i + batch_size] for i in range(0, len(cands), batch_size)]
-    with _cf.ThreadPoolExecutor(max_workers=4) as exe:
+    workers = int(os.getenv("GLOBAL_JUDGE_WORKERS", "2"))
+    with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as exe:
         list(exe.map(lambda b: _judge_batch(name, domain, b), batches))
 
 
