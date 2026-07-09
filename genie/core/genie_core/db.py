@@ -4,6 +4,7 @@ wrapper that normalizes placeholders + row access across both backends, so the
 search / API / training code above never changes."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import sqlite3
@@ -191,7 +192,62 @@ def init_db(path: str | None = None) -> None:
                        last_seen TEXT,
                        PRIMARY KEY (country, label) )""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_learned_country ON learned_patterns(country)")
+        # Activity log — who signed in and what they searched (admin dashboard).
+        c.execute(f"""CREATE TABLE IF NOT EXISTS login_log (
+                       id {_AUTO_PK}, email TEXT, created_at TEXT )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_login_email ON login_log(email)")
+        c.execute(f"""CREATE TABLE IF NOT EXISTS search_log (
+                       id {_AUTO_PK}, email TEXT, query_url TEXT, orgid TEXT,
+                       result_count INTEGER DEFAULT 0, results TEXT DEFAULT '',
+                       created_at TEXT )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_search_email ON search_log(email)")
         c.commit()
+
+
+# --- activity log (admin dashboard) ---------------------------------------
+def log_login(email: str, path: str | None = None) -> None:
+    if not email:
+        return
+    with connect(path) as c:
+        c.execute("INSERT INTO login_log (email, created_at) VALUES (?, ?)",
+                  (email, _now_iso()))
+        c.commit()
+
+
+def log_search(email: str, query_url: str, *, orgid: str = "",
+               result_count: int = 0, results: list | None = None,
+               path: str | None = None) -> None:
+    with connect(path) as c:
+        c.execute(
+            """INSERT INTO search_log (email, query_url, orgid, result_count, results, created_at)
+               VALUES (?,?,?,?,?,?)""",
+            (email or "", query_url or "", orgid or "", int(result_count or 0),
+             json.dumps(results or [])[:20000], _now_iso()))
+        c.commit()
+
+
+def recent_activity(limit: int = 200, path: str | None = None) -> dict:
+    """Recent logins + searches for the admin dashboard, newest first."""
+    with connect(path) as c:
+        logins = [dict(r) for r in c.execute(
+            "SELECT email, created_at FROM login_log ORDER BY id DESC LIMIT ?",
+            (limit,)).fetchall()]
+        searches = []
+        for r in c.execute(
+            """SELECT email, query_url, orgid, result_count, results, created_at
+               FROM search_log ORDER BY id DESC LIMIT ?""", (limit,)).fetchall():
+            d = dict(r)
+            try:
+                d["results"] = json.loads(d.get("results") or "[]")
+            except Exception:  # noqa: BLE001
+                d["results"] = []
+            searches.append(d)
+    return {"logins": logins, "searches": searches}
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # --- self-improving: learned per-country portal patterns ------------------

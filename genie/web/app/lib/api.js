@@ -48,6 +48,13 @@ export async function getInsights() {
   return r.json();
 }
 
+// Admin dashboard: recent logins + searches (admin-only on the server).
+export async function getAdminActivity(limit = 200) {
+  const r = await afetch(`${API_BASE}/admin/activity?limit=${limit}`);
+  if (!r.ok) throw new Error(`admin activity failed: ${r.status}`);
+  return r.json();
+}
+
 export async function getCountries() {
   const r = await afetch(`${API_BASE}/countries`);
   if (!r.ok) return { countries: [] };

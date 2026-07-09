@@ -242,7 +242,16 @@ export default function Discover() {
         </div>
       )}
 
-      {done && portals.length === 0 && (
+      {done && !running && ranLive && portals.length === 0 && (
+        <div className="retry-note" style={{ marginTop: 14 }}>
+          <p style={{ margin: "0 0 8px" }}>
+            No portals found on the first pass. Results can vary run-to-run — <b>try once more</b>, it often finds them the second time.
+          </p>
+          <button className="btn" onClick={() => runLive()}>🔄 Try again</button>
+        </div>
+      )}
+
+      {done && !ranLive && portals.length === 0 && (
         <p className="muted" style={{ marginTop: 14 }}>No student portal found for this site.</p>
       )}
 

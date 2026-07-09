@@ -5,9 +5,12 @@ import Discover from "../components/Discover";
 import Browse from "../components/Browse";
 import Curate from "../components/Curate";
 import Training from "../components/Training";
+import Admin from "../components/Admin";
+import UserBadge from "../components/UserBadge";
 import ProfileProvider from "../components/ProfileContext";
 import { getCountries, getStates, exportUrl } from "./lib/api";
 import { countryFlag } from "./lib/flags";
+import { getIsAdmin } from "./lib/auth";
 
 export default function Home() {
   const [tab, setTab] = useState("search");
@@ -15,7 +18,9 @@ export default function Home() {
   const [countries, setCountries] = useState([]);
   const [states, setStates] = useState([]);
   const [state, setState] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
+  useEffect(() => { setIsAdmin(getIsAdmin()); }, []);
   useEffect(() => { getCountries().then((d) => setCountries(d.countries || [])); }, []);
   useEffect(() => {
     setState("");
@@ -25,6 +30,7 @@ export default function Home() {
   return (
     <ProfileProvider>
     <main className="wrap">
+      <UserBadge />
       <div className="eyebrow">● Student login portals · powered by the Reclaim agent</div>
       <h1 className="hero">
         Find any university&apos;s <span className="accent">login portals.</span>
@@ -62,6 +68,7 @@ export default function Home() {
         <button className={tab === "curate" ? "active" : ""} onClick={() => setTab("curate")}>Universities</button>
         <button className={tab === "discover" ? "active" : ""} onClick={() => setTab("discover")}>Discover live</button>
         <button className={tab === "training" ? "active" : ""} onClick={() => setTab("training")}>Training</button>
+        {isAdmin && <button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")}>Admin</button>}
       </div>
 
       <div className="hint">
@@ -75,6 +82,7 @@ export default function Home() {
         {tab === "curate" && <Curate country={country} state={state} />}
         {tab === "discover" && <Discover />}
         {tab === "training" && <Training />}
+        {tab === "admin" && isAdmin && <Admin />}
       </div>
     </main>
     </ProfileProvider>

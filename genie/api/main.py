@@ -53,7 +53,15 @@ _API_KEY = os.getenv("GENIE_API_KEY", "").strip()
 _GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 _SESSION_SECRET = os.getenv("GENIE_SESSION_SECRET", "").strip()
 _ALLOWED_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "reclaimprotocol.org").strip().lower()
+# Admin emails (comma-separated) — see the admin dashboard (who's logged in +
+# what they searched). Defaults to Rohit.
+_ADMIN_EMAILS = {e.strip().lower() for e in os.getenv(
+    "GENIE_ADMIN_EMAILS", "rohit@reclaimprotocol.org").split(",") if e.strip()}
 _OPEN_PATHS = {"/health", "/docs", "/redoc", "/openapi.json", "/auth/google", "/auth/config"}
+
+
+def _is_admin(email: str) -> bool:
+    return bool(email) and email.lower() in _ADMIN_EMAILS
 if not (_API_KEY or _SESSION_SECRET):
     print("⚠️  No GENIE_API_KEY / GENIE_SESSION_SECRET — API auth DISABLED (dev).", file=sys.stderr)
 
@@ -160,7 +168,38 @@ def auth_google(body: GoogleAuthIn) -> dict:
         raise HTTPException(status_code=401, detail="invalid Google credential")
     if not email.endswith("@" + _ALLOWED_DOMAIN):
         raise HTTPException(status_code=403, detail=f"only @{_ALLOWED_DOMAIN} accounts can access Genie")
-    return {"token": make_session_token(email), "email": email}
+    try:
+        genie_core.db.log_login(email)
+    except Exception:  # noqa: BLE001 — logging must never block sign-in
+        pass
+    return {"token": make_session_token(email), "email": email, "is_admin": _is_admin(email)}
+
+
+def _request_email(request: Request) -> str:
+    """The signed-in email from the Bearer/query token (or '' for API-key/dev)."""
+    auth = request.headers.get("authorization", "")
+    bearer = auth[7:] if auth[:7].lower() == "bearer " else ""
+    return verify_session_token(bearer or request.query_params.get("token", "")) or ""
+
+
+@app.get("/auth/me")
+def auth_me(request: Request) -> dict:
+    """Current identity for the UI (who am I, am I an admin)."""
+    email = _request_email(request)
+    return {"email": email, "is_admin": _is_admin(email)}
+
+
+def require_admin(request: Request) -> str:
+    email = _request_email(request)
+    if not _is_admin(email):
+        raise HTTPException(status_code=403, detail="admin only")
+    return email
+
+
+@app.get("/admin/activity")
+def admin_activity(_: str = Depends(require_admin), limit: int = 200) -> dict:
+    """Admin dashboard feed: recent logins + searches (with results)."""
+    return genie_core.db.recent_activity(limit=limit)
 
 
 # In-memory job registry: job_id -> {"url","include_affiliated","name"}.
@@ -425,13 +464,14 @@ def metrics_batch(body: MetricsBatchIn) -> dict:
 
 
 @app.post("/discover")
-def discover(body: DiscoverIn) -> dict:
+def discover(body: DiscoverIn, request: Request) -> dict:
     """Register a discovery job; the client then opens /stream/{job_id}."""
     if not body.url.strip():
         raise HTTPException(400, "url is required")
     job_id = uuid.uuid4().hex[:12]
     _JOBS[job_id] = {"url": body.url, "include_affiliated": body.include_affiliated,
-                     "name": body.name, "orgid": body.orgid, "suppress": body.suppress}
+                     "name": body.name, "orgid": body.orgid, "suppress": body.suppress,
+                     "email": _request_email(request)}
     return {"job_id": job_id}
 
 
@@ -442,16 +482,29 @@ async def stream(job_id: str) -> EventSourceResponse:
         raise HTTPException(404, "unknown job_id")
 
     async def gen():
+        result_portals: list = []
         try:
             async for ev in genie_core.discover_portals(
                 job["url"], include_affiliated=job["include_affiliated"],
                 name=job["name"], orgid=job.get("orgid", ""),
                 suppress=job.get("suppress", True)
             ):
+                if ev.kind == "result":
+                    try:
+                        result_portals = (ev.to_dict().get("data") or {}).get("portals", [])
+                    except Exception:  # noqa: BLE001
+                        pass
                 yield {"event": ev.kind, "data": json.dumps(ev.to_dict())}
         except Exception as e:  # noqa: BLE001
             yield {"event": "error", "data": json.dumps({"kind": "error", "message": str(e)})}
         finally:
+            try:  # log the search for the admin dashboard (never block the stream)
+                genie_core.db.log_search(
+                    job.get("email", ""), job["url"], orgid=job.get("orgid", ""),
+                    result_count=len(result_portals),
+                    results=[p.get("url") for p in result_portals if isinstance(p, dict)])
+            except Exception:  # noqa: BLE001
+                pass
             _JOBS.pop(job_id, None)
             yield {"event": "close", "data": "{}"}
 

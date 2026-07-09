@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../app/lib/api";
-import { setToken } from "../app/lib/auth";
+import { setToken, setIdentity } from "../app/lib/auth";
 
 // "Sign in with Google" screen. Loads Google Identity Services, renders the
 // button, exchanges the Google credential for a Genie session token via the
@@ -31,6 +31,7 @@ export default function Login({ clientId, domain, onLogin }) {
             const d = await r.json().catch(() => ({}));
             if (r.ok && d.token) {
               setToken(d.token);
+              setIdentity(d.email || "", !!d.is_admin);
               onLogin(d.token);
             } else {
               setError(d.detail || "Sign-in failed. Try again.");

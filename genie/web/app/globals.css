@@ -347,3 +347,26 @@ select:focus { outline: none; border-color: var(--rc-blue); }
 .hint .hint-t { font-weight: 800; color: var(--rc-blue); letter-spacing: .02em; }
 .hint code { background: #fff; border: 1px solid var(--rc-line); border-radius: 5px; padding: 1px 5px; font-size: 12px; }
 .hint .mbadge { pointer-events: none; }
+
+/* --- signed-in user badge (top-right) --- */
+.userbadge { position: absolute; top: 14px; right: 18px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--rc-muted); }
+.userbadge .ub-dot { width: 7px; height: 7px; border-radius: 50%; background: #12855a; }
+.userbadge .ub-email { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.userbadge .ub-logout { font-size: 12px; font-weight: 700; border: 1px solid var(--rc-line, #e4e8f0); background: #fff; color: var(--rc-blue, #2b50e0); border-radius: 8px; padding: 3px 10px; cursor: pointer; }
+.userbadge .ub-logout:hover { background: #eef1fe; }
+
+/* --- admin dashboard --- */
+.admin-head { display: flex; align-items: center; justify-content: space-between; }
+.admin-sub { margin: 18px 0 8px; font-size: 14px; color: var(--rc-muted); }
+.scrollx { overflow-x: auto; border: 1px solid var(--rc-line, #e4e8f0); border-radius: 10px; }
+.admin-tbl { border-collapse: collapse; width: 100%; font-size: 13px; }
+.admin-tbl th, .admin-tbl td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rc-line, #eef0f4); vertical-align: top; }
+.admin-tbl th { background: #fafbfd; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--rc-muted); }
+.admin-tbl tr:last-child td { border-bottom: 0; }
+.admin-tbl .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.admin-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-tbl .nowrap { white-space: nowrap; }
+.admin-url { display: block; font-size: 12px; color: var(--rc-blue, #2b50e0); max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- discover retry prompt on 0 results --- */
+.retry-note { background: #eef1fe; border: 1px solid #d7deff; border-radius: 10px; padding: 14px 16px; font-size: 14px; color: #1e2a52; }
