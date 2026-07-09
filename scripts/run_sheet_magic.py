@@ -7,13 +7,13 @@ The source tab must have columns A=University Name, B=Website (row 1 = header).
 
 Examples:
   # first 10 universities of the Brazil tab
-  .venv/bin/python scripts/run_sheet_judge.py --tab Brazil --start 1 --count 10
+  .venv/bin/python scripts/run_sheet_magic.py --tab Brazil --start 1 --count 10
 
   # the next 10 (universities 11-20)
-  .venv/bin/python scripts/run_sheet_judge.py --tab Mexico --start 11 --count 10
+  .venv/bin/python scripts/run_sheet_magic.py --tab Mexico --start 11 --count 10
 
   # a different spreadsheet
-  .venv/bin/python scripts/run_sheet_judge.py --tab Brazil --start 1 --count 5 --sheet <SHEET_ID>
+  .venv/bin/python scripts/run_sheet_magic.py --tab Brazil --start 1 --count 5 --sheet <SHEET_ID>
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ except Exception:  # noqa: BLE001
 import _bootstrap  # noqa: F401,E402
 from agent.config import load_config  # noqa: E402
 from agent.sheets_client import SheetsClient  # noqa: E402
-from agent import global_agent as G  # noqa: E402
+from agent import magic as G  # noqa: E402
 
 DEFAULT_SHEET = "1_V2-9XVua309pXmVUTpw-k5uPDT1bU2cTlRGk5uWzSs"
 
@@ -96,7 +96,7 @@ def main() -> None:
         if not website:
             continue
         try:
-            portals = G.discover(name, website, country)  # has built-in zero-retry
+            portals = G.discover(name, website, country)  # Genie's Magic — built-in zero-retry
             append([[name, website, p["url"], p.get("category", "")] for p in portals]
                    if portals else [[name, website, "(none found)", ""]])
             print(f"  {name} -> {len(portals)} portals")

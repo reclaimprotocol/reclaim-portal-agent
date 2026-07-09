@@ -109,31 +109,35 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
 
     box: dict = {}
 
-    # Discovery engine selector (local/experimental; prod default = rules):
-    #   rules  — the legacy rule pipeline (agent.stages.discovery), unchanged.
-    #   judge  — the rules-free global LLM-judge agent (agent.global_agent).
-    #   shadow — run rules for the OUTPUT, also run the judge and log a
-    #            recall comparison (judge-only hosts) without changing output.
-    engine = os.environ.get("DISCOVERY_ENGINE", "rules").strip().lower()
+    # Discovery engine selector. DEFAULT = magic (Genie's Magic — the rules-free
+    # global LLM agent, agent.magic). The legacy rule pipeline is kept but
+    # inactive; opt back in with DISCOVERY_ENGINE=rules.
+    #   magic  — Genie's Magic, the default (aliases: "judge", "global").
+    #   rules  — the legacy rule pipeline (agent.stages.discovery), inactive.
+    #   shadow — run rules for the OUTPUT, also run magic and log a recall
+    #            comparison (magic-only hosts) without changing output.
+    engine = os.environ.get("DISCOVERY_ENGINE", "magic").strip().lower()
+    if engine in ("judge", "global"):
+        engine = "magic"
     uni_name = (name or "").strip() or _name_from_domain(domain)
     _aglog = logging.getLogger("agent")
 
-    def _judge_result() -> dict:
-        from agent import global_agent
+    def _magic_result() -> dict:
+        from agent import magic
         ctry = _db.country_from_domain(domain)
-        portals = global_agent.discover(uni_name, domain,
-                                        "" if ctry == "Global" else ctry)
+        portals = magic.discover(uni_name, domain,
+                                 "" if ctry == "Global" else ctry)
         return {"university_name": uni_name, "portals": [{
             "url": p["url"], "category": p.get("category", ""),
-            "discovery_source": "judge:" + str(p.get("provenance", "")),
+            "discovery_source": "magic:" + str(p.get("provenance", "")),
             "discovery_reasoning": p.get("reason", ""),
         } for p in portals]}
 
     def _run() -> None:
         jr = None
         try:
-            if engine == "judge":
-                box["res"] = _judge_result()
+            if engine == "magic":
+                box["res"] = _magic_result()
                 return
             if config.enable_js_rendering:
                 jr = JSRenderer(timeout_seconds=config.js_rendering_timeout_seconds,
@@ -155,10 +159,9 @@ async def discover_portals(url: str, include_affiliated: bool = True, name: str 
                 box["res"] = discovery.run(ctx)
             if engine == "shadow":
                 try:
-                    jr_res = _judge_result()
-                    _log_shadow(_aglog, box.get("res") or {}, jr_res)
+                    _log_shadow(_aglog, box.get("res") or {}, _magic_result())
                 except Exception as e:  # noqa: BLE001
-                    _aglog.warning("[shadow] judge run failed: %s", e)
+                    _aglog.warning("[shadow] magic run failed: %s", e)
         except Exception as e:  # noqa: BLE001
             box["err"] = e
         finally:

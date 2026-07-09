@@ -4,13 +4,13 @@ benchmark.
 
 Usage:
   # one university
-  .venv/bin/python scripts/run_global_agent.py nus.edu.sg "National University of Singapore"
+  .venv/bin/python scripts/run_magic.py nus.edu.sg "National University of Singapore"
 
   # whole benchmark, with recall scoring on labeled rows
-  .venv/bin/python scripts/run_global_agent.py --benchmark
+  .venv/bin/python scripts/run_magic.py --benchmark
 
   # limit / filter the benchmark
-  .venv/bin/python scripts/run_global_agent.py --benchmark --only nus.edu.sg,yonsei.ac.kr
+  .venv/bin/python scripts/run_magic.py --benchmark --only nus.edu.sg,yonsei.ac.kr
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ try:  # load OPENROUTER_API_KEY etc. before the module reads them at import
 except Exception:  # noqa: BLE001
     pass
 
-from agent import global_agent as G  # noqa: E402
+from agent import magic as G  # noqa: E402
 
 BENCH = ROOT / "benchmark" / "portals.jsonl"
 

@@ -1,15 +1,16 @@
-"""Global, rules-free student-portal discovery — an LLM-judge architecture.
+"""Genie's Magic — global, rules-free student-portal discovery.
 
-This module is DELIBERATELY INDEPENDENT of `agent/stages/discovery*.py` (the
-~8,900-line rule pipeline with samarth / state-platform / shortname / geography
-heuristics tuned for India). It does not import or depend on any of that
-portal-recognition logic. It works for ANY university in ANY country by:
+"Magic" is Genie's default discovery engine. It is DELIBERATELY INDEPENDENT of
+the legacy rule pipeline in `agent/stages/discovery*.py` (the ~8,900-line engine
+with samarth / state-platform / shortname / geography heuristics tuned for
+India — kept for reference, no longer the default). Magic imports none of that
+portal-recognition logic and works for ANY university in ANY country by:
 
   1. HARVEST — gather candidate URLs from generic, country-agnostic routes:
        * what an LLM already knows (Gemini),
        * real web-search results (multilingual query variants),
        * the university's OWN site (homepage links + sitemap),
-       * common portal subdomains that actually resolve (DNS).
+       * common portal subdomains that actually resolve (DNS + CT logs).
   2. FETCH — pull each candidate and extract language-agnostic signals:
        final URL, redirect chain, HTTP status, <title>, meta, forms,
        password fields, a snippet of visible text, and platform fingerprints.
@@ -19,7 +20,7 @@ portal-recognition logic. It works for ANY university in ANY country by:
   4. CONSOLIDATE — keep confident, on-institution portals; collapse redirect
        chains / duplicates.
 
-Only pure I/O primitives are reused from the old module (the OpenRouter HTTP
+Only pure I/O primitives are reused from the legacy module (the OpenRouter HTTP
 call shape and the DuckDuckGo fetcher) — never any recognition rule.
 """
 from __future__ import annotations
@@ -42,29 +43,40 @@ import urllib3
 from bs4 import BeautifulSoup
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-logger = logging.getLogger("agent.global")
+logger = logging.getLogger("agent.magic")
+
+
+def _env(*names, default=""):
+    """First set env var among `names` (newer MAGIC_* names win, older
+    JUDGE_*/GLOBAL_* kept for backward compatibility)."""
+    for n in names:
+        v = os.getenv(n)
+        if v not in (None, ""):
+            return v
+    return default
+
 
 # --- config (read directly; no rule-module dependency) ---------------------
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-# The judge is a cheap, fast, strongly-multilingual model. Swap without code
-# changes via JUDGE_MODEL. Default to Gemini 2.5 Flash.
-JUDGE_MODEL = os.getenv("JUDGE_MODEL", "google/gemini-2.5-flash")
+# The magic judge is a cheap, fast, strongly-multilingual model. Swap without
+# code changes via MAGIC_MODEL. Default to Gemini 2.5 Flash.
+MAGIC_MODEL = _env("MAGIC_MODEL", "JUDGE_MODEL", default="google/gemini-2.5-flash")
 # The URL-suggestion pass can use the same or a different model.
-SUGGEST_MODEL = os.getenv("GLOBAL_SUGGEST_MODEL", JUDGE_MODEL)
+SUGGEST_MODEL = _env("MAGIC_SUGGEST_MODEL", "GLOBAL_SUGGEST_MODEL", default=MAGIC_MODEL)
 
 USER_AGENT = os.getenv(
     "GENIE_UA",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
-HTTP_TIMEOUT = float(os.getenv("GLOBAL_HTTP_TIMEOUT", "12"))
-CONFIDENCE_THRESHOLD = float(os.getenv("GLOBAL_JUDGE_THRESHOLD", "0.6"))
-MAX_CANDIDATES = int(os.getenv("GLOBAL_MAX_CANDIDATES", "45"))
-FETCH_WORKERS = int(os.getenv("GLOBAL_FETCH_WORKERS", "12"))
+HTTP_TIMEOUT = float(_env("MAGIC_HTTP_TIMEOUT", "GLOBAL_HTTP_TIMEOUT", default="12"))
+CONFIDENCE_THRESHOLD = float(_env("MAGIC_THRESHOLD", "GLOBAL_JUDGE_THRESHOLD", default="0.6"))
+MAX_CANDIDATES = int(_env("MAGIC_MAX_CANDIDATES", "GLOBAL_MAX_CANDIDATES", default="45"))
+FETCH_WORKERS = int(_env("MAGIC_FETCH_WORKERS", "GLOBAL_FETCH_WORKERS", default="12"))
 # Link-follow bounds — the dominant latency source on link-heavy homepages.
-FOLLOW_MAX_PAGES = int(os.getenv("GLOBAL_FOLLOW_MAX_PAGES", "12"))
-FOLLOW_MAX_LINKS = int(os.getenv("GLOBAL_FOLLOW_MAX_LINKS", "20"))
+FOLLOW_MAX_PAGES = int(_env("MAGIC_FOLLOW_MAX_PAGES", "GLOBAL_FOLLOW_MAX_PAGES", default="12"))
+FOLLOW_MAX_LINKS = int(_env("MAGIC_FOLLOW_MAX_LINKS", "GLOBAL_FOLLOW_MAX_LINKS", default="20"))
 
 # Common portal subdomain labels — a country-AGNOSTIC recall aid (not a
 # recognition rule; every candidate still faces the judge). Covers SIS/ERP,
@@ -101,10 +113,10 @@ _LINK_HINTS = (
 #  run-to-run variance (same cached candidate set + verdicts each time), and   #
 #  rate-limit pressure (fewer OpenRouter calls). TTL-bounded.                  #
 # --------------------------------------------------------------------------- #
-_CACHE_ENABLED = os.getenv("GLOBAL_CACHE", "1").strip().lower() in ("1", "true", "yes", "on")
-_CACHE_DIR = Path(os.getenv("GLOBAL_CACHE_DIR", "")
-                  or (Path(__file__).resolve().parents[1] / ".cache" / "global_agent"))
-_CACHE_TTL = float(os.getenv("GLOBAL_CACHE_TTL", str(7 * 86400)))  # 7 days
+_CACHE_ENABLED = _env("MAGIC_CACHE", "GLOBAL_CACHE", default="1").strip().lower() in ("1", "true", "yes", "on")
+_CACHE_DIR = Path(_env("MAGIC_CACHE_DIR", "GLOBAL_CACHE_DIR")
+                  or (Path(__file__).resolve().parents[1] / ".cache" / "magic"))
+_CACHE_TTL = float(_env("MAGIC_CACHE_TTL", "GLOBAL_CACHE_TTL", default=str(7 * 86400)))  # 7 days
 
 
 def _cache_get(key: str):
@@ -616,7 +628,7 @@ def fetch_signals(c: Candidate) -> Candidate:
 # --------------------------------------------------------------------------- #
 #  JUDGE (the LLM is the arbiter — no rules)                                   #
 # --------------------------------------------------------------------------- #
-def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
+def _magic_batch(name: str, domain: str, batch: list[Candidate]) -> None:
     items = []
     for i, c in enumerate(batch):
         items.append({
@@ -663,9 +675,9 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
         f'"category":"Student Portal|LMS|SSO|Library|Webmail|Exam/Results|Fees|'
         f'Other","confidence":0.0-1.0,"reason":"short"}}]'
     )
-    verdicts = _extract_json(_chat(prompt, model=JUDGE_MODEL))
+    verdicts = _extract_json(_chat(prompt, model=MAGIC_MODEL))
     if not isinstance(verdicts, list):
-        logger.warning("judge returned no parseable verdicts for a batch")
+        logger.warning("magic: no parseable verdicts for a batch")
         return
     by_i = {v.get("i"): v for v in verdicts if isinstance(v, dict)}
     for i, c in enumerate(batch):
@@ -686,16 +698,16 @@ def _judge_batch(name: str, domain: str, batch: list[Candidate]) -> None:
         c.reason = str(v.get("reason", "") or "")[:300]
 
 
-def _judge_cache_key(domain: str, c: Candidate) -> str:
-    return f"judge:{domain}:{c.final_url or c.url}"
+def _magic_cache_key(domain: str, c: Candidate) -> str:
+    return f"magic:{domain}:{c.final_url or c.url}"
 
 
-def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10,
+def magic_judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10,
           use_cache: bool = True) -> None:
     # Apply cached verdicts first; only LLM-judge the URLs we haven't seen.
     todo: list[Candidate] = []
     for c in cands:
-        v = _cache_get(_judge_cache_key(domain, c)) if use_cache else None
+        v = _cache_get(_magic_cache_key(domain, c)) if use_cache else None
         if isinstance(v, dict):
             c.judged = True
             c.is_portal = bool(v.get("is_portal"))
@@ -706,21 +718,21 @@ def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10,
             c.reason = v.get("reason", "") or ""
         else:
             todo.append(c)
-    logger.info("judge: %d cached, %d to judge", len(cands) - len(todo), len(todo))
+    logger.info("magic: %d cached, %d to judge", len(cands) - len(todo), len(todo))
     if not todo:
         return
     # Fewer, larger batches at low concurrency — keeps us under OpenRouter's
     # rate limit (bursty concurrency silently 429'd whole universities).
     batches = [todo[i:i + batch_size] for i in range(0, len(todo), batch_size)]
-    workers = int(os.getenv("GLOBAL_JUDGE_WORKERS", "2"))
+    workers = int(_env("MAGIC_JUDGE_WORKERS","GLOBAL_JUDGE_WORKERS",default="2"))
     with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as exe:
-        list(exe.map(lambda b: _judge_batch(name, domain, b), batches))
+        list(exe.map(lambda b: _magic_batch(name, domain, b), batches))
     if not use_cache:
         return
     for c in todo:
         if not c.judged:
             continue  # batch failed/throttled for this one — don't cache a false verdict
-        _cache_put(_judge_cache_key(domain, c), {
+        _cache_put(_magic_cache_key(domain, c), {
             "is_portal": c.is_portal, "central": c.central, "belongs": c.belongs,
             "category": c.category, "confidence": c.confidence, "reason": c.reason,
         })
@@ -732,16 +744,18 @@ def judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10,
 def discover(name: str, domain: str, country: str = "") -> list[dict]:
     """Full rules-free discovery. Returns accepted portals as dicts.
 
-    Self-healing: if the first (cache-enabled) pass finds ZERO portals — usually
-    a transient throttle or a stale/empty cache entry — it AUTOMATICALLY retries
-    once with the cache bypassed (fresh harvest + judge), no human needed. This
-    recovers the batch-run zeros (like TecNM/IPN/UAM) on their own."""
+    Self-healing: if the first pass finds ZERO portals — usually a transient
+    throttle or a stale/empty cache entry — it AUTOMATICALLY retries once with
+    the cache bypassed (a fresh harvest + judge), no human needed. The retry
+    fires regardless of whether the cache was on, so a throttled cache-off run
+    still gets a second attempt. Recovers batch zeros (TecNM/IPN/UAM) on their
+    own."""
     domain = _norm_host("http://" + domain) if "://" not in domain else _norm_host(domain)
-    logger.info("global-agent: discovering %s (%s)", name, domain)
+    logger.info("magic: discovering %s (%s)", name, domain)
 
     out = _discover_once(name, domain, country, use_cache=True)
-    if not out and _CACHE_ENABLED:
-        logger.info("global-agent: 0 portals — auto-retrying with cache bypassed")
+    if not out:
+        logger.info("magic: 0 portals — auto-retrying with cache bypassed")
         out = _discover_once(name, domain, country, use_cache=False)
     return out
 
@@ -769,14 +783,14 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
 
     # Cap the judged set on first runs (repeat runs are cache-cheap). Rank
     # portal-ish candidates first so the cap never drops the likely portals.
-    judge_max = int(os.getenv("GLOBAL_JUDGE_MAX", "50"))
+    judge_max = int(_env("MAGIC_JUDGE_MAX","GLOBAL_JUDGE_MAX",default="50"))
     if len(alive) > judge_max:
         alive.sort(key=_candidate_rank)
-        logger.info("judge cap: %d -> %d candidates (portal-ish first)",
+        logger.info("magic: cap %d -> %d candidates (portal-ish first)",
                     len(alive), judge_max)
         alive = alive[:judge_max]
 
-    judge(name, domain, alive, use_cache=use_cache)
+    magic_judge(name, domain, alive, use_cache=use_cache)
 
     accepted = [c for c in alive
                 if c.is_portal and c.central and c.belongs
@@ -797,5 +811,5 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
         "confidence": round(c.confidence, 2), "provenance": c.provenance,
         "reason": c.reason,
     } for c in sorted(best.values(), key=lambda x: -x.confidence)]
-    logger.info("global-agent: %d portals accepted (from %d judged)", len(out), len(alive))
+    logger.info("magic: %d portals accepted (from %d judged)", len(out), len(alive))
     return out
