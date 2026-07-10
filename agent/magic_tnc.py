@@ -201,25 +201,34 @@ def find_tnc(portal_url: str, uni_domain: str, uni_name: str,
         if items:
             return _result(level, items)
 
-    # Level 3+: institution/vendor-wide — found once per (uroot/proot), reused.
+    # Level 3: the portal's OWN registrable-root homepage — "parent_domain" when
+    # that's the university's domain, or "vendor" for a third-party host
+    # (samarth.edu.in, a SIS vendor, …). Cached by the PORTAL root (proot), NOT
+    # the uni root — so a uni-domain portal returning N/A can never poison a
+    # sibling vendor portal (IGNOU: gradecard.ignou.ac.in N/A must not block
+    # ignou.samarth.edu.in from checking samarth.edu.in).
+    rk = f"tnc-root:{proot}"
+    if rk not in cache:
+        cache[rk] = _pick_all(uni_name, _harvest_tnc_links(f"https://{proot}/"))
+    if cache[rk]:
+        return _result("vendor" if is_vendor else "parent_domain", cache[rk])
+
+    # Level 4-5: the university's own homepage + search — cached by the UNI root.
     ck = f"tnc-uni:{uroot}"
     if ck in cache:
         c = cache[ck]
         return _result(c["level"], c["items"]) if c else _result("N/A", [])
-
-    ladder: list[tuple[str, str]] = []
-    ladder.append(("vendor" if is_vendor else "parent_domain", f"https://{proot}/"))
-    ladder.append(("uni_home", f"https://{uroot}/"))
-    if uni_domain and M._norm_host("http://" + uni_domain) not in (proot, uroot):
-        ladder.append(("uni_home", f"https://{M._norm_host('http://'+uni_domain)}/"))
-
+    unidom = M._norm_host("http://" + uni_domain)
+    ladder = [("uni_home", f"https://{uroot}/")] if uroot != proot else []
+    if unidom and unidom not in (proot, uroot):
+        ladder.append(("uni_home", f"https://{unidom}/"))
     for level, page in ladder:
         items = _pick_all(uni_name, _harvest_tnc_links(page))
         if items:
             cache[ck] = {"level": level, "items": items}
             return _result(level, items)
 
-    # Level: search — ask the model for the university's T&C + Privacy URLs.
+    # search — ask the model for the university's T&C + Privacy URLs.
     urls = M._extract_json(M._chat(
         f"Give the official Terms of Use AND Privacy Policy URLs for the "
         f"university \"{uni_name}\" (domain {uni_domain}). Return ONLY a JSON "
