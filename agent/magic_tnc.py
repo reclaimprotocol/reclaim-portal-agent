@@ -135,15 +135,31 @@ def _judge_tnc(uni_name: str, cands: list[dict]) -> list[dict]:
     return out
 
 
-def _pick(uni_name: str, links: list[tuple[str, str]]) -> dict | None:
-    """Fetch + judge candidate links; return the best genuine T&C, or None."""
+_TYPE_ORDER = {"terms": 0, "privacy": 1, "cookie": 2, "legal": 3}
+
+
+def _pick_all(uni_name: str, links: list[tuple[str, str]]) -> list[dict]:
+    """Fetch + judge candidate links; return ALL genuine T&C docs (a page often
+    has BOTH a Terms and a Privacy doc — capture both), Terms-first, deduped."""
     if not links:
-        return None
+        return []
     cands = [_page_signals(u) for (u, _t) in links[:_MAX_CANDS]]
-    for c in _judge_tnc(uni_name, [c for c in cands if c.get("status") and c["status"] < 400]):
-        if c["is_tnc"] and c["confidence"] >= _CONF:
-            return c
-    return None
+    judged = _judge_tnc(uni_name, [c for c in cands if c.get("status") and c["status"] < 400])
+    # Keep only core governing docs (Terms / Privacy / Cookie); drop generic
+    # "Legal"/"Other" (e.g. an anti-harassment policy PDF) so the output is the
+    # clean Terms + Privacy pair the sheet expects.
+    _ALLOWED = {"terms", "privacy", "cookie"}
+    valid = [c for c in judged if c["is_tnc"] and c["confidence"] >= _CONF
+             and (c.get("type") or "").lower() in _ALLOWED]
+    valid.sort(key=lambda c: _TYPE_ORDER.get((c.get("type") or "").lower(), 4))
+    seen, out = set(), []
+    for c in valid:
+        k = M._clean_url(c["url"]).split("#")[0].rstrip("/")
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"url": M._clean_url(c["url"]), "type": c.get("type", "")})
+    return out[:3]
 
 
 def _parent_paths(url: str) -> list[str]:
@@ -162,7 +178,9 @@ def _parent_paths(url: str) -> list[str]:
 def find_tnc(portal_url: str, uni_domain: str, uni_name: str,
              country: str = "", cache: dict | None = None) -> dict:
     """Find the governing T&C for `portal_url`. Returns
-    {"tnc_url","tnc_level","tnc_type"} or {"tnc_level":"N/A"}.
+    {"tnc_level", "tncs":[{url,type}...], "tnc_url", "tnc_type"} where `tncs`
+    holds ALL docs at the winning level (typically Terms + Privacy). `tnc_url`
+    is the primary (Terms preferred). {"tnc_level":"N/A", "tncs":[]} if none.
 
     `cache` (per-run dict) memoises uni/vendor-level results so every portal of
     the same institution reuses the T&C found once."""
@@ -172,20 +190,22 @@ def find_tnc(portal_url: str, uni_domain: str, uni_name: str,
     uroot = M._registrable_root(M._norm_host("http://" + uni_domain)) or uni_domain
     is_vendor = proot != uroot
 
-    def _hit(url, level, typ):
-        return {"tnc_url": M._clean_url(url), "tnc_level": level, "tnc_type": typ}
+    def _result(level, items):
+        return {"tnc_level": level if items else "N/A", "tncs": items,
+                "tnc_url": items[0]["url"] if items else "",
+                "tnc_type": items[0]["type"] if items else ""}
 
     # Level 1-2: on/around the portal page itself (per-portal, not cached).
     for level, page in [("exact", portal_url)] + [("parent_url", p) for p in _parent_paths(portal_url)]:
-        got = _pick(uni_name, _harvest_tnc_links(page))
-        if got:
-            return _hit(got["url"], level, got["type"])
+        items = _pick_all(uni_name, _harvest_tnc_links(page))
+        if items:
+            return _result(level, items)
 
     # Level 3+: institution/vendor-wide — found once per (uroot/proot), reused.
     ck = f"tnc-uni:{uroot}"
     if ck in cache:
         c = cache[ck]
-        return _hit(c["url"], c["level"], c["type"]) if c else {"tnc_level": "N/A"}
+        return _result(c["level"], c["items"]) if c else _result("N/A", [])
 
     ladder: list[tuple[str, str]] = []
     ladder.append(("vendor" if is_vendor else "parent_domain", f"https://{proot}/"))
@@ -194,22 +214,22 @@ def find_tnc(portal_url: str, uni_domain: str, uni_name: str,
         ladder.append(("uni_home", f"https://{M._norm_host('http://'+uni_domain)}/"))
 
     for level, page in ladder:
-        got = _pick(uni_name, _harvest_tnc_links(page))
-        if got:
-            cache[ck] = {"url": got["url"], "level": level, "type": got["type"]}
-            return _hit(got["url"], level, got["type"])
+        items = _pick_all(uni_name, _harvest_tnc_links(page))
+        if items:
+            cache[ck] = {"level": level, "items": items}
+            return _result(level, items)
 
-    # Level: search — ask the model for the university's T&C URL directly.
+    # Level: search — ask the model for the university's T&C + Privacy URLs.
     urls = M._extract_json(M._chat(
-        f"Give the official Terms of Use and Privacy Policy URLs for the "
+        f"Give the official Terms of Use AND Privacy Policy URLs for the "
         f"university \"{uni_name}\" (domain {uni_domain}). Return ONLY a JSON "
         f"array of URLs.", model=M.MAGIC_MODEL))
     if isinstance(urls, list):
         cands = [(u, "") for u in urls if isinstance(u, str) and u.startswith("http")]
-        got = _pick(uni_name, cands)
-        if got:
-            cache[ck] = {"url": got["url"], "level": "search", "type": got["type"]}
-            return _hit(got["url"], "search", got["type"])
+        items = _pick_all(uni_name, cands)
+        if items:
+            cache[ck] = {"level": "search", "items": items}
+            return _result("search", items)
 
     cache[ck] = None
-    return {"tnc_level": "N/A"}
+    return _result("N/A", [])

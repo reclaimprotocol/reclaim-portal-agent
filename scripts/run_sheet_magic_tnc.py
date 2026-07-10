@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Backfill Magic T&C for portals already discovered in a sheet's Portals tab.
+"""Backfill Magic T&C into a Portals tab, ONE ROW PER T&C DOCUMENT.
 
-Reads a portal tab with columns:
+Source columns (read from the tab):
   A Organization ID | B Organization Name | C Email Domains | D Portal URL | E Category
-and writes three more:
-  F T&C URL | G T&C Level | H T&C Type
-for every portal row, using agent.magic_tnc.find_tnc (LLM-judge level cascade).
-A per-run cache reuses each university/vendor's T&C across its portals.
+The tab is rebuilt with:
+  A..E (unchanged) | F T&C URL | G T&C Level | H T&C Type
+and a portal that has BOTH a Terms page and a Privacy page becomes TWO rows
+(same A..E, different F/G/H). Portals with no T&C get one row with N/A.
+
+A per-run cache reuses each university/vendor's T&C across its portals. The
+source A..E is snapshotted to /tmp before the tab is cleared, so nothing is lost
+if the run is interrupted.
 
 Usage:
-  .venv/bin/python scripts/run_sheet_magic_tnc.py                 # all rows
-  .venv/bin/python scripts/run_sheet_magic_tnc.py --start 2 --count 100
+  .venv/bin/python scripts/run_sheet_magic_tnc.py            # full rebuild
 """
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -32,6 +36,8 @@ from agent.sheets_client import SheetsClient  # noqa: E402
 from agent import magic_tnc as T  # noqa: E402
 
 DEFAULT_SHEET = "1sDK_1VnRHIuUqBComrvwS1JvSmB_l0_4Rsf9rfezFNw"
+HEADER = ["Organization ID", "Organization Name", "Email Domains",
+          "Portal URL", "Category", "T&C URL", "T&C Level", "T&C Type"]
 
 
 def _retry(fn, n=4):
@@ -48,42 +54,56 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sheet", default=DEFAULT_SHEET)
     ap.add_argument("--tab", default="Portals")
-    ap.add_argument("--start", type=int, default=2, help="first sheet row (data starts at 2)")
-    ap.add_argument("--count", type=int, default=100000)
     args = ap.parse_args()
 
     cfg = load_config(); sc = SheetsClient.from_config(cfg); sc.sheet_id = args.sheet
     svc = sc._service.spreadsheets()
 
-    # headers for the three new columns
-    _retry(lambda: svc.values().update(spreadsheetId=args.sheet, range=f"{args.tab}!F1:H1",
-        valueInputOption="USER_ENTERED",
-        body={"values": [["T&C URL", "T&C Level", "T&C Type"]]}).execute())
+    src = _retry(lambda: sc._get_values(args.tab, "A2:E100000"))
+    src = [r for r in src if r and (r[0] if r else "").strip()]
+    Path("/tmp/tnc_src_snapshot.json").write_text(json.dumps(src))  # safety
+    print(f"source portals: {len(src)} (snapshot saved)", flush=True)
 
-    last = args.start + args.count - 1
-    rows = _retry(lambda: sc._get_values(args.tab, f"A{args.start}:E{last}"))
+    # header + wipe old data, then append rebuilt rows in chunks
+    _retry(lambda: svc.values().update(spreadsheetId=args.sheet, range=f"{args.tab}!A1:H1",
+        valueInputOption="USER_ENTERED", body={"values": [HEADER]}).execute())
+    _retry(lambda: svc.values().clear(spreadsheetId=args.sheet, range=f"{args.tab}!A2:H100000").execute())
+
+    def flush(rows):
+        if rows:
+            _retry(lambda: svc.values().append(spreadsheetId=args.sheet, range=f"{args.tab}!A:H",
+                valueInputOption="USER_ENTERED", insertDataOption="INSERT_ROWS",
+                body={"values": rows}).execute())
+
     cache: dict = {}
-    for i, r in enumerate(rows):
-        row_num = args.start + i
+    buf: list = []
+    for idx, r in enumerate(src):
+        oid = (r[0] if r else "").strip()
         name = (r[1] if len(r) > 1 else "").strip()
         domains = (r[2] if len(r) > 2 else "").strip()
         portal = (r[3] if len(r) > 3 else "").strip()
+        cat = (r[4] if len(r) > 4 else "").strip()
+        base = [oid, name, domains, portal, cat]
         if not portal or portal == "(none found)":
-            _retry(lambda rn=row_num: svc.values().update(spreadsheetId=args.sheet,
-                range=f"{args.tab}!F{rn}:H{rn}", valueInputOption="USER_ENTERED",
-                body={"values": [["N/A", "N/A", ""]]}).execute())
-            continue
-        uni_domain = next((d.strip() for d in re.split(r"[,\s]+", domains) if d.strip()), "")
-        try:
-            t = T.find_tnc(portal, uni_domain, name, cache=cache)
-        except Exception as e:  # noqa: BLE001
-            t = {"tnc_level": f"error:{type(e).__name__}"}
-        url = t.get("tnc_url", "") or ("N/A" if t.get("tnc_level") == "N/A" else "")
-        _retry(lambda rn=row_num, u=url, t=t: svc.values().update(spreadsheetId=args.sheet,
-            range=f"{args.tab}!F{rn}:H{rn}", valueInputOption="USER_ENTERED",
-            body={"values": [[u, t.get("tnc_level", ""), t.get("tnc_type", "")]]}).execute())
-        print(f"row {row_num} {name[:30]:30} -> {t.get('tnc_level')} {url[:60]}", flush=True)
-    print("TNC DONE", flush=True)
+            buf.append(base + ["N/A", "N/A", ""])
+        else:
+            uni_domain = next((d.strip() for d in re.split(r"[,\s]+", domains) if d.strip()), "")
+            try:
+                res = T.find_tnc(portal, uni_domain, name, cache=cache)
+            except Exception as e:  # noqa: BLE001
+                res = {"tncs": [], "tnc_level": f"error:{type(e).__name__}"}
+            items = res.get("tncs") or []
+            if items:
+                for it in items:                       # one row per T&C doc
+                    buf.append(base + [it["url"], res.get("tnc_level", ""), it.get("type", "")])
+            else:
+                buf.append(base + ["N/A", res.get("tnc_level", "N/A"), ""])
+            print(f"{idx+1}/{len(src)} {name[:26]:26} {portal[:40]:40} -> "
+                  f"{len(items) or 'N/A'} tnc", flush=True)
+        if len(buf) >= 20:
+            flush(buf); buf = []
+    flush(buf)
+    print("TNC REBUILD DONE", flush=True)
 
 
 if __name__ == "__main__":
