@@ -36,7 +36,8 @@ logger = logging.getLogger("agent.magic.tnc")
 # T&C by URL shape — universal + multilingual (pt/es/fr/de/it + generic).
 _TNC_URL_RE = re.compile(
     r"term|/tos(?:[/?.]|$)|termos|condic|condi[cç][oõ]es|t[eé]rmin|"
-    r"privac|privaci|datenschutz|/legal|/agb|/cgu|policy|policies|gdpr|lgpd|"
+    r"privac|privaci|privacystatement|datenschutz|/legal|/agb|/cgu|policy|"
+    r"policies|gdpr|lgpd|servicesagreement|/agreement|use-?agreement|eula|"
     r"aviso.?de.?privac|politica.?de.?privac|pol[ií]tica", re.I)
 
 # T&C by anchor text — multilingual.
@@ -53,6 +54,34 @@ _TNC_TEXT_HINTS = (
 _CONF = float(M._env("MAGIC_TNC_THRESHOLD", "GLOBAL_TNC_THRESHOLD", default="0.6"))
 _MAX_CANDS = int(M._env("MAGIC_TNC_MAX_CANDIDATES", default="8"))
 
+# Known-vendor governing T&C. These identity/platform providers render their
+# footer Terms/Privacy links via JS (nothing in the static HTML to harvest), so
+# for a portal ON one of these hosts we use the vendor's published policy URLs
+# directly. Matched by host suffix. (host-substr, [(type, url), ...])
+_VENDOR_TNC: dict[str, list[tuple[str, str]]] = {
+    "microsoftonline.com": [("Terms", "https://www.microsoft.com/servicesagreement/"),
+                            ("Privacy", "https://privacy.microsoft.com/privacystatement")],
+    "live.com": [("Terms", "https://www.microsoft.com/servicesagreement/"),
+                 ("Privacy", "https://privacy.microsoft.com/privacystatement")],
+    "office.com": [("Terms", "https://www.microsoft.com/servicesagreement/"),
+                   ("Privacy", "https://privacy.microsoft.com/privacystatement")],
+    "accounts.google.com": [("Terms", "https://policies.google.com/terms"),
+                            ("Privacy", "https://policies.google.com/privacy")],
+    "google.com": [("Terms", "https://policies.google.com/terms"),
+                   ("Privacy", "https://policies.google.com/privacy")],
+    "instructure.com": [("Terms", "https://www.instructure.com/policies/terms-of-use-internationally"),
+                        ("Privacy", "https://www.instructure.com/policies/product-privacy-policy")],
+    "okta.com": [("Terms", "https://www.okta.com/agreements/")],
+}
+
+
+def _vendor_tnc(host: str) -> list[dict]:
+    h = (host or "").lower()
+    for key, docs in _VENDOR_TNC.items():
+        if h == key or h.endswith("." + key) or key in h:
+            return [{"url": u, "type": t} for t, u in docs]
+    return []
+
 
 def _get(url: str):
     try:
@@ -62,29 +91,47 @@ def _get(url: str):
         return None
 
 
+_ABS_URL_RE = re.compile(r"https?://[^\s\"'<>\\)]+", re.I)
+
+
 def _harvest_tnc_links(page_url: str) -> list[tuple[str, str]]:
-    """Return (url, anchor_text) links on `page_url` that look like a T&C by URL
-    shape or (multilingual) anchor text. Footer/legal links live here."""
+    """Return (url, anchor_text) T&C links on `page_url`.
+
+    Two passes so we don't miss links that aren't <a> tags:
+      (a) <a href> whose URL/text looks like a T&C (footer/legal links);
+      (b) ANY absolute URL in the raw HTML whose path matches a T&C shape —
+          this catches links embedded in JS/config blobs (e.g. the Microsoft
+          login page keeps servicesagreement/privacystatement in a $Config JSON,
+          not as anchors). We scan even on a 4xx if the body is substantial (the
+          SAML/SSO endpoints often 400 but still return the full login shell)."""
     r = _get(page_url)
-    if r is None or r.status_code >= 400 or not r.text:
+    if r is None or not r.text or len(r.text) < 200:
         return []
+    html = r.text
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
-    try:
-        soup = BeautifulSoup(r.text, "html.parser")
-    except Exception:  # noqa: BLE001
-        return []
-    for a in soup.find_all("a", href=True):
-        href = urljoin(r.url or page_url, a["href"])
+
+    def _add(href: str, text: str) -> None:
         if not href.lower().startswith("http"):
-            continue
+            return
         key = href.split("#")[0].rstrip("/")
-        if key in seen:
-            continue
-        text = (a.get_text() or "").strip().lower()
-        if _TNC_URL_RE.search(href.lower()) or any(h in text for h in _TNC_TEXT_HINTS):
+        if key not in seen:
             seen.add(key)
             out.append((href, text[:80]))
+
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            href = urljoin(r.url or page_url, a["href"])
+            text = (a.get_text() or "").strip().lower()
+            if _TNC_URL_RE.search(href.lower()) or any(h in text for h in _TNC_TEXT_HINTS):
+                _add(href, text)
+    except Exception:  # noqa: BLE001
+        pass
+    # (b) raw-HTML absolute URLs (JS/config-embedded T&C links)
+    for m in _ABS_URL_RE.findall(html):
+        if _TNC_URL_RE.search(m.lower()):
+            _add(m.rstrip(",);"), "")
     return out
 
 
@@ -194,6 +241,13 @@ def find_tnc(portal_url: str, uni_domain: str, uni_name: str,
         return {"tnc_level": level if items else "N/A", "tncs": items,
                 "tnc_url": items[0]["url"] if items else "",
                 "tnc_type": items[0]["type"] if items else ""}
+
+    # Known-vendor short-circuit: identity/platform providers (Microsoft/Google/
+    # Canvas/…) render footer T&C via JS — nothing to harvest — so use their
+    # published policy URLs directly. This is the "exact" T&C on the login page.
+    vend = _vendor_tnc(phost)
+    if vend:
+        return _result("vendor", vend)
 
     # Level 1-2: on/around the portal page itself (per-portal, not cached).
     for level, page in [("exact", portal_url)] + [("parent_url", p) for p in _parent_paths(portal_url)]:
