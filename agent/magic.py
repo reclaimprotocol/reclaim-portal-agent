@@ -860,6 +860,7 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
     accepted = [c for c in alive
                 if c.is_portal and c.central and c.belongs
                 and c.confidence >= CONFIDENCE_THRESHOLD
+                and (c.final_url or c.url).lower().startswith("https://")  # https only
                 and not _is_login_subpage(c.final_url or c.url)
                 and not _is_junk_portal(c.final_url or c.url)]
     # Dedup: one entry per (host, distinguishing-path-segment). Pure login-path
