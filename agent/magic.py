@@ -478,7 +478,14 @@ def _ct_candidates(domain: str) -> list[str]:
 
 def _subdomain_candidates(domain: str) -> list[str]:
     """DNS-resolve common portal subdomains of the registrable domain; keep the
-    ones that exist. Country-agnostic recall."""
+    ones that exist. Country-agnostic recall.
+
+    WILDCARD-DNS GUARD: if a random bogus subdomain resolves, the domain has a
+    catch-all (*.domain) DNS record — EVERY wordlist label would 'resolve' to
+    the same page, flooding results with ~40 false portals (e.g.
+    faculdadefocus.com.br returned sso./cas./moodle./alumno./... all identical).
+    In that case we skip wordlist DNS probing entirely; CT logs + web + the
+    homepage still surface the genuinely-distinct subdomains."""
     root = _registrable_root(domain)
     found: list[str] = []
 
@@ -489,6 +496,11 @@ def _subdomain_candidates(domain: str) -> list[str]:
             return host
         except Exception:  # noqa: BLE001
             return None
+
+    # canary: a label that should never exist. If it resolves → wildcard DNS.
+    if _resolve("no-such-host-9x7q2z-magic-canary"):
+        logger.info("subdomain probe: %s has wildcard DNS — skipping wordlist", root)
+        return []
 
     with _cf.ThreadPoolExecutor(max_workers=FETCH_WORKERS) as exe:
         for host in exe.map(_resolve, _SUBDOMAIN_WORDLIST):
