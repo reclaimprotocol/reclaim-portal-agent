@@ -285,6 +285,19 @@ def _is_login_subpage(url: str) -> bool:
     return bool(_SUBPAGE_RE.search(urlsplit(url).path))
 
 
+# App-store / app-download deep-links are never a student LOGIN portal — they're
+# often harvested from a real portal's "Get the mobile app" button (e.g.
+# download.moodle.org/mobile?...&iosappid=... for a UTC Moodle site).
+_JUNK_PORTAL_RE = re.compile(
+    r"download\.moodle\.org|/mobile\?version=|[?&](?:ios|android)appid=|"
+    r"play\.google\.com/store|apps\.apple\.com|itunes\.apple\.com|"
+    r"/store/apps/details|microsoft\.com/[^/]+/store", re.I)
+
+
+def _is_junk_portal(url: str) -> bool:
+    return bool(_JUNK_PORTAL_RE.search(url or ""))
+
+
 _RANK_PATH_HINTS = ("login", "signin", "sso", "portal", "account", "auth",
                     "moodle", "canvas", "cas", "oauth", "adfs", "saml")
 
@@ -847,7 +860,8 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
     accepted = [c for c in alive
                 if c.is_portal and c.central and c.belongs
                 and c.confidence >= CONFIDENCE_THRESHOLD
-                and not _is_login_subpage(c.final_url or c.url)]
+                and not _is_login_subpage(c.final_url or c.url)
+                and not _is_junk_portal(c.final_url or c.url)]
     # Dedup: one entry per (host, distinguishing-path-segment). Pure login-path
     # variants on a host (/, /login, /users/login, /login/index.php) collapse to
     # one, but genuinely distinct systems on a shared host survive (USP's
