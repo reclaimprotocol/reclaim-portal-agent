@@ -792,6 +792,23 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
     if not out:
         logger.info("magic: 0 portals — auto-retrying with cache bypassed")
         out = _discover_once(name, domain, country, use_cache=False)
+
+    # Inline Magic T&C: attach the governing terms/privacy URL + level to each
+    # portal. On by default (MAGIC_TNC=0 to disable — it adds fetch+judge per
+    # portal, so turn off for the lowest-latency live UI). A per-run cache means
+    # every portal of the same university/vendor reuses the T&C found once.
+    if out and _env("MAGIC_TNC", default="1").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            from agent import magic_tnc
+            tnc_cache: dict = {}
+            for p in out:
+                t = magic_tnc.find_tnc(p["url"], domain, name, country, cache=tnc_cache)
+                p["tnc_url"] = t.get("tnc_url", "")
+                p["tnc_level"] = t.get("tnc_level", "")
+                p["tnc_type"] = t.get("tnc_type", "")
+            logger.info("magic: T&C attached to %d portals", len(out))
+        except Exception as e:  # noqa: BLE001 — T&C is best-effort, never block portals
+            logger.warning("magic: T&C step failed: %s", e)
     return out
 
 
