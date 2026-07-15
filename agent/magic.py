@@ -293,9 +293,21 @@ _JUNK_PORTAL_RE = re.compile(
     r"play\.google\.com/store|apps\.apple\.com|itunes\.apple\.com|"
     r"/store/apps/details|microsoft\.com/[^/]+/store", re.I)
 
+# Editorial / marketing content pages are never a student LOGIN portal. They get
+# harvested because the site chrome (header nav) carries a "Student Login" link,
+# so the judge sees login signals and wrongly accepts the article/program page
+# itself (e.g. srmu.ac.in/blog/is-btech-... , srmu.ac.in/program/b-tech-cse-...).
+# Require a descriptive slug after the segment so bare section indexes still pass.
+_CONTENT_PATH_RE = re.compile(
+    r"/(?:blog|blogs|news|article|articles|story|stories|press|media|"
+    r"programmes?|programs?|course-detail|events?|notice|notices|"
+    r"gallery|about-us|placements?|testimonials?|admissions?-(?:process|info))"
+    r"/[a-z0-9][a-z0-9-]{5,}", re.I)
+
 
 def _is_junk_portal(url: str) -> bool:
-    return bool(_JUNK_PORTAL_RE.search(url or ""))
+    u = url or ""
+    return bool(_JUNK_PORTAL_RE.search(u) or _CONTENT_PATH_RE.search(urlsplit(u).path))
 
 
 _RANK_PATH_HINTS = ("login", "signin", "sso", "portal", "account", "auth",
