@@ -291,7 +291,21 @@ def _is_login_subpage(url: str) -> bool:
 _JUNK_PORTAL_RE = re.compile(
     r"download\.moodle\.org|/mobile\?version=|[?&](?:ios|android)appid=|"
     r"play\.google\.com/store|apps\.apple\.com|itunes\.apple\.com|"
-    r"/store/apps/details|microsoft\.com/[^/]+/store", re.I)
+    r"/store/apps/details|microsoft\.com/[^/]+/store|/cdn-cgi/l/email-protection", re.I)
+
+# Grievance / complaint portals are not student LOGIN portals we want (human
+# review: "dont add grievance portals" — igram.ignou.ac.in, *.samarth grievance).
+_GRIEVANCE_RE = re.compile(r"grievanc|/igram\b|(?:^|\.)igram\.|/pgportal|complaint", re.I)
+
+# Generic third-party identity/webmail sign-in endpoints. A real university
+# portal lives on the university's OWN domain; the raw Google/Microsoft/Outlook
+# consumer sign-in page (harvested from a "Login with Google/Office365" button)
+# "doesn't confirm a student login service" (human review, ~10 cases). Their OWN
+# webmail (webmail.uni.ac.in) still passes — only these provider hosts are junk.
+_GENERIC_SSO_HOSTS = (
+    "accounts.google.com", "login.microsoftonline.com", "login.live.com",
+    "outlook.office.com", "outlook.office365.com", "login.microsoft.com",
+)
 
 # Editorial / marketing content pages are never a student LOGIN portal. They get
 # harvested because the site chrome (header nav) carries a "Student Login" link,
@@ -299,15 +313,36 @@ _JUNK_PORTAL_RE = re.compile(
 # itself (e.g. srmu.ac.in/blog/is-btech-... , srmu.ac.in/program/b-tech-cse-...).
 # Require a descriptive slug after the segment so bare section indexes still pass.
 _CONTENT_PATH_RE = re.compile(
+    # generic sections: require a descriptive slug so bare indexes still pass
     r"/(?:blog|blogs|news|article|articles|story|stories|press|media|"
     r"programmes?|programs?|course-detail|events?|notice|notices|"
-    r"gallery|about-us|placements?|testimonials?|admissions?-(?:process|info))"
-    r"/[a-z0-9][a-z0-9-]{5,}", re.I)
+    r"gallery|about-us|placements?)/[a-z0-9][a-z0-9-]{5,}"
+    # specific content markers: match even as a terminal page (.html / end / ?)
+    r"|/(?:student-testimonials|testimonials?|students?-clubs?|student-activities|"
+    r"student-corner|som-experience|news-events|research)(?:[/.?]|$)", re.I)
+
+
+def _is_generic_sso(url: str) -> bool:
+    """Raw Google/Microsoft/Outlook consumer sign-in page — not a uni portal."""
+    return _norm_host(url) in _GENERIC_SSO_HOSTS
 
 
 def _is_junk_portal(url: str) -> bool:
     u = url or ""
-    return bool(_JUNK_PORTAL_RE.search(u) or _CONTENT_PATH_RE.search(urlsplit(u).path))
+    return bool(_JUNK_PORTAL_RE.search(u) or _GRIEVANCE_RE.search(u)
+                or _CONTENT_PATH_RE.search(urlsplit(u).path)) or _is_generic_sso(u)
+
+
+# Samarth eGov (India): the *.samarth.edu.in host serves STUDENT logins, while
+# *.samarth.ac.in serves staff/admin (human review, confirmed on IGNOU, NIT-H,
+# BHU). Canonicalise any samarth.ac.in portal to its samarth.edu.in twin.
+_SAMARTH_AC_RE = re.compile(r"\.samarth\.ac\.in\b", re.I)
+
+
+def _canon_portal(url: str) -> str:
+    if _SAMARTH_AC_RE.search(url or ""):
+        return _SAMARTH_AC_RE.sub(".samarth.edu.in", url)
+    return url
 
 
 _RANK_PATH_HINTS = ("login", "signin", "sso", "portal", "account", "auth",
@@ -881,14 +916,28 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
     # uspdigital.usp.br/jupiterweb vs /apolo vs /mercurioweb).
     best: dict[tuple[str, str], Candidate] = {}
     for c in sorted(accepted, key=lambda x: -x.confidence):
-        u = _clean_url(c.final_url or c.url)
+        u = _canon_portal(_clean_url(c.final_url or c.url))
         key = (_norm_host(u), _distinguishing_segment(u))
         if key not in best:
             best[key] = c
+    # Secondary dedup across sibling subdomains: the SAME login path on many
+    # subdomains of one registrable root (webmail.slc.gndu.ac.in,
+    # webmail.des.gndu.ac.in, ... /Mondo/.../login.aspx) is one system, not many
+    # (human review flagged 12 such "repeated" rows). Collapse to the shortest host.
+    root_best: dict[tuple[str, str, str], Candidate] = {}
+    for c in sorted(best.values(), key=lambda x: -x.confidence):
+        u = _canon_portal(_clean_url(c.final_url or c.url))
+        sp = urlsplit(u)
+        rkey = (_registrable_root(_norm_host(u)) or _norm_host(u),
+                sp.path.rstrip("/").lower(), sp.query.lower())
+        cur = root_best.get(rkey)
+        if cur is None or len(_norm_host(u)) < len(_norm_host(_clean_url(cur.final_url or cur.url))):
+            root_best[rkey] = c
     out = [{
-        "url": _clean_url(c.final_url or c.url), "category": c.category or "Student Portal",
+        "url": _canon_portal(_clean_url(c.final_url or c.url)),
+        "category": c.category or "Student Portal",
         "confidence": round(c.confidence, 2), "provenance": c.provenance,
         "reason": c.reason,
-    } for c in sorted(best.values(), key=lambda x: -x.confidence)]
+    } for c in sorted(root_best.values(), key=lambda x: -x.confidence)]
     logger.info("magic: %d portals accepted (from %d judged)", len(out), len(alive))
     return out
