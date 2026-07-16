@@ -924,12 +924,19 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
     # subdomains of one registrable root (webmail.slc.gndu.ac.in,
     # webmail.des.gndu.ac.in, ... /Mondo/.../login.aspx) is one system, not many
     # (human review flagged 12 such "repeated" rows). Collapse to the shortest host.
-    root_best: dict[tuple[str, str, str], Candidate] = {}
+    root_best: dict[tuple, Candidate] = {}
     for c in sorted(best.values(), key=lambda x: -x.confidence):
         u = _canon_portal(_clean_url(c.final_url or c.url))
         sp = urlsplit(u)
-        rkey = (_registrable_root(_norm_host(u)) or _norm_host(u),
-                sp.path.rstrip("/").lower(), sp.query.lower())
+        path = sp.path.rstrip("/").lower()
+        # Only collapse across sibling subdomains when a real path distinguishes
+        # the system (webmail.a/.b/... /Mondo/login.aspx). A bare subdomain ROOT
+        # (myexam.lpu.in/, ums.lpu.in/, lpulive.lpu.in/) is its own portal — the
+        # subdomain IS the distinguisher, so key it by full host, never merge.
+        if path:
+            rkey = (_registrable_root(_norm_host(u)) or _norm_host(u), path, sp.query.lower())
+        else:
+            rkey = ("__host__", _norm_host(u))
         cur = root_best.get(rkey)
         if cur is None or len(_norm_host(u)) < len(_norm_host(_clean_url(cur.final_url or cur.url))):
             root_best[rkey] = c
