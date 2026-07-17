@@ -297,7 +297,11 @@ _JUNK_PORTAL_RE = re.compile(
     # expiring SAML/Shibboleth session redirects — not stable portals
     r"SAMLRequest(?:=|%3d)|[?&]execution=e\d|/idp/profile/[^/]*saml|/saml2/(?:redirect|post)/sso|"
     # document files harvested as "portals"
-    r"\.(?:pdf|docx?|pptx?|xlsx?)(?:$|[?#])", re.I)
+    r"\.(?:pdf|docx?|pptx?|xlsx?)(?:$|[?#])|"
+    # publisher federated-access links (library databases), not a uni portal
+    r"/shibboleth\.sso/login|ssostart\?idp=|"
+    # Google redirect wrapper (google.com/url?q=...) and transfer portals
+    r"google\.com/url\?|student_transfer", re.I)
 
 # Grievance / complaint portals are not student LOGIN portals we want (human
 # review: "dont add grievance portals" — igram.ignou.ac.in, *.samarth grievance).
@@ -327,7 +331,7 @@ _CONTENT_PATH_RE = re.compile(
     r"|/(?:student-testimonials|testimonials?|students?-clubs?|student-activities|"
     r"student-corner|som-experience|news-events|research|hall-tickets?|"
     r"student-services?|results?-matrix(?:-form)?|examination-forms?|"
-    r"under-?graduate-programmes?|subjectportal)(?:[/.?]|$)", re.I)
+    r"under-?graduate-programmes?|subjectportal|student-handbook)(?:[/.?]|$)", re.I)
 
 # Marketing/root hosts that are never a student portal by themselves. The Samarth
 # eGov *product* site (samarth.edu.in) publishes news articles about deployments;
@@ -342,9 +346,13 @@ def _is_generic_sso(url: str) -> bool:
 
 def _is_junk_portal(url: str) -> bool:
     u = url or ""
+    host = _norm_host(u)
     return (bool(_JUNK_PORTAL_RE.search(u) or _GRIEVANCE_RE.search(u)
                  or _CONTENT_PATH_RE.search(urlsplit(u).path))
-            or _is_generic_sso(u) or _norm_host(u) in _MARKETING_HOSTS)
+            or _is_generic_sso(u) or host in _MARKETING_HOSTS
+            # bare Shibboleth IdP host (idp.uni.ac.in) — an identity provider, not
+            # a student login page (human review: idp.gauhati/tkmce/caluniv "no login form")
+            or host.startswith("idp."))
 
 
 # Samarth eGov (India): the *.samarth.edu.in host serves STUDENT logins, while
