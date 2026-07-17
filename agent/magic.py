@@ -344,6 +344,24 @@ def _is_generic_sso(url: str) -> bool:
     return _norm_host(url) in _GENERIC_SSO_HOSTS
 
 
+# Webmail login pages (cPanel/Horde/Roundcube/Zimbra, or an email subdomain). The
+# user does NOT want email logins — only student academic/ERP/LMS portals. Match
+# by first host label being a mail service (webmail/mail/pumail/uumail/...) or a
+# webmail app path (/webmail, /roundcube, cPanel :2095/:2096).
+_WEBMAIL_LABELS = {"webmail", "mail", "email", "roundcube", "horde",
+                   "squirrelmail", "zimbra", "owa", "mymail", "rainloop", "afterlogic"}
+_WEBMAIL_PATH_RE = re.compile(
+    r"/(?:webmail|roundcube|horde|squirrelmail|owa|zimbra|rainloop)(?:/|$|\?)|:209[56]", re.I)
+
+
+def _is_webmail(url: str) -> bool:
+    host = _norm_host(url)
+    first = host.split(".")[0]
+    if first in _WEBMAIL_LABELS or first.endswith("mail"):
+        return True
+    return bool(_WEBMAIL_PATH_RE.search(url or ""))
+
+
 def _is_junk_portal(url: str) -> bool:
     u = url or ""
     host = _norm_host(u)
@@ -352,7 +370,9 @@ def _is_junk_portal(url: str) -> bool:
             or _is_generic_sso(u) or host in _MARKETING_HOSTS
             # bare Shibboleth IdP host (idp.uni.ac.in) — an identity provider, not
             # a student login page (human review: idp.gauhati/tkmce/caluniv "no login form")
-            or host.startswith("idp."))
+            or host.startswith("idp.")
+            # webmail/email logins are not the student portals we want
+            or _is_webmail(u))
 
 
 # Samarth eGov (India): the *.samarth.edu.in host serves STUDENT logins, while
