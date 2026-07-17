@@ -291,7 +291,13 @@ def _is_login_subpage(url: str) -> bool:
 _JUNK_PORTAL_RE = re.compile(
     r"download\.moodle\.org|/mobile\?version=|[?&](?:ios|android)appid=|"
     r"play\.google\.com/store|apps\.apple\.com|itunes\.apple\.com|"
-    r"/store/apps/details|microsoft\.com/[^/]+/store|/cdn-cgi/l/email-protection", re.I)
+    r"/store/apps/details|microsoft\.com/[^/]+/store|/cdn-cgi/l/email-protection|"
+    # Google Workspace hosted-domain webmail (www.google.com/a/<dom>/ServiceLogin)
+    r"google\.com/a/[^/?]+/(?:ServiceLogin|Login)|"
+    # expiring SAML/Shibboleth session redirects — not stable portals
+    r"SAMLRequest(?:=|%3d)|[?&]execution=e\d|/idp/profile/[^/]*saml|/saml2/(?:redirect|post)/sso|"
+    # document files harvested as "portals"
+    r"\.(?:pdf|docx?|pptx?|xlsx?)(?:$|[?#])", re.I)
 
 # Grievance / complaint portals are not student LOGIN portals we want (human
 # review: "dont add grievance portals" — igram.ignou.ac.in, *.samarth grievance).
@@ -319,7 +325,14 @@ _CONTENT_PATH_RE = re.compile(
     r"gallery|about-us|placements?)/[a-z0-9][a-z0-9-]{5,}"
     # specific content markers: match even as a terminal page (.html / end / ?)
     r"|/(?:student-testimonials|testimonials?|students?-clubs?|student-activities|"
-    r"student-corner|som-experience|news-events|research)(?:[/.?]|$)", re.I)
+    r"student-corner|som-experience|news-events|research|hall-tickets?|"
+    r"student-services?|results?-matrix(?:-form)?|examination-forms?|"
+    r"under-?graduate-programmes?|subjectportal)(?:[/.?]|$)", re.I)
+
+# Marketing/root hosts that are never a student portal by themselves. The Samarth
+# eGov *product* site (samarth.edu.in) publishes news articles about deployments;
+# only a per-university subdomain (<uni>.samarth.edu.in) is an actual portal.
+_MARKETING_HOSTS = ("samarth.edu.in", "www.samarth.edu.in")
 
 
 def _is_generic_sso(url: str) -> bool:
@@ -329,8 +342,9 @@ def _is_generic_sso(url: str) -> bool:
 
 def _is_junk_portal(url: str) -> bool:
     u = url or ""
-    return bool(_JUNK_PORTAL_RE.search(u) or _GRIEVANCE_RE.search(u)
-                or _CONTENT_PATH_RE.search(urlsplit(u).path)) or _is_generic_sso(u)
+    return (bool(_JUNK_PORTAL_RE.search(u) or _GRIEVANCE_RE.search(u)
+                 or _CONTENT_PATH_RE.search(urlsplit(u).path))
+            or _is_generic_sso(u) or _norm_host(u) in _MARKETING_HOSTS)
 
 
 # Samarth eGov (India): the *.samarth.edu.in host serves STUDENT logins, while
