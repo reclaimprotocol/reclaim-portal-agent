@@ -172,6 +172,7 @@ class Candidate:
     meta: str = ""
     has_password: bool = False
     form_count: int = 0
+    input_count: int = 0
     redirect_chain: list[str] = field(default_factory=list)
     text_snippet: str = ""
     fingerprints: list[str] = field(default_factory=list)
@@ -360,6 +361,47 @@ def _is_webmail(url: str) -> bool:
     if first in _WEBMAIL_LABELS or first.endswith("mail"):
         return True
     return bool(_WEBMAIL_PATH_RE.search(url or ""))
+
+
+# A real student LOGIN page must expose a login AFFORDANCE — a password field, a
+# form with input fields, a known login-platform fingerprint, or a login-named
+# URL that actually resolves to a form. Pages that merely carry a "Login" nav
+# link, or that bounce to the university homepage, have none of these and must
+# NOT be accepted (human review, org 10070049: "no login form exists, most
+# direct to the homepage"). Kept lenient enough for SSO/JS platforms via
+# fingerprints and login-named reachable URLs.
+_LOGIN_URL_HINT_RE = re.compile(
+    r"login|sign-?in|signon|/sso|/cas|shibboleth|adfs|oauth|/auth|samlrequest|auth\.", re.I)
+
+
+def _login_affordance(c: "Candidate") -> bool:
+    final = (c.final_url or c.url)
+    sp = urlsplit(final)
+    login_named = bool(_LOGIN_URL_HINT_RE.search(sp.path + "?" + sp.query))
+    if c.has_password:                                   # password field present
+        return True
+    if c.form_count > 0 and c.input_count >= 2:          # a real form with fields
+        return True
+    # login-named URL that actually reached a form/input (not a homepage bounce)
+    if login_named and (c.form_count > 0 or c.input_count >= 1):
+        return True
+    # known LMS/SIS/SSO platform — but only with corroboration, so a content page
+    # that merely embeds a platform script/search-box doesn't slip through
+    if c.fingerprints and (login_named or c.form_count > 0 or c.has_password):
+        return True
+    # blocked by WAF (401/403/429) but the URL itself is a login endpoint
+    if c.status in (401, 403, 429) and _LOGIN_URL_HINT_RE.search(final):
+        return True
+    # a DEDICATED portal subdomain at its root (eyojan.srmu.ac.in, ums.lpu.in),
+    # already judge-vetted, whose login form is JS-rendered (no static <form>).
+    # This is a real app — unlike a content PATH on the apex/www site
+    # (mgmu.ac.in/student-login/), which this deliberately excludes.
+    host = _norm_host(final)
+    root = _registrable_root(host) or host
+    if (c.status == 200 and not sp.path.strip("/") and not sp.query
+            and host not in (root, "www." + root)):
+        return True
+    return False
 
 
 def _is_junk_portal(url: str) -> bool:
@@ -745,6 +787,7 @@ def fetch_signals(c: Candidate) -> Candidate:
     low = html.lower()
     c.has_password = 'type="password"' in low or "type='password'" in low
     c.form_count = low.count("<form")
+    c.input_count = low.count("<input")
     try:
         soup = BeautifulSoup(html, "html.parser")
         if soup.title and soup.title.string:
@@ -950,6 +993,7 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
                 if c.is_portal and c.central and c.belongs
                 and c.confidence >= CONFIDENCE_THRESHOLD
                 and (c.final_url or c.url).lower().startswith("https://")  # https only
+                and _login_affordance(c)               # must expose an actual login affordance
                 and not _is_login_subpage(c.final_url or c.url)
                 and not _is_junk_portal(c.final_url or c.url)]
     # Dedup: one entry per (host, distinguishing-path-segment). Pure login-path
