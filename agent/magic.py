@@ -316,6 +316,10 @@ _GRIEVANCE_RE = re.compile(r"grievanc|/igram\b|(?:^|\.)igram\.|/pgportal|complai
 _GENERIC_SSO_HOSTS = (
     "accounts.google.com", "login.microsoftonline.com", "login.live.com",
     "outlook.office.com", "outlook.office365.com", "login.microsoft.com",
+    # GoDaddy / Secureserver hosted-email sign-in (realm=pass, app=ox → the
+    # Open-Xchange webmail). Harvested from a site's "Webmail"/"Login" link;
+    # it's an email login for a hosting product, never a student portal.
+    "sso.godaddy.com", "sso.secureserver.net",
 )
 
 # Editorial / marketing content pages are never a student LOGIN portal. They get
@@ -994,6 +998,7 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
                 and c.confidence >= CONFIDENCE_THRESHOLD
                 and (c.final_url or c.url).lower().startswith("https://")  # https only
                 and _login_affordance(c)               # must expose an actual login affordance
+                and (c.category or "").strip().lower() != "webmail"  # judge-tagged email login (human review: drop webmail, not a student portal)
                 and not _is_login_subpage(c.final_url or c.url)
                 and not _is_junk_portal(c.final_url or c.url)]
     # Dedup: one entry per (host, distinguishing-path-segment). Pure login-path
