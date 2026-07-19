@@ -10,7 +10,10 @@ cd /Users/mrunomi/projects/reclaim-portal-agent || exit 1
 PY=.venv/bin/python
 RUNNER="$1"; shift
 ARGS=("$@")
-LOG="/Users/mrunomi/projects/reclaim-portal-agent/$(basename "$RUNNER" .py).log"
+# Log name includes a slug of the args so the same runner on different tabs
+# (e.g. --tab Kenya vs --tab Nigeria) writes to distinct logs.
+SLUG=$(echo "${ARGS[*]}" | tr -c 'A-Za-z0-9' '_' | sed 's/__*/_/g; s/^_//; s/_$//')
+LOG="/Users/mrunomi/projects/reclaim-portal-agent/$(basename "$RUNNER" .py)${SLUG:+_$SLUG}.log"
 
 echo "=== driver start $(date) :: $RUNNER ${ARGS[*]} ===" >> "$LOG"
 for i in $(seq 1 500); do

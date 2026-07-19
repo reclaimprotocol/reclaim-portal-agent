@@ -36,9 +36,7 @@ from agent.sheets_client import SheetsClient  # noqa: E402
 from agent import magic as G  # noqa: E402
 
 SHEET = "1sDK_1VnRHIuUqBComrvwS1JvSmB_l0_4Rsf9rfezFNw"
-TAB = "Nigeria"
-COUNTRY = "Nigeria"
-PORTAL_COL = "C"
+PORTAL_COL = "C"  # in-place: A University name | B Website | C Portal URL
 
 
 def _retry(fn, n=4):
@@ -53,17 +51,21 @@ def _retry(fn, n=4):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--tab", default="Nigeria", help="sheet tab to fill in-place (A name | B website | C portal)")
+    ap.add_argument("--country", default="", help="country hint for Magic (defaults to the tab name)")
     ap.add_argument("--limit", type=int, default=0, help="process at most N universities (0 = all remaining)")
     ap.add_argument("--report-remaining", action="store_true",
                     help="print the count of rows still missing a Portal URL and exit")
     args = ap.parse_args()
+    tab = args.tab
+    country = args.country or args.tab
 
     cfg = load_config()
     sc = SheetsClient.from_config(cfg)
     sc.sheet_id = SHEET
     svc = sc._service.spreadsheets()
 
-    rows = _retry(lambda: svc.values().get(spreadsheetId=SHEET, range=f"{TAB}!A2:C").execute()).get("values", [])
+    rows = _retry(lambda: svc.values().get(spreadsheetId=SHEET, range=f"{tab}!A2:C").execute()).get("values", [])
 
     todo = []
     for i, r in enumerate(rows):
@@ -82,15 +84,15 @@ def main() -> None:
     if args.limit:
         todo = todo[: args.limit]
 
-    print(f"Nigeria: {sum(1 for r in rows if r and r[0].strip())} unis | "
+    print(f"{tab}: {sum(1 for r in rows if r and r[0].strip())} unis | "
           f"processing {len(todo)} without a Portal URL", flush=True)
 
     for i, (rownum, name, website) in enumerate(todo, 1):
         try:
-            portals = G.discover(name, website, COUNTRY)
+            portals = G.discover(name, website, country)
             cell = "\n".join(p["url"] for p in portals) if portals else "(none found)"
             _retry(lambda: svc.values().update(
-                spreadsheetId=SHEET, range=f"{TAB}!{PORTAL_COL}{rownum}",
+                spreadsheetId=SHEET, range=f"{tab}!{PORTAL_COL}{rownum}",
                 valueInputOption="USER_ENTERED", body={"values": [[cell]]}).execute())
             print(f"  [{i}/{len(todo)}] row{rownum} {name[:32]:32} -> {len(portals)} portals", flush=True)
         except Exception as e:  # noqa: BLE001 — one uni must not kill the batch; leave for retry
