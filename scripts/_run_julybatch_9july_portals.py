@@ -56,6 +56,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--start-row", type=int, default=463, help="1-based sheet row to start at (row 1 = header)")
     ap.add_argument("--count", type=int, default=10, help="how many sheet rows to process")
+    ap.add_argument("--report-remaining", action="store_true",
+                    help="print how many rows in the range still need portals, then exit")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -73,6 +75,17 @@ def main() -> None:
     rows = _retry(lambda: sc._get_values(SRC_TAB, f"A{args.start_row}:D{last}"))
     done_rows = _retry(lambda: sc._get_values(OUT_TAB, "A2:A100000"))
     done = {(r[0] or "").strip() for r in done_rows if r and (r[0] or "").strip()}
+
+    if args.report_remaining:
+        rem = 0
+        for r in rows:
+            oid = (r[0].strip() if r and r[0] else "")
+            country = (r[3].strip() if len(r) > 3 and r[3] else "")
+            domains = (r[2].strip() if len(r) > 2 and r[2] else "")
+            if oid and country.lower() != "india" and oid not in done and domains.strip():
+                rem += 1
+        print(rem)
+        return
 
     print(f"9July rows {args.start_row}..{last} | Portals already done: {len(done)}", flush=True)
     n_ok = n_skip_india = n_skip_done = 0

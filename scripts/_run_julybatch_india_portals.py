@@ -61,6 +61,8 @@ def _retry(fn, n=4):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="process at most N orgs (0 = all remaining)")
+    ap.add_argument("--report-remaining", action="store_true",
+                    help="print how many orgs still need portals, then exit")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -86,6 +88,10 @@ def main() -> None:
         name = (r[1].strip() if len(r) > 1 and r[1] else "")
         domains = (r[2].strip() if len(r) > 2 and r[2] else "")
         remaining.append((oid, name, domains))
+
+    if args.report_remaining:
+        print(len(remaining))
+        return
 
     if args.limit:
         remaining = remaining[: args.limit]
