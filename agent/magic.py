@@ -689,18 +689,26 @@ def harvest(name: str, domain: str, country: str, use_cache: bool = True) -> lis
         if key not in cands:
             cands[key] = Candidate(url=u, provenance=prov, anchor_text=anchor)
 
+    # DDG web-search is OFF by default: html.duckduckgo.com rate-limits the
+    # scraper (0 results), yet its 6 SEQUENTIAL queries × 12s timeout cost ~72s
+    # per org — it was the single biggest harvest cost. The LLM/Gemini source, CT
+    # logs, subdomain DNS and own-site already cover recall. Set MAGIC_WEB_SEARCH=1
+    # to re-enable if DDG recovers.
+    web_on = _env("MAGIC_WEB_SEARCH", default="0").strip().lower() in ("1", "true", "yes", "on")
     with _cf.ThreadPoolExecutor(max_workers=5) as exe:
         f_llm = exe.submit(_cached, f"llm:{name}|{domain}",
                            lambda: _llm_suggest(name, domain, country), use_cache)
-        f_web = exe.submit(_cached, f"web:{name}|{domain}",
-                           lambda: _web_search(name, domain, country), use_cache)
+        f_web = (exe.submit(_cached, f"web:{name}|{domain}",
+                            lambda: _web_search(name, domain, country), use_cache)
+                 if web_on else None)
         f_site = exe.submit(_cached, f"site:{domain}", lambda: _own_site_links(domain), use_cache)
         f_sub = exe.submit(_cached, f"sub:{domain}", lambda: _subdomain_candidates(domain), use_cache)
         f_ct = exe.submit(_cached, f"ct:{domain}", lambda: _ct_candidates(domain), use_cache)
         for u in _safe(f_llm):
             add(u, "llm-suggest")
-        for u in _safe(f_web):
-            add(u, "web-search")
+        if f_web is not None:
+            for u in _safe(f_web):
+                add(u, "web-search")
         for (u, t) in _safe(f_site):
             add(u, "own-site", t)
         for u in _safe(f_sub):
@@ -709,7 +717,8 @@ def harvest(name: str, domain: str, country: str, use_cache: bool = True) -> lis
             add(u, "ct-log")
 
     out = list(cands.values())
-    logger.info("harvest: %d unique candidates (llm/web/site/subdomain/ct)", len(out))
+    logger.info("harvest: %d unique candidates (llm/%ssite/subdomain/ct)",
+                len(out), "web/" if web_on else "")
     return out[:MAX_CANDIDATES]
 
 
