@@ -71,6 +71,13 @@ USER_AGENT = os.getenv(
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
 HTTP_TIMEOUT = float(_env("MAGIC_HTTP_TIMEOUT", "GLOBAL_HTTP_TIMEOUT", default="12"))
+# Shorter timeout for recall-only harvest crawls (homepage/sitemap). These gate
+# the whole harvest (it waits on its slowest source), and a page that hasn't
+# responded in a few seconds almost never yields the actual login — CT logs,
+# subdomain DNS, and web search cover the same ground. Candidate VALIDATION
+# (fetch_signals) still uses the full HTTP_TIMEOUT so real portals behind slow
+# hosts aren't dropped.
+HARVEST_TIMEOUT = float(_env("MAGIC_HARVEST_TIMEOUT", default="7"))
 CONFIDENCE_THRESHOLD = float(_env("MAGIC_THRESHOLD", "GLOBAL_JUDGE_THRESHOLD", default="0.6"))
 MAX_CANDIDATES = int(_env("MAGIC_MAX_CANDIDATES", "GLOBAL_MAX_CANDIDATES", default="45"))
 FETCH_WORKERS = int(_env("MAGIC_FETCH_WORKERS", "GLOBAL_FETCH_WORKERS", default="12"))
@@ -511,44 +518,56 @@ def _web_search(name: str, domain: str, country: str) -> list[str]:
 
 
 def _own_site_links(domain: str) -> list[tuple[str, str]]:
-    """Fetch the homepage + sitemap and return (url, anchor_text) links that
-    look portal-ish (multilingual hints) plus a sample of other on-site links.
-    Recall filtering only — the judge decides."""
+    """Fetch the homepage + sitemap CONCURRENTLY and return (url, anchor_text)
+    links that look portal-ish (multilingual hints). Recall filtering only — the
+    judge decides. Uses the shorter HARVEST_TIMEOUT: these two requests
+    otherwise gate the whole harvest, and were previously issued sequentially
+    (up to 2×HTTP_TIMEOUT of dead-host waiting)."""
+    base = f"https://{domain}/"
+
+    def _homepage() -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        try:
+            r = requests.get(base, headers={"User-Agent": USER_AGENT},
+                             timeout=HARVEST_TIMEOUT, verify=False, allow_redirects=True)
+            soup = BeautifulSoup(r.text or "", "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = urljoin(r.url or base, a["href"])
+                if not href.lower().startswith("http"):
+                    continue
+                text = (a.get_text() or "").strip().lower()
+                if any(h in (href.lower() + " " + text) for h in _LINK_HINTS):
+                    out.append((href, text[:80]))
+        except Exception as err:  # noqa: BLE001
+            logger.debug("homepage fetch failed for %s: %s", domain, err)
+        return out
+
+    def _sitemap() -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        try:
+            sm = requests.get(f"https://{domain}/sitemap.xml",
+                              headers={"User-Agent": USER_AGENT},
+                              timeout=HARVEST_TIMEOUT, verify=False)
+            if sm.status_code == 200 and "<" in sm.text:
+                for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.text)[:2000]:
+                    if any(h in loc.lower() for h in _LINK_HINTS):
+                        out.append((loc, "sitemap"))
+        except Exception as err:  # noqa: BLE001
+            logger.debug("sitemap fetch failed for %s: %s", domain, err)
+        return out
+
+    with _cf.ThreadPoolExecutor(max_workers=2) as exe:
+        f_home = exe.submit(_homepage)
+        f_sm = exe.submit(_sitemap)
+        pairs = (f_home.result() or []) + (f_sm.result() or [])
+
+    # dedup by URL, keep first anchor text
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
-    base = f"https://{domain}/"
-    try:
-        r = requests.get(base, headers={"User-Agent": USER_AGENT},
-                         timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True)
-        soup = BeautifulSoup(r.text or "", "html.parser")
-        for a in soup.find_all("a", href=True):
-            href = urljoin(r.url or base, a["href"])
-            if not href.lower().startswith("http"):
-                continue
-            text = (a.get_text() or "").strip().lower()
-            blob = (href.lower() + " " + text)
-            hinted = any(h in blob for h in _LINK_HINTS)
-            if href in seen:
-                continue
-            # Keep hinted links from anywhere; keep a few same-registrable links.
-            if hinted:
-                seen.add(href)
-                out.append((href, text[:80]))
-    except Exception as err:  # noqa: BLE001
-        logger.debug("homepage fetch failed for %s: %s", domain, err)
-
-    # sitemap.xml — cheap extra recall.
-    try:
-        sm = requests.get(f"https://{domain}/sitemap.xml",
-                          headers={"User-Agent": USER_AGENT},
-                          timeout=HTTP_TIMEOUT, verify=False)
-        if sm.status_code == 200 and "<" in sm.text:
-            for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.text)[:2000]:
-                if any(h in loc.lower() for h in _LINK_HINTS) and loc not in seen:
-                    seen.add(loc)
-                    out.append((loc, "sitemap"))
-    except Exception as err:  # noqa: BLE001
-        logger.debug("sitemap fetch failed for %s: %s", domain, err)
+    for u, t in pairs:
+        if u not in seen:
+            seen.add(u)
+            out.append((u, t))
     return out
 
 
