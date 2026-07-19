@@ -956,10 +956,16 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
     domain = _norm_host("http://" + domain) if "://" not in domain else _norm_host(domain)
     logger.info("magic: discovering %s (%s)", name, domain)
 
-    out = _discover_once(name, domain, country, use_cache=True)
-    if not out:
-        logger.info("magic: 0 portals — auto-retrying with cache bypassed")
-        out = _discover_once(name, domain, country, use_cache=False)
+    out, retryable = _discover_once(name, domain, country, use_cache=True)
+    if not out and retryable:
+        # Empty for a TRANSIENT reason (throttle / blip / partial judge) — a
+        # fresh cache-bypassed pass can recover (batch zeros: TecNM/IPN/UAM).
+        logger.info("magic: 0 portals (transient) — auto-retrying with cache bypassed")
+        out, _ = _discover_once(name, domain, country, use_cache=False)
+    elif not out:
+        # Fully judged and legitimately rejected — a retry would re-run the whole
+        # pipeline just to reach the same 0. Skip it (major batch speedup).
+        logger.info("magic: 0 portals (deterministic) — skipping redundant retry")
 
     # Inline Magic T&C: attach the governing terms/privacy URL + level to each
     # portal. On by default (MAGIC_TNC=0 to disable — it adds fetch+judge per
@@ -980,10 +986,17 @@ def discover(name: str, domain: str, country: str = "") -> list[dict]:
     return out
 
 
-def _discover_once(name: str, domain: str, country: str, use_cache: bool = True) -> list[dict]:
+def _discover_once(name: str, domain: str, country: str,
+                   use_cache: bool = True) -> tuple[list[dict], bool]:
+    """Returns (portals, retryable). `retryable` is True only when an EMPTY
+    result looks TRANSIENT — nothing harvested, all fetches dead, or the LLM
+    judge didn't score every live candidate (throttle). It is False when the
+    pipeline ran fully and the judge scored every candidate but the filters
+    rejected them all: that emptiness is deterministic, so a cache-bypassed
+    retry would just re-run the whole pipeline to the identical verdict."""
     cands = harvest(name, domain, country, use_cache=use_cache)
     if not cands:
-        return []
+        return [], True  # empty harvest = throttle/blip — worth a fresh retry
 
     with _cf.ThreadPoolExecutor(max_workers=FETCH_WORKERS) as exe:
         cands = list(exe.map(fetch_signals, cands))
@@ -1056,5 +1069,12 @@ def _discover_once(name: str, domain: str, country: str, use_cache: bool = True)
         "confidence": round(c.confidence, 2), "provenance": c.provenance,
         "reason": c.reason,
     } for c in sorted(root_best.values(), key=lambda x: -x.confidence)]
-    logger.info("magic: %d portals accepted (from %d judged)", len(out), len(alive))
-    return out
+    # Transient iff we never fully evaluated: no live candidates, or the judge
+    # left some unjudged (throttle). All-judged-but-rejected is deterministic.
+    n_judged = sum(1 for c in alive if c.judged)
+    retryable = (len(alive) == 0) or (n_judged < len(alive))
+    logger.info("magic: %d portals accepted (from %d judged / %d alive)%s",
+                len(out), n_judged, len(alive),
+                "" if out else (" — transient, retryable" if retryable
+                                else " — deterministic, skip retry"))
+    return out, retryable
