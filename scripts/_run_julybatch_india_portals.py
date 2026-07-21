@@ -38,6 +38,7 @@ except Exception:  # noqa: BLE001
 os.environ.setdefault("MAGIC_TNC", "0")  # T&C is a separate tab/step
 
 import _bootstrap  # noqa: F401,E402
+from _inactive import INACTIVE  # noqa: E402 — org ids to exclude from all runs
 from agent.config import load_config  # noqa: E402
 from agent.sheets_client import SheetsClient  # noqa: E402
 from agent import magic as G  # noqa: E402
@@ -83,7 +84,7 @@ def main() -> None:
     remaining = []
     for r in src:
         oid = (r[0].strip() if r and r[0] else "")
-        if not oid or oid in done:
+        if not oid or oid in done or oid in INACTIVE:
             continue
         name = (r[1].strip() if len(r) > 1 and r[1] else "")
         domains = (r[2].strip() if len(r) > 2 and r[2] else "")

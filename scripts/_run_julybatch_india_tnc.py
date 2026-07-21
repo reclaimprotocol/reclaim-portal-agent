@@ -36,6 +36,7 @@ except Exception:  # noqa: BLE001
     pass
 
 import _bootstrap  # noqa: F401,E402
+from _inactive import INACTIVE  # noqa: E402 — org ids to exclude from all runs
 from agent.config import load_config  # noqa: E402
 from agent.sheets_client import SheetsClient  # noqa: E402
 from agent import magic_tnc as T  # noqa: E402
@@ -95,7 +96,7 @@ def main() -> None:
             (r[4].strip() if len(r) > 4 and r[4] else ""),   # category
         ))
 
-    remaining = [o for o in orgs if o not in done]
+    remaining = [o for o in orgs if o not in done and o not in INACTIVE]
     if args.report_remaining:
         print(len(remaining))
         return

@@ -33,6 +33,7 @@ except Exception:  # noqa: BLE001
 os.environ.setdefault("MAGIC_TNC", "0")  # T&C is a separate tab/step
 
 import _bootstrap  # noqa: F401,E402
+from _inactive import INACTIVE  # noqa: E402 — org ids to exclude from all runs
 from agent.config import load_config  # noqa: E402
 from agent.sheets_client import SheetsClient  # noqa: E402
 from agent import magic as G  # noqa: E402
@@ -82,7 +83,8 @@ def main() -> None:
             oid = (r[0].strip() if r and r[0] else "")
             country = (r[3].strip() if len(r) > 3 and r[3] else "")
             domains = (r[2].strip() if len(r) > 2 and r[2] else "")
-            if oid and country.lower() != "india" and oid not in done and domains.strip():
+            if (oid and country.lower() != "india" and oid not in done
+                    and oid not in INACTIVE and domains.strip()):
                 rem += 1
         print(rem)
         return
@@ -96,6 +98,9 @@ def main() -> None:
         domains = (r[2].strip() if len(r) > 2 and r[2] else "")
         country = (r[3].strip() if len(r) > 3 and r[3] else "")
         if not oid:
+            continue
+        if oid in INACTIVE:
+            print(f"  row{row_no} {name[:30]:30} SKIP (inactive)", flush=True)
             continue
         if country.lower() == "india":
             n_skip_india += 1
