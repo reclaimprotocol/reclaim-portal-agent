@@ -50,6 +50,8 @@ def _retry(fn, n=4):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--report-remaining", action="store_true")
+    ap.add_argument("--max-minutes", type=float, default=0.0,
+                    help="stop launching new orgs after this many minutes (0 = unlimited)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -80,8 +82,14 @@ def main() -> None:
         print(len(todo))
         return
 
-    print(f"{TAB}: fresh retry on {len(todo)} orgs", flush=True)
+    deadline = (time.time() + args.max_minutes * 60) if args.max_minutes else None
+    print(f"{TAB}: fresh retry on {len(todo)} orgs"
+          + (f" (budget {args.max_minutes:.0f} min)" if deadline else ""), flush=True)
     for i, (rownum, name, website) in enumerate(todo, 1):
+        if deadline and time.time() > deadline:
+            print(f"  TIME BUDGET REACHED — stopping at {i-1}/{len(todo)} "
+                  f"({len(todo)-(i-1)} left unprocessed)", flush=True)
+            break
         try:
             primary = website.split(",")[0].strip()
             portals, _ = G._discover_once(name, primary, COUNTRY, use_cache=False)
