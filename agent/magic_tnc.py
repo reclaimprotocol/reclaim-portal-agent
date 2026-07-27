@@ -51,6 +51,65 @@ _TNC_TEXT_HINTS = (
     "이용약관", "개인정보", "利用規約", "プライバシー", "隐私", "条款",
 )
 
+# --- T&C URL sanity net -------------------------------------------------- #
+# A genuine T&C is an HTML/PDF policy DOCUMENT on the org's own domain, a known
+# platform vendor, or a URL whose PATH carries a policy keyword. These reject
+# the junk that slips past the judge: consent-banner scripts
+# (cdn.privacytools.com.br/.../autoblock/…js), asset files, tag-manager pixels,
+# and unrelated third-party/spam domains (ampkera4d.site) that only match
+# because a policy word appears in the HOSTNAME.
+_TNC_ASSET_RE = re.compile(
+    r"\.(?:js|mjs|css|map|json|xml|png|jpe?g|gif|svg|webp|woff2?|ttf|ico|mp4|woff)(?:$|\?)", re.I)
+_TNC_JUNK_PATH_RE = re.compile(
+    r"/public_api/|/autoblock|/banner/|/gtag|/gtm[./]|/analytics|/pixel|/consent[_-]?script", re.I)
+# consent / tag-manager SaaS — they serve cookie banners, not the org's policy
+_TNC_CONSENT_HOSTS = ("cookiebot", "onetrust", "privacytools", "iubenda",
+                      "cookieyes", "termly", "cookielaw", "usercentrics", "civiccomputing")
+# host labels that usually serve app/asset traffic, not policy DOCUMENTS — junk
+# UNLESS the path itself is an explicit policy doc name (see _TNC_STRONG_PATH_RE)
+_TNC_BAD_LABELS = {"cdn", "static", "assets", "media", "api", "app", "apps",
+                   "aplicacao", "aplicativo", "img", "images", "js"}
+# explicit policy DOCUMENT names (not weak law/section words like lgpd/legal/gdpr)
+_TNC_STRONG_PATH_RE = re.compile(
+    r"term|termos|t[eé]rmin|privac|privacid|privacy|condic|condi[cç][oõ]es|"
+    r"cookie|aviso.?de.?privac|politica.?de.?privac|nutzungsbeding|datenschutz|"
+    r"conditions|confidentialit|/tos(?:[/?.]|$)|/cgu|/agb", re.I)
+# off-domain hosts whose published policies ARE the governing T&C (platform vendors)
+_TNC_VENDOR_HOSTS = ("google.com", "policies.google.com", "microsoft.com",
+                     "privacy.microsoft.com", "instructure.com", "blackboard.com",
+                     "moodle.com", "moodle.org", "d2l.com", "brightspace.com",
+                     "canvaslms.com", "openathens.net", "ellucian.com")
+
+
+def _is_valid_tnc(url: str, proot: str, uroot: str) -> bool:
+    """True if `url` is a plausible T&C DOCUMENT (not a script/asset, consent
+    banner, app/cdn endpoint, or unrelated third-party page)."""
+    try:
+        sp = urlsplit(url)
+    except Exception:  # noqa: BLE001
+        return False
+    host = M._norm_host(url)
+    path = sp.path or "/"
+    if not host or sp.scheme not in ("http", "https"):
+        return False
+    if _TNC_ASSET_RE.search(path) or _TNC_JUNK_PATH_RE.search(url):
+        return False                         # script/asset/pixel, not a document
+    if any(c in host for c in _TNC_CONSENT_HOSTS):
+        return False                         # cookie-consent SaaS banner, not the org policy
+    pathq = (path + "?" + (sp.query or "")).lower()
+    strong = bool(_TNC_STRONG_PATH_RE.search(pathq))   # explicit policy doc name in path
+    # app/cdn/api host is junk unless the PATH is an explicit policy doc
+    if host.split(".")[0] in _TNC_BAD_LABELS and not strong:
+        return False
+    root = M._registrable_root(host) or host
+    if root in (proot, uroot):
+        return True                          # on the org's own domain
+    if any(host == v or host.endswith("." + v) for v in _TNC_VENDOR_HOSTS):
+        return True                          # known platform vendor policy
+    # off-domain third party: only with a policy keyword in the PATH (not host)
+    return strong or bool(_TNC_URL_RE.search(pathq))
+
+
 _CONF = float(M._env("MAGIC_TNC_THRESHOLD", "GLOBAL_TNC_THRESHOLD", default="0.6"))
 _MAX_CANDS = int(M._env("MAGIC_TNC_MAX_CANDIDATES", default="8"))
 
@@ -238,6 +297,9 @@ def find_tnc(portal_url: str, uni_domain: str, uni_name: str,
     is_vendor = proot != uroot
 
     def _result(level, items):
+        # sanity-net: drop junk URLs (consent scripts, assets, app/cdn endpoints,
+        # unrelated third-party/spam) that slipped past the judge.
+        items = [it for it in (items or []) if _is_valid_tnc(it.get("url", ""), proot, uroot)]
         return {"tnc_level": level if items else "N/A", "tncs": items,
                 "tnc_url": items[0]["url"] if items else "",
                 "tnc_type": items[0]["type"] if items else ""}
