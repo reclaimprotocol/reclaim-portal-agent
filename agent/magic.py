@@ -307,7 +307,12 @@ _JUNK_PORTAL_RE = re.compile(
     # document files harvested as "portals"
     r"\.(?:pdf|docx?|pptx?|xlsx?)(?:$|[?#])|"
     # publisher federated-access links (library databases), not a uni portal
-    r"/shibboleth\.sso/login|ssostart\?idp=|"
+    r"/shibboleth\.sso/login|ssostart\?idp=|start-session\?idp=|"
+    # SAML/Shibboleth IdP entityID + metadata endpoints — identifiers/XML, NOT a
+    # student login page (SIFULAN federation etc.): …/idp/shibboleth,
+    # …/saml2/idp/metadata.php, …/Saml2IDP/proxy.xml, …/idp/metadata
+    r"/idp/shibboleth(?:$|[/?#])|saml2/idp/metadata\.php|saml2idp/proxy\.xml|"
+    r"/idp/metadata(?:$|[/?#])|/idp/profile/saml|"
     # search / listing / people-directory pages are not login portals (human
     # review: uspdigital…/urania/pessoaListar?incfonema=, …/pesquisa, …/buscar)
     r"pessoalistar|[?&]incfonema=|listar(?:[/?.]|$)|/pesquisar?(?:[/?.]|$)|"

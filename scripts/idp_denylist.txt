@@ -1,0 +1,21 @@
+# SAML/Shibboleth IdP entityID & metadata URLs — NEVER valid student portals.
+# User-provided (Malaysian SIFULAN federation etc.). Reject exact matches AND
+# the general pattern is caught by _JUNK_PORTAL_RE (/idp/shibboleth, saml2 metadata).
+https://idf.upm.edu.my/idp/shibboleth
+https://idp.imu.edu.my/idp/shibboleth
+https://idp.ump.edu.my/sso/saml2/idp/metadata.php
+https://idp3.umt.edu.my/idp/shibboleth
+https://proxy-idp.mypolycc.edu.my/Saml2IDP/proxy.xml
+https://shib-idp.uitm.edu.my/idp/shibboleth
+https://shib-idp.upnm.edu.my/idp/shibboleth
+https://shib-idp.usim.edu.my/idp/shibboleth
+https://shibsso.usm.my/idp/shibboleth
+https://sifulan.tarc.edu.my/idp/shibboleth
+https://sifulan.utar.edu.my/idp/shibboleth
+https://sifulan.uthm.edu.my/idp/shibboleth
+https://sso.perdanauniversity.edu.my/saml2/idp/metadata.php
+https://sso.unisza.edu.my/idp/shibboleth
+https://sso.university.unimas.my/idp/shibboleth
+https://umsidp.ums.edu.my/idp/shibboleth
+https://vho.sifulan.my/idp/shibboleth
+(the full ~150-URL list is covered by the /idp/shibboleth + saml2 metadata pattern in _JUNK_PORTAL_RE)
