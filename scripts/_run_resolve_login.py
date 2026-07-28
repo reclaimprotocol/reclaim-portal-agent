@@ -35,15 +35,18 @@ except Exception:  # noqa: BLE001
 
 import _bootstrap  # noqa: F401,E402
 import requests  # noqa: E402
+import os  # noqa: E402
 from bs4 import BeautifulSoup  # noqa: E402
 import agent.magic as M  # noqa: E402
+from agent import magic_tnc as T  # noqa: E402
 from agent.stages.js_renderer import JSRenderer, _has_password_input, looks_like_block_page  # noqa: E402
 from agent.config import load_config  # noqa: E402
 from agent.sheets_client import SheetsClient  # noqa: E402
 
 SHEET = "1sDK_1VnRHIuUqBComrvwS1JvSmB_l0_4Rsf9rfezFNw"
 TAB = "Portals TnC"
-WINDOW_CACHE = ROOT / "portals_review_window.json"      # reuse the review window
+WINDOW = int(os.getenv("MAGIC_REVIEW_WINDOW", "30"))    # distinct orgs per run
+WINDOW_CACHE = ROOT / "portals_review_window.json"
 DONE_CACHE = ROOT / "resolve_login_done.json"
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -186,11 +189,28 @@ def _load_rows(svc):
     return _retry(lambda: svc.values().get(spreadsheetId=SHEET, range=f"'{TAB}'!A2:H").execute()).get("values", [])
 
 
-def _window():
-    try:
-        return set(json.loads(WINDOW_CACHE.read_text()))
-    except Exception:  # noqa: BLE001
-        return set()
+def _window(rows):
+    """Reuse a frozen window cache, else build one: the next WINDOW distinct orgs
+    that are FULLY unreviewed (no E on any of their rows)."""
+    if WINDOW_CACHE.exists():
+        try:
+            return set(json.loads(WINDOW_CACHE.read_text()))
+        except Exception:  # noqa: BLE001
+            pass
+    reviewed = set()
+    for r in rows:
+        oid = (r[0].strip() if r and r[0] else "")
+        if oid and len(r) > 4 and (r[4].strip() if r[4] else ""):
+            reviewed.add(oid)
+    win, seen = [], set()
+    for r in rows:
+        oid = (r[0].strip() if r and r[0] else "")
+        if oid and oid not in reviewed and oid not in seen:
+            seen.add(oid); win.append(oid)
+        if len(win) >= WINDOW:
+            break
+    WINDOW_CACHE.write_text(json.dumps(win))
+    return set(win)
 
 
 def _done():
@@ -207,17 +227,19 @@ def main() -> None:
 
     sc = SheetsClient.from_config(load_config()); sc.sheet_id = SHEET
     svc = sc._service.spreadsheets()
-    window = _window()
     rows = _load_rows(svc)
+    window = _window(rows)
     done = _done()
 
-    todo = []  # (rownum, orgid, portal, tnc)
+    todo = []  # (rownum, orgid, name, dom, portal, tnc)
     for i, r in enumerate(rows, 2):
         oid = (r[0].strip() if r and r[0] else "")
         portal = (r[3].strip() if len(r) > 3 and r[3] else "")
+        name = (r[1].strip() if len(r) > 1 and r[1] else "")
+        dom = (r[2].strip() if len(r) > 2 and r[2] else "")
         tnc = (r[6].strip() if len(r) > 6 and r[6] else "")
         if oid in window and portal and portal != "(none found)" and f"{i}" not in done:
-            todo.append((i, oid, portal, tnc))
+            todo.append((i, oid, name, dom, portal, tnc))
 
     if args.report_remaining:
         print(len(todo)); return
@@ -237,8 +259,29 @@ def main() -> None:
     # a row is a true DUPLICATE only if the login endpoint AND the T&C match another
     # row of the same org — same portal with two different T&C docs is legitimate.
     seen: dict = {}   # (orgid, canon endpoint, canon tnc) -> first rownum
+    tcache: dict = {}  # per-run uni/vendor T&C memo
 
-    for n, (row, oid, portal, tnc) in enumerate(todo, 1):
+    def _tnc(g, endpoint, dom, name):
+        """Return (gnew, hnote): validate an existing T&C, or fill via waterfall."""
+        proot = M._registrable_root(M._norm_host(endpoint)) or ""
+        uroot = (M._registrable_root(M._norm_host("http://" + dom.split(",")[0].strip()))
+                 if dom else proot)
+        g = (g or "").strip()
+        if g.lower().startswith("http"):
+            if not T._is_valid_tnc(g, proot, uroot):
+                return g, "invalid T&C (junk/consent/app/law-landing) — replace"
+            return g, "ok — valid policy page"
+        try:
+            res = T.find_tnc(endpoint, dom.split(",")[0].strip() if dom else "", name, "", cache=tcache)
+            items = res.get("tncs") or []
+        except Exception as e:  # noqa: BLE001
+            return "N/A", f"find_tnc error ({type(e).__name__})"
+        if items:
+            extra = f" (+{len(items)-1} more)" if len(items) > 1 else ""
+            return items[0]["url"], f"auto-added T&C ({res.get('tnc_level','')}){extra}"
+        return "N/A", "auto: no T&C found (waterfall)"
+
+    for n, (row, oid, name, dom, portal, tnc) in enumerate(todo, 1):
         endpoint, mode = resolve(portal)
         if mode == "resolved" and _canon(endpoint) != _canon(portal):
             note = f"resolved to exact login endpoint: {endpoint}"
@@ -252,6 +295,12 @@ def main() -> None:
             seen[key] = row
         red = dup or mode in ("junk", "dead")
 
+        # T&C: skip for removal rows; else validate/fill against the resolved endpoint
+        if red:
+            gnew, hnote = tnc, "(row flagged for removal)"
+        else:
+            gnew, hnote = _tnc(tnc, endpoint, dom, name)
+
         data = []
         # write the resolved endpoint into D for every kept/resolved row so the
         # portal column always shows the ACTUAL endpoint the dedup keyed on
@@ -259,6 +308,9 @@ def main() -> None:
         if mode not in ("junk", "dead") and _canon(endpoint) != _canon(portal):
             data.append({"range": f"'{TAB}'!D{row}", "values": [[endpoint]]})
         data.append({"range": f"'{TAB}'!E{row}", "values": [[note]]})
+        if gnew and gnew != tnc:
+            data.append({"range": f"'{TAB}'!G{row}", "values": [[gnew]]})
+        data.append({"range": f"'{TAB}'!H{row}", "values": [[hnote]]})
         _retry(lambda: svc.values().batchUpdate(spreadsheetId=SHEET,
                body={"valueInputOption": "RAW", "data": data}).execute())
         _retry(lambda: svc.batchUpdate(spreadsheetId=SHEET, body={"requests": [{"repeatCell": {
