@@ -37,6 +37,34 @@ _CHALLENGE_MARKERS: tuple[str, ...] = (
     "needs to review the security of your connection",
 )
 
+# TERMINAL WAF block ("Sorry, you have been blocked" / "Attention Required") —
+# distinct from the transient challenge above: it will NEVER resolve to the real
+# page, so a render that lands here is NOT a live portal, it's a block page
+# (often a geographic/ASN block — the cf-ray suffix, e.g. `-DEL`, names the edge
+# that blocked you). Detecting it stops us counting a block page as a working
+# login (ava.uninter.com renders fine but is a Cloudflare block from India).
+_BLOCK_MARKERS: tuple[str, ...] = (
+    "you have been blocked",
+    "attention required! | cloudflare",
+    "unable to access",
+    "access denied",
+    "error 1020",
+    "ray id:",
+    "this website is using a security service to protect itself",
+)
+
+
+def looks_like_block_page(html: str) -> bool:
+    """True if `html` is a terminal WAF/Cloudflare block page (not a real page).
+    Requires 2+ markers so a page merely mentioning 'access denied' in copy
+    doesn't false-positive."""
+    if not html:
+        return False
+    low = html.lower()
+    if _looks_like_challenge(html):
+        return False  # transient challenge, handled separately
+    return sum(1 for m in _BLOCK_MARKERS if m in low) >= 2
+
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
