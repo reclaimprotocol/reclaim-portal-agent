@@ -197,15 +197,20 @@ def _window(rows):
             return set(json.loads(WINDOW_CACHE.read_text()))
         except Exception:  # noqa: BLE001
             pass
-    reviewed = set()
+    reviewed, has_real = set(), set()
     for r in rows:
         oid = (r[0].strip() if r and r[0] else "")
-        if oid and len(r) > 4 and (r[4].strip() if r[4] else ""):
+        if not oid:
+            continue
+        if len(r) > 4 and (r[4].strip() if r[4] else ""):
             reviewed.add(oid)
+        portal = (r[3].strip() if len(r) > 3 and r[3] else "")
+        if portal and portal != "(none found)":
+            has_real.add(oid)      # only orgs with a real portal are worth a window slot
     win, seen = [], set()
     for r in rows:
         oid = (r[0].strip() if r and r[0] else "")
-        if oid and oid not in reviewed and oid not in seen:
+        if oid and oid not in reviewed and oid in has_real and oid not in seen:
             seen.add(oid); win.append(oid)
         if len(win) >= WINDOW:
             break
