@@ -308,6 +308,10 @@ _JUNK_PORTAL_RE = re.compile(
     r"\.(?:pdf|docx?|pptx?|xlsx?)(?:$|[?#])|"
     # publisher federated-access links (library databases), not a uni portal
     r"/shibboleth\.sso/login|ssostart\?idp=|"
+    # search / listing / people-directory pages are not login portals (human
+    # review: uspdigital…/urania/pessoaListar?incfonema=, …/pesquisa, …/buscar)
+    r"pessoalistar|[?&]incfonema=|listar(?:[/?.]|$)|/pesquisar?(?:[/?.]|$)|"
+    r"/buscar?(?:[/?.]|$)|/search(?:[/?.]|$)|/directorio(?:[/?.]|$)|"
     # Google redirect wrapper (google.com/url?q=...) and transfer portals
     r"google\.com/url\?|student_transfer", re.I)
 

@@ -96,6 +96,10 @@ def _is_valid_tnc(url: str, proot: str, uroot: str) -> bool:
         return False                         # script/asset/pixel, not a document
     if any(c in host for c in _TNC_CONSENT_HOSTS):
         return False                         # cookie-consent SaaS banner, not the org policy
+    # bare data-protection-LAW landing (…/lgpd/, …/gdpr) — an info hub, not the
+    # actual terms/privacy DOCUMENT (human review: sites.usp.br/lgpd/ "no tnc content")
+    if re.fullmatch(r"/(?:lgpd|gdpr|dpo)/?", path, re.I):
+        return False
     pathq = (path + "?" + (sp.query or "")).lower()
     strong = bool(_TNC_STRONG_PATH_RE.search(pathq))   # explicit policy doc name in path
     # app/cdn/api host is junk unless the PATH is an explicit policy doc
