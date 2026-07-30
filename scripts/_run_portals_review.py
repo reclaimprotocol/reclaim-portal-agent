@@ -25,7 +25,7 @@ import signal
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
@@ -53,6 +53,53 @@ _LOGIN_TXT = re.compile(r"log[\s\-]?in|sign[\s\-]?in|entrar|acess|ingresar|inici
                         r"usuario|contrase|password|clave", re.I)
 _SUBPAGE = re.compile(r"/(ayuda|fecha_examen|menu|help|about|acerca|contacto|noticias|faq|"
                       r"preguntas|foro|forum|mod/forum|calendar)", re.I)
+# Documentation / student-handbook sites — NOT a login portal (e.g.
+# manualdoaluno.ebpos.com.br is a GitBook manual, not the login). They often
+# mention "login/entrar/acesso" in prose, which used to false-green them. We try
+# to follow their login link to the real endpoint; if none, they're removed.
+_DOC_RE = re.compile(r"(?:^|//|\.)(?:manualdoaluno|docs?|ajuda|suporte|support|help|faq|wiki|kb|"
+                     r"tutorial|guia|guide)\.|gitbook\.io|readthedocs|/(?:manual|ajuda|docs?|"
+                     r"help|faq|suporte|wiki|tutoriais?)(?:/|$)", re.I)
+# Login-ACTION anchors (text or href) — used to resolve a hub/manual page to the
+# exact login endpoint. Explicit login actions only, not broad nav words.
+_LOGIN_A = re.compile(r"log[\s\-]?in|sign[\s\-]?in|entrar|acessar|acesso\s+ao\s+portal|"
+                      r"ingresar|iniciar\s+sesi|identifica|autentica|portal\s+do\s+aluno|"
+                      r"[aá]rea\s+do\s+aluno|clicar\s+aqui|acesse\s+aqui|clique\s+aqui", re.I)
+
+
+def _has_login_form(html: str) -> bool:
+    h = (html or "").lower()
+    return bool(_has_password_input(html) or (h.count("<form") and h.count("<input") >= 2))
+
+
+def _login_endpoint(base_url: str, html: str):
+    """Follow login-ACTION links on a hub/manual page to find the exact login
+    endpoint (a page that actually exposes a password form). One hop, a few
+    candidates; returns the resolved URL or None. Bounded by the per-row alarm."""
+    from bs4 import BeautifulSoup  # local import; bs4 ships with the project
+    try:
+        soup = BeautifulSoup(html or "", "html.parser")
+    except Exception:  # noqa: BLE001
+        return None
+    base_canon = urlsplit(base_url).geturl().split("#")[0].rstrip("/")
+    cands, seen = [], set()
+    for a in soup.find_all("a", href=True):
+        txt = (a.get_text() or "").strip()
+        href = urljoin(base_url, a["href"]).split("#")[0]
+        if not href.lower().startswith("http") or href in seen:
+            continue
+        if _LOGIN_A.search(txt) or _LOGIN_A.search(href):
+            seen.add(href); cands.append(href)
+    for cand in cands[:5]:
+        if cand.split("#")[0].rstrip("/") == base_canon or _DOC_RE.search(cand):
+            continue  # no progress / another doc page
+        st, fin, ch = _fetch(cand)
+        if _has_login_form(ch):
+            return fin or cand
+        rr = _render(cand)
+        if rr.ok and not looks_like_block_page(rr.html or "") and _has_login_form(rr.html or ""):
+            return rr.final_url or cand
+    return None
 # Tenant-specific / SP-initiated SSO login = a REAL university student login, even
 # though it lives on a provider host (Azure AD, ADFS). Distinct from a BARE
 # consumer sign-in (login.microsoftonline.com/ with no tenant) which stays junk.
@@ -149,36 +196,49 @@ def _on_alarm(signum, frame):  # noqa: ARG001
 
 
 def review_portal(url, root_hosts):
+    """Returns (color, note, resolved_url). resolved_url is a NEW exact login
+    endpoint to write into col D when we followed a login link off a hub/manual
+    page; None means keep the URL as-is."""
     host = M._norm_host(url); sp = urlsplit(url); path = sp.path.rstrip("/")
     if host.startswith("idp."):
-        return "red", "bare IdP host, no login page — remove"
+        return "red", "bare IdP host, no login page — remove", None
     if _is_indian(url):
-        return "red", "Indian university — out of scope, remove"
+        return "red", "Indian university — out of scope, remove", None
     if _TENANT_SSO.search(url):
-        return "green", "ok — tenant/federated SSO login (Azure AD/ADFS)"
+        return "green", "ok — tenant/federated SSO login (Azure AD/ADFS)", None
     if M._is_junk_portal(url):
         if _SUBPAGE.search(url):
-            return "red", "internal sub-page, not a login — remove (keep portal root)"
-        return "red", "junk (search/asset/idp-metadata/redirect) — remove"
+            return "red", "internal sub-page, not a login — remove (keep portal root)", None
+        return "red", "junk (search/asset/idp-metadata/redirect) — remove", None
     if _is_webmail(url) and not _STUDENT_HINT.search(url):
-        return "red", "webmail/email login (not student-only) — remove"
+        return "red", "webmail/email login (not student-only) — remove", None
     if path and _SUBPAGE.search(url) and host in root_hosts:
-        return "red", "duplicate sub-page of the portal root — remove"
+        return "red", "duplicate sub-page of the portal root — remove", None
+
     st, final, html = _fetch(url)
-    low = (html or "").lower()
-    if _has_password_input(html) or (low.count("<form") and low.count("<input") >= 2):
-        return "green", "ok — login form present"
+    if _has_login_form(html):
+        return "green", "ok — login form present", None
     res = _render(url)
-    if res.ok:
-        h = res.html or ""; hl = h.lower()
-        if looks_like_block_page(h):
-            return "amber", "WAF/Cloudflare block page from our region — likely geo-blocked; verify via VPN"
-        if _has_password_input(h) or (hl.count("<form") and hl.count("<input") >= 2) or _LOGIN_TXT.search(h):
-            return "green", "ok — login present (JS-rendered)"
-        return "amber", "live but no login element found — verify it's a login portal"
+    rhtml = res.html if (res and res.ok) else ""
+    if rhtml and looks_like_block_page(rhtml):
+        return "amber", "WAF/Cloudflare block page from our region — likely geo-blocked; verify via VPN", None
+    if _has_login_form(rhtml):
+        return "green", "ok — login form present (JS-rendered)", None
+
+    # No login FORM on this page. Before giving up, try to RESOLVE the exact
+    # login endpoint by following a login-action link (hub/manual pages only
+    # LINK to the real login; the page itself isn't a login — the EBPÓS manual
+    # case). Mere login TEXT is no longer enough to pass.
+    ep = _login_endpoint(final or url, rhtml or html)
+    if ep:
+        return "green", "resolved to exact login endpoint (followed login link)", ep
+    if _DOC_RE.search(final or url):
+        return "red", "documentation/manual/help page, not a login — remove", None
+    if res and res.ok:
+        return "red", "no login form or login link found — not a login page, remove", None
     if st in (401, 403, 429):
-        return "red", f"returns {st} to bots and fails to render — likely blocked/dead, verify/remove"
-    return "red", f"unreachable (status {st}, render failed) — remove"
+        return "red", f"returns {st} to bots and fails to render — likely blocked/dead, verify/remove", None
+    return "red", f"unreachable (status {st}, render failed) — remove", None
 
 
 def review_or_fill_tnc(g, portal, dom, name, cache):
@@ -291,13 +351,15 @@ def main() -> None:
     for n, (row, r) in enumerate(todo, 1):
         r = (r + [""] * 8)[:8]
         oid, name, dom, portal, _, cat, g, _h = r
+        resolved = None
         try:
             signal.alarm(row_timeout)
-            pc, pf = review_portal(portal, root_hosts)
+            pc, pf, resolved = review_portal(portal, root_hosts)
+            eff_portal = resolved or portal   # resolve T&C against the real endpoint
             if pc == "red":
                 gnew, tf = g or "N/A", "(portal flagged for removal)"
             else:
-                gnew, _tc, tf = review_or_fill_tnc(g, portal, dom, name, tcache)
+                gnew, _tc, tf = review_or_fill_tnc(g, eff_portal, dom, name, tcache)
             signal.alarm(0)
         except _RowTimeout:
             signal.alarm(0)
@@ -306,6 +368,8 @@ def main() -> None:
             gnew, tf = g or "N/A", "(review timed out)"
         data = [{"range": f"'{TAB}'!E{row}", "values": [[pf]]},
                 {"range": f"'{TAB}'!H{row}", "values": [[tf]]}]
+        if resolved and resolved != portal:
+            data.append({"range": f"'{TAB}'!D{row}", "values": [[resolved]]})
         if gnew and gnew != g:
             data.append({"range": f"'{TAB}'!G{row}", "values": [[gnew]]})
         _retry(lambda: svc.values().batchUpdate(spreadsheetId=SHEET,
