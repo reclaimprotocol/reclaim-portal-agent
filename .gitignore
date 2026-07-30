@@ -73,3 +73,19 @@ idp_denylist.txt
 
 # global-agent disk cache
 .cache/
+
+# Local run artifacts — snapshots, caches, verdicts, windows, exports (never commit)
+*_snapshot*.json
+prune_snapshot_*.json
+portal_*.json
+portals_*.json
+tnc_*.json
+*_done.json
+*_cache.json
+*_verdicts.json
+*_rows.json
+jsvalidate_verdicts.json
+traffic_table.json
+traffic_table.html
+reviewed_orgs_traffic.png
+*.flag

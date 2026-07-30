@@ -18,7 +18,16 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from agent import proxy as _proxy
+
 logger = logging.getLogger(__name__)
+
+
+def _proxy_kw(url: str) -> dict:
+    """`{"proxy": {...}}` for a per-URL residential proxy (exit country from the
+    URL's ccTLD), or `{}` for direct. No-op until USE_PROXY + creds are set."""
+    p = _proxy.playwright_proxy("", url)
+    return {"proxy": p} if p else {}
 
 
 # Cloudflare (and similar) "checking your browser" interstitials: the JS
@@ -155,6 +164,7 @@ class JSRenderer:
                 # Browser-like Accept / Accept-Language headers — see
                 # `_BROWSER_EXTRA_HTTP_HEADERS` rationale at module top.
                 extra_http_headers=_BROWSER_EXTRA_HTTP_HEADERS,
+                **_proxy_kw(url),
             )
             page = context.new_page()
             goto_timeout_ms = self.timeout_seconds * 1000
@@ -230,6 +240,7 @@ class JSRenderer:
             context = self._browser.new_context(
                 user_agent=self.user_agent, ignore_https_errors=True,
                 extra_http_headers=_BROWSER_EXTRA_HTTP_HEADERS,
+                **_proxy_kw(url),
             )
             page = context.new_page()
             try:

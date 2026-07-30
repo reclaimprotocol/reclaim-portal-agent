@@ -42,8 +42,19 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 
+from agent import proxy as _proxy
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger("agent.magic")
+
+
+def _proxies(url: str):
+    """Residential-proxy `proxies=` dict for a TARGET-SITE fetch, or None for a
+    direct connection. Country is derived from the URL's ccTLD. Returns None
+    (direct) whenever the proxy is unconfigured (USE_PROXY unset / no creds) or
+    the target is India/gTLD — so this is a no-op until creds are provided.
+    Use ONLY for university-site fetches, never for LLM/Sheets/CT-log APIs."""
+    return _proxy.requests_proxies("", url)
 
 
 def _env(*names, default=""):
@@ -538,7 +549,8 @@ def _own_site_links(domain: str) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []
         try:
             r = requests.get(base, headers={"User-Agent": USER_AGENT},
-                             timeout=HARVEST_TIMEOUT, verify=False, allow_redirects=True)
+                             timeout=HARVEST_TIMEOUT, verify=False, allow_redirects=True,
+                             proxies=_proxies(base))
             soup = BeautifulSoup(r.text or "", "html.parser")
             for a in soup.find_all("a", href=True):
                 href = urljoin(r.url or base, a["href"])
@@ -556,7 +568,8 @@ def _own_site_links(domain: str) -> list[tuple[str, str]]:
         try:
             sm = requests.get(f"https://{domain}/sitemap.xml",
                               headers={"User-Agent": USER_AGENT},
-                              timeout=HARVEST_TIMEOUT, verify=False)
+                              timeout=HARVEST_TIMEOUT, verify=False,
+                              proxies=_proxies(f"https://{domain}/"))
             if sm.status_code == 200 and "<" in sm.text:
                 for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", sm.text)[:2000]:
                     if any(h in loc.lower() for h in _LINK_HINTS):
@@ -768,7 +781,8 @@ def _followup_links(fetched: list[Candidate], domain: str,
             break
         try:
             r = requests.get(c.final_url or c.url, headers={"User-Agent": USER_AGENT},
-                             timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True)
+                             timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True,
+                             proxies=_proxies(c.final_url or c.url))
             soup = BeautifulSoup(r.text or "", "html.parser")
         except Exception:  # noqa: BLE001
             continue
@@ -817,7 +831,8 @@ _FP_PATTERNS = (
 def fetch_signals(c: Candidate) -> Candidate:
     try:
         r = requests.get(c.url, headers={"User-Agent": USER_AGENT},
-                         timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True)
+                         timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True,
+                         proxies=_proxies(c.url))
         c.status = r.status_code
         c.final_url = r.url
         c.redirect_chain = [h.headers.get("location", h.url) for h in r.history][:6]

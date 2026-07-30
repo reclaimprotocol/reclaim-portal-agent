@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import signal
 import sys
 import time
 from pathlib import Path
@@ -42,7 +44,7 @@ from agent.sheets_client import SheetsClient  # noqa: E402
 
 SHEET = "1sDK_1VnRHIuUqBComrvwS1JvSmB_l0_4Rsf9rfezFNw"
 TAB = "Portals TnC"
-WINDOW = 30
+WINDOW = int(os.getenv("MAGIC_REVIEW_WINDOW", "50"))
 CACHE = ROOT / "portals_review_window.json"
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -51,6 +53,43 @@ _LOGIN_TXT = re.compile(r"log[\s\-]?in|sign[\s\-]?in|entrar|acess|ingresar|inici
                         r"usuario|contrase|password|clave", re.I)
 _SUBPAGE = re.compile(r"/(ayuda|fecha_examen|menu|help|about|acerca|contacto|noticias|faq|"
                       r"preguntas|foro|forum|mod/forum|calendar)", re.I)
+# Tenant-specific / SP-initiated SSO login = a REAL university student login, even
+# though it lives on a provider host (Azure AD, ADFS). Distinct from a BARE
+# consumer sign-in (login.microsoftonline.com/ with no tenant) which stays junk.
+# Signals: an Azure AD tenant GUID in the path, an ADFS /adfs/ls/ endpoint, or an
+# SP-initiated flow carrying SAMLRequest= / wtrealm= (the university is the SP).
+# IdP *metadata* URLs (saml2/idp/metadata, /idp/shibboleth) carry none of these,
+# so they're not rescued here — they stay junk.
+_TENANT_SSO = re.compile(
+    r"login\.microsoftonline\.com/[0-9a-f]{8}-[0-9a-f]{4}-|/adfs/ls/|"
+    r"[?&]SAMLRequest=|[?&]wtrealm=|/o/oauth2/|/oauth2/authorize", re.I)
+# Indian universities are OUT OF SCOPE — never review them, and if one is in the
+# list it should be removed. Detected by an Indian ccTLD on the org's domain/portal.
+def _is_indian(*fields: str) -> bool:
+    for f in fields:
+        for tok in (f or "").replace(",", " ").split():
+            host = urlsplit(tok if "://" in tok else "http://" + tok).netloc or tok
+            host = host.lower().strip().rstrip(".")
+            if host.endswith(".in"):
+                return True
+    return False
+# Webmail / email-login endpoints — broader than magic._is_webmail (which only
+# catches an exact "webmail"/"mail" FIRST host label). Also catches hosts like
+# webmail-seguro.com.br where "webmail" is embedded in the label, plus common
+# webmail-app paths/ports. Email logins are not student academic portals.
+_WEBMAIL_RE = re.compile(r"webmail|roundcube|squirrelmail|horde|zimbra|rainloop|afterlogic|"
+                         r"/owa(?:/|$|\?)|:209[56]", re.I)
+# ...UNLESS the endpoint is explicitly a STUDENT webmail ("for students only").
+_STUDENT_HINT = re.compile(r"student|alumn|aluno|estudante|discente|scholar|matric", re.I)
+
+
+def _is_webmail(url: str) -> bool:
+    host = M._norm_host(url); first = host.split(".")[0]
+    if "webmail" in host or first in M._WEBMAIL_LABELS or first.endswith("mail"):
+        return True
+    return bool(_WEBMAIL_RE.search(url or ""))
+
+
 _jr = None
 
 
@@ -66,7 +105,8 @@ def _retry(fn, n=4):
 
 def _fetch(u):
     try:
-        r = requests.get(u, headers=UA, timeout=15, verify=False, allow_redirects=True)
+        r = requests.get(u, headers=UA, timeout=15, verify=False, allow_redirects=True,
+                         proxies=M._proxies(u))
         return r.status_code, r.url, (r.text or "")
     except Exception:  # noqa: BLE001
         return 0, u, ""
@@ -75,18 +115,50 @@ def _fetch(u):
 def _render(u):
     global _jr
     if _jr is None:
-        _jr = JSRenderer(timeout_seconds=30)
+        _jr = JSRenderer(timeout_seconds=int(os.getenv("MAGIC_RENDER_TIMEOUT", "20")))
     return _jr.render(u)
+
+
+def _reset_renderer():
+    """Abandon the current browser (used after a per-row timeout, since the
+    interrupted render may have left it wedged). Best-effort close, then null so
+    the next row spins up a fresh one."""
+    global _jr
+    try:
+        signal.alarm(5)
+        if _jr is not None:
+            _jr.close()
+        signal.alarm(0)
+    except Exception:  # noqa: BLE001
+        signal.alarm(0)
+    _jr = None
+
+
+class _RowTimeout(BaseException):
+    # BaseException (not Exception) so the broad `except Exception` blocks inside
+    # the JS renderer / fetch helpers can't swallow it — it must propagate up to
+    # the per-row handler that marks the row N/A.
+    pass
+
+
+def _on_alarm(signum, frame):  # noqa: ARG001
+    raise _RowTimeout()
 
 
 def review_portal(url, root_hosts):
     host = M._norm_host(url); sp = urlsplit(url); path = sp.path.rstrip("/")
     if host.startswith("idp."):
         return "red", "bare IdP host, no login page — remove"
+    if _is_indian(url):
+        return "red", "Indian university — out of scope, remove"
+    if _TENANT_SSO.search(url):
+        return "green", "ok — tenant/federated SSO login (Azure AD/ADFS)"
     if M._is_junk_portal(url):
         if _SUBPAGE.search(url):
             return "red", "internal sub-page, not a login — remove (keep portal root)"
         return "red", "junk (search/asset/idp-metadata/redirect) — remove"
+    if _is_webmail(url) and not _STUDENT_HINT.search(url):
+        return "red", "webmail/email login (not student-only) — remove"
     if path and _SUBPAGE.search(url) and host in root_hosts:
         return "red", "duplicate sub-page of the portal root — remove"
     st, final, html = _fetch(url)
@@ -140,15 +212,31 @@ def _window(rows):
             return set(json.loads(CACHE.read_text()))
         except Exception:  # noqa: BLE001
             pass
-    reviewed = set()
+    # Window = next WINDOW orgs that have a REAL portal with at least one
+    # not-yet-reviewed row. Orgs whose only entry is "(none found)" contribute
+    # no reviewable rows, so they must NOT occupy window slots (else they'd sit
+    # at the top of every window forever and starve real orgs). An org is "done"
+    # only when every one of its real-portal rows has a col-E verdict.
+    real_total: dict[str, int] = {}
+    real_done: dict[str, int] = {}
+    indian: set[str] = set()
     for r in rows:
-        oid = (r[0].strip() if r and r[0] else "")
-        if oid and len(r) > 4 and (r[4].strip() if r[4] else ""):
-            reviewed.add(oid)
+        r = (r + [""] * 8)[:8]
+        oid = (r[0].strip() if r[0] else "")
+        dom = (r[2].strip() if r[2] else "")
+        portal = (r[3].strip() if r[3] else "")
+        e = (r[4].strip() if r[4] else "")
+        if oid and _is_indian(dom, portal):
+            indian.add(oid)   # out of scope — never window an Indian uni
+        if oid and portal and portal != "(none found)":
+            real_total[oid] = real_total.get(oid, 0) + 1
+            if e:
+                real_done[oid] = real_done.get(oid, 0) + 1
     win, seen = [], set()
     for r in rows:
         oid = (r[0].strip() if r and r[0] else "")
-        if oid and oid not in reviewed and oid not in seen:
+        if (oid and oid in real_total and oid not in seen and oid not in indian
+                and real_done.get(oid, 0) < real_total[oid]):
             seen.add(oid); win.append(oid)
         if len(win) >= WINDOW:
             break
@@ -179,19 +267,40 @@ def main() -> None:
     if args.report_remaining:
         print(len(todo)); return
 
+    # Process at most BATCH rows per invocation, then exit(0). The driver loop
+    # re-launches us with a FRESH browser process, recycling Chromium memory so
+    # a long window can't build up until the OS kills the whole tree. Remaining
+    # rows are picked up on the next invocation (idempotent — todo is empty-E).
+    batch = int(os.getenv("MAGIC_REVIEW_BATCH", "40"))
+    if batch > 0 and len(todo) > batch:
+        print(f"(processing {batch} of {len(todo)} this invocation; driver will resume)", flush=True)
+        todo = todo[:batch]
+
     print(f"Portals TnC review: window {len(window)} orgs | {len(todo)} portal rows to review", flush=True)
     gid = next(s["properties"]["sheetId"] for s in _retry(lambda: svc.get(spreadsheetId=SHEET).execute())["sheets"]
                if s["properties"]["title"] == TAB)
     RED = {"red": 0.85, "green": 0.55, "blue": 0.55}
     tcache: dict = {}
+    # Hard per-row wall-clock cap: a single hanging/slow URL must never block the
+    # whole batch. On timeout, mark the row N/A and move on (user rule 2026-07-30).
+    row_timeout = int(os.getenv("MAGIC_ROW_TIMEOUT", "70"))
+    signal.signal(signal.SIGALRM, _on_alarm)
     for n, (row, r) in enumerate(todo, 1):
         r = (r + [""] * 8)[:8]
         oid, name, dom, portal, _, cat, g, _h = r
-        pc, pf = review_portal(portal, root_hosts)
-        if pc == "red":
-            gnew, tf = g or "N/A", "(portal flagged for removal)"
-        else:
-            gnew, _tc, tf = review_or_fill_tnc(g, portal, dom, name, tcache)
+        try:
+            signal.alarm(row_timeout)
+            pc, pf = review_portal(portal, root_hosts)
+            if pc == "red":
+                gnew, tf = g or "N/A", "(portal flagged for removal)"
+            else:
+                gnew, _tc, tf = review_or_fill_tnc(g, portal, dom, name, tcache)
+            signal.alarm(0)
+        except _RowTimeout:
+            signal.alarm(0)
+            _reset_renderer()
+            pc, pf = "amber", f"review timed out (>{row_timeout}s) — N/A, verify manually"
+            gnew, tf = g or "N/A", "(review timed out)"
         data = [{"range": f"'{TAB}'!E{row}", "values": [[pf]]},
                 {"range": f"'{TAB}'!H{row}", "values": [[tf]]}]
         if gnew and gnew != g:

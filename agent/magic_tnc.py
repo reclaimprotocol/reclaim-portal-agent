@@ -149,7 +149,8 @@ def _vendor_tnc(host: str) -> list[dict]:
 def _get(url: str):
     try:
         return requests.get(url, headers={"User-Agent": M.USER_AGENT},
-                            timeout=M.HTTP_TIMEOUT, verify=False, allow_redirects=True)
+                            timeout=M.HTTP_TIMEOUT, verify=False, allow_redirects=True,
+                            proxies=M._proxies(url))
     except Exception:  # noqa: BLE001
         return None
 
