@@ -122,16 +122,19 @@ def _render(u):
 def _reset_renderer():
     """Abandon the current browser (used after a per-row timeout, since the
     interrupted render may have left it wedged). Best-effort close, then null so
-    the next row spins up a fresh one."""
+    the next row spins up a fresh one. Catches BaseException because the bounded
+    close below can itself trip the SIGALRM -> _RowTimeout (a BaseException); it
+    must NOT escape this function."""
     global _jr
+    old, _jr = _jr, None
     try:
         signal.alarm(5)
-        if _jr is not None:
-            _jr.close()
+        if old is not None:
+            old.close()
+    except BaseException:  # noqa: BLE001  (incl. _RowTimeout from the guard alarm)
+        pass
+    finally:
         signal.alarm(0)
-    except Exception:  # noqa: BLE001
-        signal.alarm(0)
-    _jr = None
 
 
 class _RowTimeout(BaseException):
