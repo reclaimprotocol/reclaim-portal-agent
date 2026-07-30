@@ -39,9 +39,41 @@ import importlib.util  # noqa: E402
 from agent.config import load_config  # noqa: E402
 from agent.sheets_client import SheetsClient  # noqa: E402
 
-# load the review module (review_portal + helpers)
+# load the review module (regexes + helpers)
 _spec = importlib.util.spec_from_file_location("rev", ROOT / "scripts" / "_run_portals_review.py")
 rev = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(rev)
+import agent.magic as M  # noqa: E402
+
+
+def classify_fast(url):
+    """Fast, STATIC (no JS render) verdict for the audit — one fetch at most.
+    Conservative: only reds CLEAR non-logins (doc/library/content/junk/webmail/
+    India/dead); keeps real logins (form / login-URL-shape / SSO) green and
+    portal/LMS hosts as amber 'verify'. Returns (color, note)."""
+    if rev._is_indian(url):
+        return "red", "Indian university — out of scope, remove"
+    if M._is_junk_portal(url):
+        return "red", "junk (search/asset/idp-metadata/redirect) — remove"
+    if rev._is_webmail(url) and not rev._STUDENT_HINT.search(url):
+        return "red", "webmail/email login (not student-only) — remove"
+    if rev._TENANT_SSO.search(url) or rev._LOGIN_URLISH.search(url):
+        return "green", "ok — login endpoint (URL/SSO-shaped)"
+    if rev._DOC_RE.search(url):
+        return "red", "documentation/manual/help page, not a login — remove"
+    if rev._CONTENT_RE.search(url):
+        return "red", "content page (library/news/info), not a login — remove"
+    st, fin, html = rev._fetch(url)
+    if rev._has_login_form(html):
+        return "green", "ok — login form present (static)"
+    if rev._DOC_RE.search(fin) or rev._CONTENT_RE.search(fin):
+        return "red", "resolves to a content/doc page, not a login — remove"
+    if rev._PORTAL_HINT.search(fin or url):
+        return "amber", "portal/LMS host — login form not auto-detected, verify manually"
+    if st == 0:
+        return "red", "unreachable (no response) — remove"
+    if st in (401, 403, 429):
+        return "amber", f"returns {st} (alive but gated) — likely a real login, verify"
+    return "amber", "no login form found (static) — verify manually"
 
 SHEET = "1sDK_1VnRHIuUqBComrvwS1JvSmB_l0_4Rsf9rfezFNw"
 TAB = "Portals TnC"
@@ -109,13 +141,14 @@ def main() -> None:
 
     print(f"login-audit: {len(todo)} suspect rows (processing up to {batch})", flush=True)
     for n, (row, oid, name, dom, portal) in enumerate(todo[:batch], 1):
+        resolved = None
         try:
             signal.alarm(row_timeout)
-            pc, pf, resolved = rev.review_portal(portal, root_hosts)
+            pc, pf = classify_fast(portal)
             signal.alarm(0)
         except rev._RowTimeout:
-            signal.alarm(0); rev._reset_renderer()
-            pc, pf, resolved = "amber", f"audit timed out (>{row_timeout}s) — verify manually", None
+            signal.alarm(0)
+            pc, pf = "amber", f"audit timed out (>{row_timeout}s) — verify manually"
         data = [{"range": f"'{TAB}'!E{row}", "values": [[pf]]}]
         if resolved and resolved != portal:
             data.append({"range": f"'{TAB}'!D{row}", "values": [[resolved]]})
