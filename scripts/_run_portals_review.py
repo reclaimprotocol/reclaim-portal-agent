@@ -67,6 +67,28 @@ _LOGIN_A = re.compile(r"log[\s\-]?in|sign[\s\-]?in|entrar|acessar|acesso\s+ao\s+
                       r"[aá]rea\s+do\s+aluno|clicar\s+aqui|acesse\s+aqui|clique\s+aqui", re.I)
 
 
+# A login-SHAPED URL is a real login endpoint even when the form is a JS SPA we
+# can't detect (e.g. jacad /auth/login, keycloak /realms/.../auth). Specific auth
+# paths only — NOT broad nav words like "portal"/"aluno" (those hit homepages).
+_LOGIN_URLISH = re.compile(
+    r"/(?:log[-_]?in|sign[-_]?in|entrar|acessar|ingresar|iniciar[-_]?sesion|"
+    r"identifica\w*|autentica\w*|auth|sso|cas|oauth\w*|realms/|connect/authorize|"
+    r"account/login|users/sign_in|session/new|wp-login|adfs)(?:[/?.#]|$)|"
+    r"[?&](?:login|signin|next|service|return(?:url|to)?)=", re.I)
+
+
+# Host/path hints that a URL is a student PORTAL/LMS (even if the login form is a
+# JS SPA / redirect we can't detect): keep these as "verify", never auto-remove.
+_PORTAL_HINT = re.compile(r"(?:^|[./-])(?:ava|ead|moodle|virtual|campus|aula|webaula|"
+                          r"alumn\w*|aluno|alunos|estudante|discente|portal|sig|siga|sga|"
+                          r"academic\w*|academico|intranet|blackboard|canvas|classroom|"
+                          r"eduq|jacad|colaborar|lyceum|q-?acad|matricula)\b", re.I)
+# Clear NON-login content pages -> safe to flag as false positives.
+_CONTENT_RE = re.compile(r"biblioteca|base[-_]?de[-_]?dados|base-de-datos|repositorio|"
+                         r"revista|periodico|noticias?|/blog|/sobre|/institucional|"
+                         r"/quem-somos|/eventos|/vod|/video|livrosabertos|/lgpd", re.I)
+
+
 def _has_login_form(html: str) -> bool:
     h = (html or "").lower()
     return bool(_has_password_input(html) or (h.count("<form") and h.count("<input") >= 2))
@@ -225,6 +247,12 @@ def review_portal(url, root_hosts):
     if _has_login_form(rhtml):
         return "green", "ok — login form present (JS-rendered)", None
 
+    # A login-SHAPED URL that's reachable is a real login endpoint even if its
+    # SPA form never surfaced a detectable password field (jacad, keycloak, CAS).
+    reachable = (st and st != 0) or bool(res and res.ok)
+    if reachable and _LOGIN_URLISH.search(final or url):
+        return "green", "ok — login endpoint (URL-shaped, reachable)", None
+
     # No login FORM on this page. Before giving up, try to RESOLVE the exact
     # login endpoint by following a login-action link (hub/manual pages only
     # LINK to the real login; the page itself isn't a login — the EBPÓS manual
@@ -232,8 +260,15 @@ def review_portal(url, root_hosts):
     ep = _login_endpoint(final or url, rhtml or html)
     if ep:
         return "green", "resolved to exact login endpoint (followed login link)", ep
-    if _DOC_RE.search(final or url):
+    tgt = final or url
+    if _DOC_RE.search(tgt):
         return "red", "documentation/manual/help page, not a login — remove", None
+    if _CONTENT_RE.search(tgt):
+        return "red", "content page (library/news/info), not a login — remove", None
+    # Real student-portal/LMS host whose form is behind JS/redirect — DON'T remove,
+    # just flag for a human look (kept: note avoids the prune's removal patterns).
+    if reachable and _PORTAL_HINT.search(tgt):
+        return "amber", "portal/LMS host — login form not auto-detected, verify manually", None
     if res and res.ok:
         return "red", "no login form or login link found — not a login page, remove", None
     if st in (401, 403, 429):
