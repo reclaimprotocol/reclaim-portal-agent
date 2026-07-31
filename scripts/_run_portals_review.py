@@ -87,6 +87,13 @@ _PORTAL_HINT = re.compile(r"(?:^|[./-])(?:ava|ead|moodle|virtual|campus|aula|web
 _CONTENT_RE = re.compile(r"biblioteca|base[-_]?de[-_]?dados|base-de-datos|repositorio|"
                          r"revista|periodico|noticias?|/blog|/sobre|/institucional|"
                          r"/quem-somos|/eventos|/vod|/video|livrosabertos|/lgpd", re.I)
+# Payment / checkout gateways — have a (card) form so they falsely pass the
+# form check, but they are NOT the student login. Match gateway hosts + explicit
+# payment paths. NOT bare "/financeiro" (that can be a real student-finance login).
+_PAYMENT_RE = re.compile(
+    r"\b(?:upago|pagofacil|pagseguro|mercadopago|mpago|webpay|transbank|khipu|getnet|"
+    r"cielo|stripe|paypal|payu|pagos360|redsys|payphone|placetopay)\b|"
+    r"/(?:payment|checkout|pagar|pagamento|carrinho|boleto|fatura|cobranza)(?:[/?.#]|$)", re.I)
 
 
 def _has_login_form(html: str) -> bool:
@@ -234,6 +241,8 @@ def review_portal(url, root_hosts):
         return "red", "junk (search/asset/idp-metadata/redirect) — remove", None
     if _is_webmail(url) and not _STUDENT_HINT.search(url):
         return "red", "webmail/email login (not student-only) — remove", None
+    if _PAYMENT_RE.search(url):
+        return "red", "payment/checkout gateway, not a student login — remove", None
     if path and _SUBPAGE.search(url) and host in root_hosts:
         return "red", "duplicate sub-page of the portal root — remove", None
 
