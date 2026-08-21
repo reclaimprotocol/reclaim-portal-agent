@@ -396,6 +396,16 @@ def main() -> None:
         r = (r + [""] * 8)[:8]
         oid, name, dom, portal, _, cat, g, _h = r
         resolved = None
+        # Pre-mark col E BEFORE touching the URL. If this page wedges the headless
+        # browser (JSRenderer can spin below the interpreter, where the per-row
+        # SIGALRM never lands), the pass gets SIGKILLed by the driver's watchdog —
+        # and without this marker the next pass would retry the SAME url and wedge
+        # again, forever. The marker makes the row "reviewed" so the batch moves on;
+        # a successful review overwrites it below with the real verdict.
+        _retry(lambda: svc.values().update(
+            spreadsheetId=SHEET, range=f"'{TAB}'!E{row}", valueInputOption="RAW",
+            body={"values": [["review did not complete (page hung the browser) — "
+                              "verify manually"]]}).execute())
         try:
             signal.alarm(row_timeout)
             pc, pf, resolved = review_portal(portal, root_hosts)
@@ -418,7 +428,10 @@ def main() -> None:
             data.append({"range": f"'{TAB}'!G{row}", "values": [[gnew]]})
         _retry(lambda: svc.values().batchUpdate(spreadsheetId=SHEET,
                body={"valueInputOption": "RAW", "data": data}).execute())
-        if pc == "red":
+        # Row colouring is OFF by default (user rule 2026-08-09: never tint rows).
+        # The col-E verdict text carries the signal; set MAGIC_REVIEW_COLOR=1 to
+        # restore the old red-for-remove tinting.
+        if pc == "red" and os.getenv("MAGIC_REVIEW_COLOR", "0") == "1":
             _retry(lambda: svc.batchUpdate(spreadsheetId=SHEET, body={"requests": [{"repeatCell": {
                 "range": {"sheetId": gid, "startRowIndex": row - 1, "endRowIndex": row,
                           "startColumnIndex": 0, "endColumnIndex": 8},
