@@ -87,6 +87,13 @@ _PORTAL_HINT = re.compile(r"(?:^|[./-])(?:ava|ead|moodle|virtual|campus|aula|web
 _CONTENT_RE = re.compile(r"biblioteca|base[-_]?de[-_]?dados|base-de-datos|repositorio|"
                          r"revista|periodico|noticias?|/blog|/sobre|/institucional|"
                          r"/quem-somos|/eventos|/vod|/video|livrosabertos|/lgpd", re.I)
+# Payment / checkout gateways — have a (card) form so they falsely pass the
+# form check, but they are NOT the student login. Match gateway hosts + explicit
+# payment paths. NOT bare "/financeiro" (that can be a real student-finance login).
+_PAYMENT_RE = re.compile(
+    r"\b(?:upago|pagofacil|pagseguro|mercadopago|mpago|webpay|transbank|khipu|getnet|"
+    r"cielo|stripe|paypal|payu|pagos360|redsys|payphone|placetopay)\b|"
+    r"/(?:payment|checkout|pagar|pagamento|carrinho|boleto|fatura|cobranza)(?:[/?.#]|$)", re.I)
 
 
 def _has_login_form(html: str) -> bool:
@@ -173,10 +180,23 @@ def _retry(fn, n=4):
 
 
 def _fetch(u):
+    """(status, final_url, html) — follows client-side redirect stubs.
+
+    Mirrors magic.fetch_signals: a <meta refresh> / location.replace stub is not
+    followed by `requests`, so without this a portal like biis.buet.ac.bd reads as
+    an 88-byte empty page and the strict-login test scores it dead."""
     try:
         r = requests.get(u, headers=UA, timeout=15, verify=False, allow_redirects=True,
                          proxies=M._proxies(u))
-        return r.status_code, r.url, (r.text or "")
+        st, fin, html = r.status_code, r.url, (r.text or "")
+        for _ in range(M._CLIENT_REDIRECT_HOPS):
+            nxt = M._client_redirect_target(html, fin)
+            if not nxt:
+                break
+            rr = requests.get(nxt, headers=UA, timeout=15, verify=False,
+                              allow_redirects=True, proxies=M._proxies(nxt))
+            st, fin, html = rr.status_code, rr.url, (rr.text or "")
+        return st, fin, html
     except Exception:  # noqa: BLE001
         return 0, u, ""
 
@@ -234,6 +254,8 @@ def review_portal(url, root_hosts):
         return "red", "junk (search/asset/idp-metadata/redirect) — remove", None
     if _is_webmail(url) and not _STUDENT_HINT.search(url):
         return "red", "webmail/email login (not student-only) — remove", None
+    if _PAYMENT_RE.search(url):
+        return "red", "payment/checkout gateway, not a student login — remove", None
     if path and _SUBPAGE.search(url) and host in root_hosts:
         return "red", "duplicate sub-page of the portal root — remove", None
 
@@ -387,6 +409,16 @@ def main() -> None:
         r = (r + [""] * 8)[:8]
         oid, name, dom, portal, _, cat, g, _h = r
         resolved = None
+        # Pre-mark col E BEFORE touching the URL. If this page wedges the headless
+        # browser (JSRenderer can spin below the interpreter, where the per-row
+        # SIGALRM never lands), the pass gets SIGKILLed by the driver's watchdog —
+        # and without this marker the next pass would retry the SAME url and wedge
+        # again, forever. The marker makes the row "reviewed" so the batch moves on;
+        # a successful review overwrites it below with the real verdict.
+        _retry(lambda: svc.values().update(
+            spreadsheetId=SHEET, range=f"'{TAB}'!E{row}", valueInputOption="RAW",
+            body={"values": [["review did not complete (page hung the browser) — "
+                              "verify manually"]]}).execute())
         try:
             signal.alarm(row_timeout)
             pc, pf, resolved = review_portal(portal, root_hosts)
@@ -409,7 +441,10 @@ def main() -> None:
             data.append({"range": f"'{TAB}'!G{row}", "values": [[gnew]]})
         _retry(lambda: svc.values().batchUpdate(spreadsheetId=SHEET,
                body={"valueInputOption": "RAW", "data": data}).execute())
-        if pc == "red":
+        # Row colouring is OFF by default (user rule 2026-08-09: never tint rows).
+        # The col-E verdict text carries the signal; set MAGIC_REVIEW_COLOR=1 to
+        # restore the old red-for-remove tinting.
+        if pc == "red" and os.getenv("MAGIC_REVIEW_COLOR", "0") == "1":
             _retry(lambda: svc.batchUpdate(spreadsheetId=SHEET, body={"requests": [{"repeatCell": {
                 "range": {"sheetId": gid, "startRowIndex": row - 1, "endRowIndex": row,
                           "startColumnIndex": 0, "endColumnIndex": 8},

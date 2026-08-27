@@ -19,6 +19,13 @@ advances=0
 echo "=== rolling review start $(date) (max_advances=$MAX) ===" >> "$LOG"
 for i in $(seq 1 500); do
     rem=$($PY "$RUNNER" --report-remaining 2>/dev/null | tail -1)
+    # A network/DNS drop makes --report-remaining print nothing. Treat empty as
+    # "unknown", back off and retry instead of burning iterations (2026-08-07:
+    # a DNS outage spun a driver through all 500 iterations in under a minute).
+    if [ -z "$rem" ]; then
+        echo "--- iter $i $(date) empty remaining (network?) — sleeping 60 ---" >> "$LOG"
+        sleep 60; continue
+    fi
     echo "--- iter $i $(date) window-remaining=$rem advances=$advances/$MAX ---" >> "$LOG"
     if [ "$rem" = "0" ]; then
         if [ "$advances" -ge "$MAX" ]; then
@@ -35,7 +42,22 @@ for i in $(seq 1 500); do
             break
         fi
     fi
-    caffeinate -dimsu $PY "$RUNNER" >> "$LOG" 2>&1
+    # Watchdog: if the headless browser dies, JSRenderer spins below the
+    # interpreter where the per-row SIGALRM can't land, and the pass burns CPU
+    # forever (seen 2026-08-09 and 2026-08-10: ~50 min, 0 rows, no Chromium).
+    # Kill the pass when the LOG stops growing; the next iteration relaunches it
+    # with a fresh browser and already-reviewed rows are skipped.
+    caffeinate -dimsu $PY "$RUNNER" >> "$LOG" 2>&1 &
+    rpid=$!
+    while kill -0 $rpid 2>/dev/null; do
+        sleep 30
+        now=$(date +%s); mt=$(stat -f %m "$LOG" 2>/dev/null || echo "$now")
+        if [ $((now - mt)) -gt "${STALL_SECS:-300}" ]; then
+            echo "--- watchdog: no log growth for $((now-mt))s -> killing pass $rpid ---" >> "$LOG"
+            kill -9 $rpid 2>/dev/null; break
+        fi
+    done
+    wait $rpid 2>/dev/null
     sleep 3
 done
 echo "=== rolling review exit $(date) ===" >> "$LOG"

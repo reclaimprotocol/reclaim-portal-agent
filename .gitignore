@@ -81,6 +81,7 @@ portal_*.json
 portals_*.json
 tnc_*.json
 *_done.json
+*_noportal.json
 *_cache.json
 *_verdicts.json
 *_rows.json
@@ -89,3 +90,42 @@ traffic_table.json
 traffic_table.html
 reviewed_orgs_traffic.png
 *.flag
+
+# ---- Run artifacts from the disabled-orgs / reported-url workflows ----
+# Sharded worker state, per-run verdicts, colour maps, before/after snapshots.
+# All regenerable; several embed org data. Never commit.
+*_shard[0-9]*.json
+*_results.json
+*_candidates*.json
+*_targets.json
+*_removed*.json
+*_before_*.json
+*_added_*.json
+*_map.json
+*_final.json
+*_found.json
+*_urls.json
+*_elsewhere.json
+disabled_*.json
+reported_*.json
+reportedurl*.json
+red_*.json
+strict_*.json
+student_variant*.json
+perorg_*.json
+pending928_*.json
+newurl_tnc*.json
+india_verify*.json
+reverify_*.json
+discover_failed_*.json
+failed_portal_orgs.json
+lost_portals_*.json
+pruned_for_*.json
+proxy_*.json
+samarth_dupes_*.json
+admission_*.json
+org[0-9]*.json
+
+# Boot logs from daemonized runs (scripts/_daemonize.py)
+*_boot.log
+no_portals_tab_*.json
