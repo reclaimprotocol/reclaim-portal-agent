@@ -180,10 +180,23 @@ def _retry(fn, n=4):
 
 
 def _fetch(u):
+    """(status, final_url, html) — follows client-side redirect stubs.
+
+    Mirrors magic.fetch_signals: a <meta refresh> / location.replace stub is not
+    followed by `requests`, so without this a portal like biis.buet.ac.bd reads as
+    an 88-byte empty page and the strict-login test scores it dead."""
     try:
         r = requests.get(u, headers=UA, timeout=15, verify=False, allow_redirects=True,
                          proxies=M._proxies(u))
-        return r.status_code, r.url, (r.text or "")
+        st, fin, html = r.status_code, r.url, (r.text or "")
+        for _ in range(M._CLIENT_REDIRECT_HOPS):
+            nxt = M._client_redirect_target(html, fin)
+            if not nxt:
+                break
+            rr = requests.get(nxt, headers=UA, timeout=15, verify=False,
+                              allow_redirects=True, proxies=M._proxies(nxt))
+            st, fin, html = rr.status_code, rr.url, (rr.text or "")
+        return st, fin, html
     except Exception:  # noqa: BLE001
         return 0, u, ""
 

@@ -81,6 +81,7 @@ portal_*.json
 portals_*.json
 tnc_*.json
 *_done.json
+*_noportal.json
 *_cache.json
 *_verdicts.json
 *_rows.json

@@ -828,6 +828,43 @@ _FP_PATTERNS = (
 )
 
 
+# --- client-side redirect stubs -------------------------------------------- #
+# `requests` follows HTTP 3xx but NOT <meta http-equiv="refresh"> or a bare
+# `location.replace(...)`. A host whose entry point is such a stub therefore reads
+# as an empty page: no password field, no anchors to crawl, so the host is scored
+# dead and its real portal is never seen. BUET's biis.buet.ac.bd was lost exactly
+# this way — an 88-byte body refreshing to /BIIS_WEB/Logout.do, which in turn
+# resolves to Login.do with a real password form.
+_META_REFRESH_RE = re.compile(
+    r"""<meta[^>]+http-equiv\s*=\s*["']?\s*refresh\s*["']?[^>]*?"""
+    r"""content\s*=\s*["']?\s*\d+\s*;\s*url\s*=\s*['"]?([^"'>\s]+)""", re.I)
+_JS_REDIRECT_RE = re.compile(
+    r"""(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']{3,300})["']|"""
+    r"""(?:window\.)?location\.(?:replace|assign)\s*\(\s*["']([^"']{3,300})["']""", re.I)
+# Only bodies this small are treated as redirect stubs. A full page carrying a
+# stray `location.href = ...` in its JS is a real page, not a stub, and following
+# it would hijack the candidate.
+_STUB_MAX_BYTES = 2048
+_CLIENT_REDIRECT_HOPS = 2
+
+
+def _client_redirect_target(html: str, base_url: str) -> str | None:
+    """Absolute URL a short stub page bounces to via meta-refresh / JS, else None."""
+    if not html or len(html) > _STUB_MAX_BYTES:
+        return None
+    m = _META_REFRESH_RE.search(html) or _JS_REDIRECT_RE.search(html)
+    if not m:
+        return None
+    raw = next((g for g in m.groups() if g), "").strip()
+    if not raw:
+        return None
+    import html as _html
+    tgt = urljoin(base_url, _html.unescape(raw))
+    if not tgt.lower().startswith(("http://", "https://")):
+        return None
+    return tgt if tgt.rstrip("/") != (base_url or "").rstrip("/") else None
+
+
 def fetch_signals(c: Candidate) -> Candidate:
     try:
         r = requests.get(c.url, headers={"User-Agent": USER_AGENT},
@@ -837,6 +874,21 @@ def fetch_signals(c: Candidate) -> Candidate:
         c.final_url = r.url
         c.redirect_chain = [h.headers.get("location", h.url) for h in r.history][:6]
         html = r.text or ""
+        # Resolve client-side redirect stubs. final_url is what downstream uses
+        # for the login-subpage / junk filters AND for the URL we publish, so
+        # advancing it here means a `Logout.do` bounce lands on `Login.do` before
+        # anything can reject it, and the exact endpoint is what gets written.
+        for _ in range(_CLIENT_REDIRECT_HOPS):
+            nxt = _client_redirect_target(html, c.final_url or c.url)
+            if not nxt:
+                break
+            rr = requests.get(nxt, headers={"User-Agent": USER_AGENT},
+                              timeout=HTTP_TIMEOUT, verify=False, allow_redirects=True,
+                              proxies=_proxies(nxt))
+            c.redirect_chain = (c.redirect_chain + [f"client->{nxt}"])[:8]
+            c.status = rr.status_code
+            c.final_url = rr.url
+            html = rr.text or ""
     except Exception as err:  # noqa: BLE001
         c.error = f"{type(err).__name__}: {err}"
         return c

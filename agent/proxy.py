@@ -33,6 +33,14 @@ _NAME2CC = {
     "south africa": "za", "egypt": "eg", "philippines": "ph", "indonesia": "id",
     "bangladesh": "bd", "pakistan": "pk", "malaysia": "my", "vietnam": "vn",
     "thailand": "th", "india": "in",
+    # August4000 batch geographies — needed when an org's domains carry no
+    # ccTLD (.com/.org), so the country NAME is the only exit hint we have.
+    "ukraine": "ua", "morocco": "ma", "kazakhstan": "kz", "tanzania": "tz",
+    "algeria": "dz", "zambia": "zm", "azerbaijan": "az", "sri lanka": "lk",
+    "saudi arabia": "sa", "jamaica": "jm", "turkey": "tr", "türkiye": "tr",
+    "nepal": "np", "uganda": "ug", "ethiopia": "et", "rwanda": "rw",
+    "cameroon": "cm", "senegal": "sn", "ivory coast": "ci", "tunisia": "tn",
+    "jordan": "jo", "iraq": "iq", "uzbekistan": "uz", "georgia": "ge",
 }
 # ccTLDs we treat as country codes (2-letter country tld). Excludes generic tlds.
 _SKIP_CC = {"in"}   # we are IN India — India orgs use direct connection
