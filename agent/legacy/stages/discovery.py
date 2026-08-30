@@ -52,8 +52,8 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import requests
 from bs4 import BeautifulSoup
 
-from ..anthropic_client import AnthropicClient
-from ..config import (
+from agent.anthropic_client import AnthropicClient
+from agent.config import (
     AFFILIATED_DOMAIN_TOKENS,
     AFFILIATING_UNIVERSITY_PORTALS,
     AFFILIATION_DISCOVERY_ENABLED,
@@ -73,7 +73,7 @@ from ..config import (
 )
 from . import discovery_claude, discovery_rules
 from .discovery_rules import Candidate
-from .. import regions
+from agent import regions
 
 if TYPE_CHECKING:
     from ..pipeline import PipelineContext

@@ -1,1 +1,13 @@
-{}
+{
+ "rtu.ac.in": {
+  "domain": "rtu.ac.in",
+  "first_seen": "2026-08-30T13:21:13+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "cloudflare_challenge",
+  "detail": "Blocked by anti-bot protection: Cloudflare JS challenge",
+  "last_seen": "2026-08-30T13:21:15+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ }
+}

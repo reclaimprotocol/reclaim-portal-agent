@@ -1,5 +1,12 @@
-"""Pipeline stage modules. Each exposes a `run(ctx) -> dict` callable."""
+"""Compatibility shim — this package now lives in `agent.legacy.stages`.
 
-from . import confidence, discovery, sheet_writer, tc_analyzer, tc_finder
+Aliasing the package object means submodule imports (`agent.stages.discovery`,
+`agent.stages.js_renderer`, …) resolve through the legacy package's `__path__`,
+so no per-module shim is required — Python's import machinery reads `__path__`
+from whatever object sits in sys.modules under the parent name.
+"""
+import sys as _sys
 
-__all__ = ["confidence", "discovery", "sheet_writer", "tc_analyzer", "tc_finder"]
+from agent.legacy import stages as _target
+
+_sys.modules[__name__] = _target

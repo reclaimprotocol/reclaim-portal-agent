@@ -48,7 +48,7 @@ from .tc_finder import (
     _fetch_body,
     _score_tc_anchor,
 )
-from ..config import OPENROUTER_API_KEY, OPENROUTER_MODEL, VENDOR_TC_MAP
+from agent.config import OPENROUTER_API_KEY, OPENROUTER_MODEL, VENDOR_TC_MAP
 
 if TYPE_CHECKING:
     from .js_renderer import JSRenderer
