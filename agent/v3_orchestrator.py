@@ -74,10 +74,10 @@ from agent.search_fallback import execute_search_fallback           # noqa: E402
 
 logger = logging.getLogger("genie.v3")
 
-LOG_FILE = Path(os.getenv("GENIE_LOG_FILE", ROOT / "agent_run.log"))
 
 
-def setup_logging(level: int = logging.INFO, log_file: Path = LOG_FILE) -> None:
+
+def setup_logging(level: int = logging.INFO, log_file: Path | None = None) -> None:
     """Timestamped text to the console AND an append-only agent_run.log.
 
     Configured on the `genie` parent logger so every component — crawler,
@@ -103,6 +103,9 @@ def setup_logging(level: int = logging.INFO, log_file: Path = LOG_FILE) -> None:
 
         def format(self, record: logging.LogRecord) -> str:
             return super().format(record).replace("\r", " ").replace("\n", " | ")
+
+    log_file = Path(log_file or os.getenv("GENIE_LOG_FILE") or LOG_FILE_DEFAULT)
+    os.makedirs(log_file.parent, exist_ok=True)
 
     fmt = _SingleLine(
         "%(asctime)s %(levelname)-7s [%(name)s] %(message)s", datefmt="%H:%M:%S")
@@ -130,8 +133,28 @@ def setup_logging(level: int = logging.INFO, log_file: Path = LOG_FILE) -> None:
 ROW_SEMAPHORE = 20
 BROWSER_SEMAPHORE = int(os.getenv("GENIE_BROWSER_CONCURRENCY", "6"))
 
-VERIFIED_CSV = ROOT / "verified_compliance.csv"
-MISSING_CSV = ROOT / "missing_tnc_portals.csv"
+# --------------------------------------------------------------------------- #
+#  Output paths — one date stamp per RUN                                       #
+# --------------------------------------------------------------------------- #
+#: Computed exactly once, at import. Every parallel task therefore writes to the
+#: SAME three files: calling strftime per task would let a run that starts at
+#: 23:59 silently split its results across two dates mid-flight.
+CURRENT_DATE = datetime.now().strftime("%Y-%m-%d")
+
+#: Anchored to the repo root, not to os.getcwd(). A relative "output" would put
+#: the directory wherever the process happened to be launched from — fine for
+#: `python -m agent.v3_orchestrator` at the root, silently wrong under cron, a
+#: systemd unit, or an IDE with a different working directory.
+OUTPUT_DIR = ROOT / "output"
+
+VERIFIED_CSV = OUTPUT_DIR / f"verified_compliance_{CURRENT_DATE}.csv"
+MISSING_CSV = OUTPUT_DIR / f"missing_tnc_portals_{CURRENT_DATE}.csv"
+LOG_FILE_DEFAULT = OUTPUT_DIR / f"agent_run_{CURRENT_DATE}.log"
+
+#: Memory files stay at the REPOSITORY ROOT: they are tracked core assets that
+#: compound across runs, not per-run output. Date-stamping them would reset the
+#: agent's learning every midnight, and `output/` is gitignored so they would
+#: also stop being versioned.
 TNC_MEMORY = ROOT / "tnc_memory.json"
 DOMAIN_HISTORY = ROOT / "domain_history.json"
 
@@ -706,10 +729,14 @@ def main() -> None:
                     help="re-attempt hosts recorded in infrastructure_block.json")
     ap.add_argument("--dry-run", action="store_true", help="run everything, write nothing")
     ap.add_argument("--verbose", action="store_true", help="DEBUG-level logging")
-    ap.add_argument("--log-file", default=str(LOG_FILE))
+    ap.add_argument("--log-file", default=None,
+                    help=f"default: {LOG_FILE_DEFAULT}")
     a = ap.parse_args()
 
-    setup_logging(logging.DEBUG if a.verbose else logging.INFO)
+    # Guarantees the directory exists before any handler or writer touches it.
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    setup_logging(logging.DEBUG if a.verbose else logging.INFO,
+                  Path(a.log_file) if a.log_file else None)
     outcomes = asyncio.run(run_pipeline(
         a.sheet_id, a.tab, a.start_row, a.count,
         resume=not a.no_resume, dry_run=a.dry_run, retry_blocked=a.retry_blocked,

@@ -1,1 +1,279 @@
-{}
+{
+ "417645": {
+  "org_id": "417645",
+  "university_name": "มหาวิทยาลัยขอนแก่น (มข.)",
+  "official_domain": "kku.ac.th",
+  "sheet_row": 6,
+  "portals": [
+   {
+    "url": "https://reg.kku.ac.th/registrar/home.asp?avs=46020.9285648148",
+    "category": "ERP",
+    "system": "KKU Registrar System",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": "https://www.kku.ac.th/privacy-policy/",
+    "stage": "Stage 4: University Root Rescue"
+   },
+   {
+    "url": "https://e-learning.kku.ac.th/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "KKU e-Learning",
+    "confidence": 0.9,
+    "tnc_url": null,
+    "privacy_policy_url": "https://www.kku.ac.th/privacy-policy/",
+    "stage": "Stage 4: University Root Rescue"
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-30T16:46:43+00:00"
+ },
+ "588780": {
+  "org_id": "588780",
+  "university_name": "Trường Đại học Hà Nội",
+  "official_domain": "hanu.edu.vn",
+  "sheet_row": 5,
+  "portals": [
+   {
+    "url": "https://connections.hanu.vn/",
+    "category": "General Student Login",
+    "system": "HANU Connections",
+    "confidence": 0.75,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found"
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T18:16:06+00:00"
+ },
+ "588915": {
+  "org_id": "588915",
+  "university_name": "Trường Đại học Thương mại",
+  "official_domain": "mailsv.tmu.edu.vn",
+  "sheet_row": 4,
+  "portals": [
+   {
+    "url": "https://sso.tmu.edu.vn/",
+    "category": "General Student Login",
+    "system": "TMU SSO",
+    "confidence": 0.9,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T18:44:59+00:00"
+ },
+ "349649": {
+  "org_id": "349649",
+  "university_name": "Universitas Diponegoro",
+  "official_domain": "live.undip.ac.id",
+  "sheet_row": 3,
+  "portals": [
+   {
+    "url": "https://pemerintahan.undip.ac.id/id/login/",
+    "category": "General Student Login",
+    "system": "Bachelor of Government Studies Portal",
+    "confidence": 0.6,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://pasca.undip.ac.id/en/student/",
+    "category": "General Student Login",
+    "system": "Sekolah Pascasarjana Portal",
+    "confidence": 0.6,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://ekis.feb.undip.ac.id/single-sign-on/",
+    "category": "General Student Login",
+    "system": "Ekonomi Islam SSO",
+    "confidence": 0.6,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://www.undip.ac.id/language/en/it-services-2",
+    "category": "General Student Login",
+    "system": "IT Services Portal",
+    "confidence": 0.6,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://dsti.undip.ac.id/tutorial/",
+    "category": "General Student Login",
+    "system": "Direktorat Sistem dan Teknologi Informasi Portal",
+    "confidence": 0.6,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T18:45:09+00:00"
+ },
+ "588874": {
+  "org_id": "588874",
+  "university_name": "Trường Đại học Sài Gòn",
+  "official_domain": "sgu.edu.vn",
+  "sheet_row": 7,
+  "portals": [
+   {
+    "url": "http://daotao.sgu.edu.vn/",
+    "category": "ERP",
+    "system": "Cổng thông tin đào tạo SGU",
+    "confidence": 0.85,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T18:45:13+00:00"
+ },
+ "662013": {
+  "org_id": "662013",
+  "university_name": "Kwame Nkrumah University Of Science And Technology",
+  "official_domain": "knust.edu.gh",
+  "sheet_row": 2,
+  "portals": [
+   {
+    "url": "https://studentportal.knust.edu.gh/",
+    "category": "ERP",
+    "system": "KNUST Student Portal",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T18:46:03+00:00"
+ },
+ "4063994": {
+  "org_id": "4063994",
+  "university_name": "University of Zambia (UNZA)",
+  "official_domain": "unza.zm",
+  "sheet_row": 12,
+  "portals": [
+   {
+    "url": "https://sis.unza.zm/users/login",
+    "category": "ERP",
+    "system": "UNZA Student Information System (SIS)",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "http://moodle.unza.zm/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://online.unza.zm/users/login",
+    "category": "General Student Login",
+    "system": "UNZA Online Portal",
+    "confidence": 0.85,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T19:04:58+00:00"
+ },
+ "4064510": {
+  "org_id": "4064510",
+  "university_name": "University of Dar es Salaam",
+  "official_domain": "udsm.ac.tz",
+  "sheet_row": 22,
+  "portals": [
+   {
+    "url": "https://udsm.ac.tz/directorate-students-services",
+    "category": "General Student Login",
+    "system": "Directorate of Student Services",
+    "confidence": 0.6,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T19:28:58+00:00"
+ },
+ "10072741": {
+  "org_id": "10072741",
+  "university_name": "University of Lusaka",
+  "official_domain": "unilus.ac.zm",
+  "sheet_row": 20,
+  "portals": [
+   {
+    "url": "https://portal.unilus.ac.zm/",
+    "category": "ERP",
+    "system": "UNILUS Student Portal",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://undergrad.unilus.app/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://moodle.unilus.app/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "confidence": 0.95,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   },
+   {
+    "url": "https://host.unilus.app/login/index.php",
+    "category": "UMS/MIS",
+    "system": "Moodle",
+    "confidence": 0.85,
+    "tnc_url": null,
+    "privacy_policy_url": null,
+    "stage": "None Found",
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-30T19:29:32+00:00"
+ }
+}

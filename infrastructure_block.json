@@ -9,5 +9,16 @@
   "last_seen": "2026-08-30T13:21:15+00:00",
   "exit_country": null,
   "stealth_tried": true
+ },
+ "hufi.edu.vn": {
+  "domain": "hufi.edu.vn",
+  "first_seen": "2026-08-30T19:04:07+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: HTTP 503 with HTML content (835 bytes)",
+  "last_seen": "2026-08-30T19:04:10+00:00",
+  "exit_country": null,
+  "stealth_tried": true
  }
 }
