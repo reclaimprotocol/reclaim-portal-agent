@@ -34,7 +34,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from . import discovery_rules
-from ..config import (
+from agent.config import (
     TC_CLAUDE_MAX_CALLS,
     TC_CLAUDE_TIMEOUT_SECONDS,
     TC_FORCE_CLAUDE,
@@ -43,7 +43,7 @@ from ..config import (
 
 if TYPE_CHECKING:
     from ..pipeline import PipelineContext
-    from ..state import StateStore
+    from agent.state import StateStore
 
 logger = logging.getLogger(__name__)
 

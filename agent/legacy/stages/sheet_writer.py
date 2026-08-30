@@ -26,8 +26,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from ..config import CATEGORY_ORDER, CATEGORY_REMAP_FOR_SORTING, load_config
-from ..sheets_client import SheetsClient
+from agent.config import CATEGORY_ORDER, CATEGORY_REMAP_FOR_SORTING, load_config
+from agent.sheets_client import SheetsClient
 from . import tc_analyzer
 
 if TYPE_CHECKING:

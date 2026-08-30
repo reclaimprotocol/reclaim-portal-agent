@@ -11,7 +11,7 @@ import logging
 import re
 from typing import Any
 
-from ..anthropic_client import AnthropicClient
+from agent.anthropic_client import AnthropicClient
 from .discovery_rules import Candidate
 
 logger = logging.getLogger(__name__)

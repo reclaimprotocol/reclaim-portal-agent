@@ -37,7 +37,7 @@ from urllib.parse import (
 import requests
 from bs4 import BeautifulSoup
 
-from ..config import (
+from agent.config import (
     EXTERNAL_DOMAIN_BLOCKLIST,
     GEMINI_SEARCH_ENABLED,
     HOMEPAGE_INDICATORS,

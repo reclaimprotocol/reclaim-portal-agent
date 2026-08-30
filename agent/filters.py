@@ -99,6 +99,99 @@ def _compile(terms: Iterable[str]) -> re.Pattern[str] | None:
     return re.compile("|".join(parts), re.IGNORECASE)
 
 
+#: How many links the heuristic fallback forwards when keyword matching finds
+#: nothing at all.
+FALLBACK_TOP_N = 15
+
+#: ccTLDs whose registrable root is three labels, so subdomain depth is counted
+#: from the right place (sgu.edu.vn is a root; daotao.sgu.edu.vn is depth 1).
+_TWO_LABEL_TLDS = frozenset({
+    "edu.vn", "com.vn", "ac.vn", "edu.in", "ac.in", "co.in", "org.in",
+    "com.br", "edu.br", "org.br", "com.mx", "edu.mx", "com.ar", "edu.ar",
+    "ac.id", "sch.id", "edu.ph", "com.ph", "ac.lk", "edu.lk", "ac.bd",
+    "edu.bd", "edu.pk", "edu.ng", "ac.ke", "ac.za", "edu.my", "ac.th",
+    "edu.eg", "edu.sa", "ac.uk", "co.uk", "com.au", "edu.au", "com.co",
+    "edu.co", "com.pe", "edu.pe", "com.tr", "edu.tr", "edu.ua", "com.ua",
+})
+
+#: Paths that are unambiguously published CONTENT, not an application. These
+#: dominate a news-heavy CMS homepage and would otherwise fill every fallback
+#: slot with dated articles.
+_CONTENT_NOISE_RE = re.compile(
+    r"/page/\d+|/wp-content/|/wp-json|/uploads/|/tag/|/category/|/author/|"
+    r"/feed/?$|\.(?:pdf|docx?|xlsx?|pptx?|jpe?g|png|gif|zip|rar)$|"
+    r"drive\.google\.com|docs\.google\.com|/\d{4}/\d{2}/",
+    re.IGNORECASE,
+)
+
+
+def structural_score(url: str, text: str) -> tuple[float, list[str]]:
+    """Language-free score for a link, used only by the fallback.
+
+    Every keyword list we own is English/Portuguese/Spanish-heavy, so a site
+    published only in Vietnamese, Thai, Arabic or Bahasa can match ZERO terms
+    and be discarded whole — measured live: sgu.edu.vn crawled 113 links and
+    the filter kept 0. These three signals carry no vocabulary at all:
+
+      * digits in the URL — version numbers, ports, tenant and term ids are
+        the fingerprint of an application endpoint rather than a content page;
+      * a deep hostname — portals are conventionally put on their own
+        subdomain, wherever in the world they are;
+      * a short anchor label — navigation and system links are terse
+        ("Đăng nhập", "SSO"), prose links are not.
+    """
+    score = 0.0
+    reasons: list[str] = []
+    parts = urlsplit(url)
+    host = (parts.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = parts.path or "/"
+
+    # -- subdomain depth ---------------------------------------------------
+    # A raw dot-count > 3 cannot work on the very sites this fallback exists
+    # for: `daotao.sgu.edu.vn` is a departmental portal and has exactly 3 dots,
+    # so the rule never fires under a two-label ccTLD (.edu.vn, .ac.in,
+    # .com.br). Measured on sgu.edu.vn: zero of 113 links scored on it.
+    # Depth BEYOND the registrable root is what "indicative of subdomains"
+    # actually means, and it fires correctly everywhere.
+    labels = host.split(".")
+    root_labels = 3 if ".".join(labels[-2:]) in _TWO_LABEL_TLDS else 2
+    depth = max(0, len(labels) - root_labels)
+    if depth >= 1:
+        score += 2.0 + min(depth - 1, 2) * 0.5
+        reasons.append(f"subdomain-depth-{depth}")
+
+    # -- digits ------------------------------------------------------------
+    # Digits mark application endpoints (ports, tenant/term ids, versions) —
+    # but they equally mark every dated article on a WordPress site, which is
+    # what buried the real portals on sgu.edu.vn. Count them only in the HOST
+    # or a short path; a long dated slug is content, not a system.
+    if any(ch.isdigit() for ch in host) or (any(ch.isdigit() for ch in path) and len(path) <= 40):
+        score += 2.0
+        reasons.append("has-digits")
+
+    # -- anchor label ------------------------------------------------------
+    words = [w for w in re.split(r"\s+", (text or "").strip()) if w]
+    if words and len(words) < 4:
+        score += 1.0
+        reasons.append("short-anchor")
+    elif not words:
+        # An unlabelled link (icon/image) is common for portal buttons, but it
+        # is weaker evidence than a genuinely short label.
+        score += 0.5
+        reasons.append("no-anchor")
+
+    # -- obvious content noise --------------------------------------------
+    # Without this the fallback returns 15 news articles and paginators, which
+    # satisfies "not empty" while failing the actual goal of handing the model
+    # something worth reading.
+    if _CONTENT_NOISE_RE.search(url):
+        score -= 3.0
+        reasons.append("content-noise")
+    return score, reasons
+
+
 def normalize_url(url: str) -> str:
     """Dedup key: lowercase host, no trailing slash, no fragment.
 
@@ -211,11 +304,15 @@ class LocalKnowledgeMatrixFilter:
         """
         cap = max_candidates if max_candidates is not None else self.max_candidates
         stats = {"in": len(links), "blacklisted": 0, "duplicate": 0,
-                 "no_signal": 0, "portal": 0, "legal": 0}
+                 "no_signal": 0, "portal": 0, "legal": 0, "fallback": 0}
 
         seen: set[str] = set()
         portals: list[dict[str, Any]] = []
         legals: list[dict[str, Any]] = []
+        # Everything that cleared the blacklist and the dedup, keyword match or
+        # not. This is the pool the heuristic fallback draws from, so it must be
+        # collected during the main pass rather than by re-walking `links`.
+        survivors: list[dict[str, str]] = []
 
         for item in links:
             url = (item.get("url") or "").strip()
@@ -233,6 +330,7 @@ class LocalKnowledgeMatrixFilter:
                 stats["duplicate"] += 1
                 continue
             seen.add(key)
+            survivors.append({"url": url, "text": text})
 
             host = (urlsplit(url).netloc or "").lower()
             vendor = self._vendor_hit(host)
@@ -266,6 +364,35 @@ class LocalKnowledgeMatrixFilter:
             # A link can look like both; portal wins the bucket because that is
             # the primary target, but the legal keyword stays in `matched`.
             (portals if is_portal else legals).append(row)
+
+        # ---- Heuristic Top-N fallback ------------------------------------
+        # Zero keyword hits does NOT mean zero portals — far more often it means
+        # the site is published in a language our term lists do not cover. Rather
+        # than hand the orchestrator an empty array, forward the structurally
+        # most promising survivors and let the model's own multilingual reading
+        # do the work our regexes cannot.
+        if not portals and not legals and survivors:
+            scored: list[dict[str, Any]] = []
+            for s_item in survivors:
+                sc, why = structural_score(s_item["url"], s_item["text"])
+                scored.append({
+                    "url": s_item["url"], "text": s_item["text"][:200],
+                    "kind": "fallback", "score": round(sc, 2),
+                    "matched": ["heuristic-fallback", *why],
+                })
+            scored.sort(key=lambda r: (-r["score"], len(r["url"])))
+            out = scored[: min(FALLBACK_TOP_N, cap)]
+            stats["fallback"] = len(out)
+            stats["portal"] = 0
+            stats["legal"] = 0
+            stats["out"] = len(out)
+            self.last_stats = stats
+            logger.warning(
+                "filters: %d in -> 0 keyword matches; HEURISTIC FALLBACK forwarding "
+                "top %d of %d blacklist survivors (likely a non-English site)",
+                stats["in"], len(out), len(survivors),
+            )
+            return out
 
         portals.sort(key=lambda r: -r["score"])
         legals.sort(key=lambda r: -r["score"])

@@ -41,7 +41,7 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 
-from ..config import (
+from agent.config import (
     ADMIN_URL_PATH_TOKENS,
     AMBIGUOUS_SHORTNAMES,
     DUCKDUCKGO_TIMEOUT_SECONDS,
@@ -81,7 +81,7 @@ from ..config import (
     host_in_external_blocklist,
     host_in_instance_blocklist,
 )
-from .. import regions
+from agent import regions
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
 
