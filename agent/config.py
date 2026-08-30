@@ -387,6 +387,46 @@ KNOWN_SHARED_PLATFORM_PATTERNS: dict[str, dict[str, Any]] = {
     "easebuzz.in": {"category": "Fee Portal", "validated": True},
     # --- examination platforms ---
     "contineo.in": {"category": "Examination Portal", "validated": True},
+    # ------------------------------------------------------------------
+    # Mined 2026-08-29 from ALL six corpora (both CONFIDENTIAL_Provider
+    # Activation sheets, JulyBatch, August4000, Indian Universities,
+    # Bangladesh) by taking every portal URL whose registrable root differs
+    # from the org's OWN email domain, then keeping roots observed for 2+
+    # DISTINCT institutions. 1,623 off-domain roots -> 456 multi-org -> these.
+    #
+    # The pre-existing entries above were mined from the India corpus alone
+    # and are ~all .in/.co.in; everything below is what the Brazil / LatAm /
+    # Philippines / Nigeria data added. TOTVS-RM, Jacad and Ulife were named
+    # in the README as "known platforms" but appeared NOWHERE in the code.
+    # --- Brazil ---
+    "cloudtotvs.com.br": {"category": "Student Portal", "validated": True},
+    "jacad.com.br": {"category": "Student Portal", "validated": True},
+    "ulife.com.br": {"category": "Student Portal", "validated": True},
+    "sereduc.com": {"category": "Student Portal", "validated": True},
+    "grupoa.education": {"category": "Student Portal", "validated": True},
+    "kroton.com.br": {"category": "Student Portal", "validated": True},
+    "anhanguera.com": {"category": "Student Portal", "validated": True},
+    "unicesumar.edu.br": {"category": "Student Portal", "validated": True},
+    # --- Spanish-speaking LatAm ---
+    "eclass.com": {"category": "Student Portal", "validated": True},
+    "servoescolar.mx": {"category": "Student Portal", "validated": True},
+    # --- Philippines ---
+    "arellanolms.com": {"category": "Student Portal", "validated": True},
+    "tssinclms.com": {"category": "Student Portal", "validated": True},
+    # --- Nigeria / West Africa ---
+    "waeup.org": {"category": "Student Portal", "validated": True},
+    "safsrms.com": {"category": "Student Portal", "validated": True},
+    # --- India (new, not in the original corpus) ---
+    "tcsion.com": {"category": "Student Portal", "validated": True},
+    "dhi-edu.com": {"category": "Student Portal", "validated": True},
+    "dpuerp.in": {"category": "Student Portal", "validated": True},
+    "jisgroup.net": {"category": "Student Portal", "validated": True},
+    "camudigitalcampus.com": {"category": "Student Portal", "validated": True},
+    "integratededucation.pwc.in": {"category": "Student Portal", "validated": True},
+    "vtu-online.net": {"category": "Student Portal", "validated": True},
+    # --- examination / results (student-facing, distinct from admissions) ---
+    "puexam.in": {"category": "Examination Portal", "validated": True},
+    "ptuexam.com": {"category": "Examination Portal", "validated": True},
 }
 
 

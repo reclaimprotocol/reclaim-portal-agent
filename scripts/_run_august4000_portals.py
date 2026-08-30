@@ -114,8 +114,26 @@ for n, t in enumerate(todo, 1):
         mine[oid] = {"row": t["row"], "portals": [], "why": "no email domain"}
         DONE.write_text(json.dumps(mine))
         print(f"  [{n}/{len(todo)}] {name[:26]:28} SKIP (no domain)", flush=True); continue
+    # Pre-mark BEFORE discovery, not just before the per-URL login test. A page
+    # that wedges the headless browser survives SIGALRM, so the driver's watchdog
+    # SIGKILLs the worker — and with no marker written the org is picked up again
+    # on the next attempt and wedges again, forever. Shard 1 of rows 802-1001
+    # burned 6 attempts (~45 min) on one Brazilian org this way. Marking first
+    # costs that one org instead of the whole shard, and records why so it can be
+    # revisited deliberately.
+    mine[oid] = {"row": t["row"], "name": name, "country": country, "portals": [],
+                 "why": "discovery did not complete (worker wedged) — revisit"}
+    DONE.write_text(json.dumps(mine))
     try:
+        signal.alarm(int(os.getenv("DISCOVER_TIMEOUT", "300")))
         found = G.discover(name, primary, country) or []
+        signal.alarm(0)
+    except R._RowTimeout:
+        signal.alarm(0); R._reset_renderer()
+        mine[oid] = {"row": t["row"], "name": name, "country": country, "portals": [],
+                     "why": "discovery timed out"}
+        DONE.write_text(json.dumps(mine))
+        print(f"  [{n}/{len(todo)}] {name[:26]:28} DISCOVER TIMEOUT", flush=True); continue
     except Exception as e:  # noqa: BLE001
         mine[oid] = {"row": t["row"], "portals": [], "why": f"discover error {type(e).__name__}"}
         DONE.write_text(json.dumps(mine))

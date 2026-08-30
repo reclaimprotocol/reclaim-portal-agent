@@ -72,9 +72,22 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 # The magic judge is a cheap, fast, strongly-multilingual model. Swap without
 # code changes via MAGIC_MODEL. Default to Gemini 2.5 Flash.
-MAGIC_MODEL = _env("MAGIC_MODEL", "JUDGE_MODEL", default="google/gemini-2.5-flash")
+_DEFAULT_MODEL = "google/gemini-2.5-flash"
+MAGIC_MODEL = _env("MAGIC_MODEL", "JUDGE_MODEL", default=_DEFAULT_MODEL)
 # The URL-suggestion pass can use the same or a different model.
 SUGGEST_MODEL = _env("MAGIC_SUGGEST_MODEL", "GLOBAL_SUGGEST_MODEL", default=MAGIC_MODEL)
+
+
+def _model_tag(model: str) -> str:
+    """Cache-key suffix namespacing a cache entry to the model that produced it.
+
+    Without this, swapping MAGIC_MODEL / MAGIC_SUGGEST_MODEL silently returns
+    the PREVIOUS model's cached suggestions and verdicts for the cache's whole
+    lifetime — an A/B between two models would compare a model against itself.
+
+    Empty for the default model, so the existing cache (4k orgs of judged
+    verdicts) stays valid and only non-default models pay a cold cache."""
+    return "" if model == _DEFAULT_MODEL else f"@{model}"
 
 USER_AGENT = os.getenv(
     "GENIE_UA",
@@ -718,7 +731,7 @@ def harvest(name: str, domain: str, country: str, use_cache: bool = True) -> lis
     # to re-enable if DDG recovers.
     web_on = _env("MAGIC_WEB_SEARCH", default="0").strip().lower() in ("1", "true", "yes", "on")
     with _cf.ThreadPoolExecutor(max_workers=5) as exe:
-        f_llm = exe.submit(_cached, f"llm:{name}|{domain}",
+        f_llm = exe.submit(_cached, f"llm:{name}|{domain}{_model_tag(SUGGEST_MODEL)}",
                            lambda: _llm_suggest(name, domain, country), use_cache)
         f_web = (exe.submit(_cached, f"web:{name}|{domain}",
                             lambda: _web_search(name, domain, country), use_cache)
@@ -987,7 +1000,7 @@ def _magic_batch(name: str, domain: str, batch: list[Candidate]) -> None:
 
 
 def _magic_cache_key(domain: str, c: Candidate) -> str:
-    return f"magic:{domain}:{c.final_url or c.url}"
+    return f"magic:{domain}:{c.final_url or c.url}{_model_tag(MAGIC_MODEL)}"
 
 
 def magic_judge(name: str, domain: str, cands: list[Candidate], batch_size: int = 10,

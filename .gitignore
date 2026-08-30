@@ -80,6 +80,13 @@ prune_snapshot_*.json
 portal_*.json
 portals_*.json
 tnc_*.json
+# Genie-V3 agent memory — these are KNOWLEDGE, not run artifacts, and must stay
+# tracked. `tnc_*.json` above (a run-artifact rule) would otherwise swallow
+# tnc_memory.json while its two siblings stayed tracked, which is the kind of
+# silent asymmetry that bites much later.
+!tnc_memory.json
+!domain_history.json
+!infrastructure_block.json
 *_done.json
 *_noportal.json
 *_cache.json
