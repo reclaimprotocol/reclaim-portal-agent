@@ -19,3 +19,4 @@ sse-starlette>=2.1.0
 psycopg[binary]>=3.2.0
 instructor>=1.16.0
 openai>=2.54.0
+crawl4ai>=0.9.2
