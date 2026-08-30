@@ -17,3 +17,5 @@ fastapi>=0.111.0
 uvicorn>=0.30.0
 sse-starlette>=2.1.0
 psycopg[binary]>=3.2.0
+instructor>=1.16.0
+openai>=2.54.0
