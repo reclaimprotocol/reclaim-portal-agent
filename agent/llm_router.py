@@ -218,13 +218,28 @@ def model_tiers() -> tuple[str, ...]:
     return DEFAULT_MODEL_TIERS
 
 
-def _default_is_empty(obj: Any) -> bool:
-    """Empty = a `portals` list that came back with nothing in it.
+#: Field names that hold the portal list, across the schemas we ship.
+#: `PortalExtraction` uses `portals`; `schemas.IntegratedDiscoveryOutput` uses
+#: `discovered_portals`. Miss one and empty-escalation silently never fires for
+#: that schema — the failure mode this cascade exists to prevent.
+_PORTAL_LIST_FIELDS = ("portals", "discovered_portals")
 
-    Only applies when the schema actually exposes `portals`; a caller passing an
-    unrelated schema is never judged 'empty' by accident."""
-    items = getattr(obj, "portals", None)
-    return isinstance(items, list) and len(items) == 0
+
+def _portal_items(obj: Any) -> list | None:
+    for name in _PORTAL_LIST_FIELDS:
+        items = getattr(obj, name, None)
+        if isinstance(items, list):
+            return items
+    return None
+
+
+def _default_is_empty(obj: Any) -> bool:
+    """Empty = the schema's portal list came back with nothing in it.
+
+    Only applies when the schema actually exposes one of `_PORTAL_LIST_FIELDS`;
+    a caller passing an unrelated schema is never judged 'empty' by accident."""
+    items = _portal_items(obj)
+    return items is not None and len(items) == 0
 
 
 def _payload(university: str | dict[str, Any] | None, candidate_links: Sequence[Any]) -> str:
@@ -291,7 +306,7 @@ def extract(
             if empty_check(result):
                 raise EmptyResultError(f"{model} returned 0 portals")
 
-            n = len(getattr(result, "portals", []) or [])
+            n = len(_portal_items(result) or [])
             attempts.append(TierAttempt(model, True, "", round(time.monotonic() - t0, 2), n))
             if idx > 1:
                 logger.info("layer1: tier %d (%s) succeeded after %d failure(s)",
