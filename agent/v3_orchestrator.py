@@ -715,7 +715,8 @@ async def process_university(
             mapping = matcher.resolve_optimal_compliance_mappings(
                 [p for p, _ in live_portals],
                 legal_links,
-                distance)
+                distance,
+                official_domain=row.domain)
 
             # -- 6/7. PERSIST + COMPOUND MEMORY --------------------------
             verified_rows, missing_rows, mem_entries, detail = [], [], [], []
@@ -734,11 +735,13 @@ async def process_university(
                                     row.org_id, signature(p.exact_url))
                 if tnc:
                     logger.info("[GRAPH MATCH SUCCESS] org %s — %s -> %s "
-                                "(W=%.2f: domain=%.2f/%s semantic=%.2f distance=%.2f, %s)",
+                                "(W=%.2f: domain=%.2f/%s semantic=%.2f distance=%.2f "
+                                "ownership=%.2f/%s, %s)",
                                 row.org_id, p.exact_url[:52], tnc[:52],
                                 m.get("confidence", 0.0), m.get("s_domain", 0.0),
                                 m.get("domain_relation", "?"), m.get("s_semantic", 0.0),
-                                m.get("s_distance", 0.0), m.get("assignment", "?"))
+                                m.get("s_distance", 0.0), m.get("s_ownership", 1.0),
+                                m.get("ownership_relation", "?"), m.get("assignment", "?"))
                     confidences.append(float(m.get("confidence", 0.0)))
                     # Co-learning: this document is live AND matched, so the
                     # phrase that identified it is trustworthy enough to keep.

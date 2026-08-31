@@ -55,6 +55,12 @@ _TWO_LABEL_TLDS = frozenset({
 })
 
 
+_GENERIC_SLD = frozenset({
+    "ac", "edu", "com", "org", "net", "gov", "co", "sch", "mil", "int",
+    "biz", "info", "or", "ne", "go", "in", "nom", "web", "gob", "gouv",
+})
+
+
 def signature(host_or_url: str) -> str:
     """Module-level shortcut for `Layer5MemoryCacheManager.extract_domain_signature`."""
     host = host_or_url or ""
@@ -66,6 +72,11 @@ def signature(host_or_url: str) -> str:
     parts = [p for p in host.split(".") if p]
     if len(parts) <= 2:
         return ".".join(parts)
+    # Generic-SLD rule, same as graph_matcher: a hand-kept ccTLD list is always
+    # missing a nation, and a missing one collapses every university in that
+    # country onto one cache key — which would serve the wrong vendor's terms.
+    if len(parts[-1]) == 2 and parts[-2].lower() in _GENERIC_SLD:
+        return ".".join(parts[-3:])
     if ".".join(parts[-2:]) in _TWO_LABEL_TLDS:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])

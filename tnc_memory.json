@@ -189,10 +189,10 @@
   "platform_name": "Acadêmico on-line",
   "tnc_url": "https://uea.edu.br/index.php/lgpd/",
   "privacy_policy_url": "https://uea.edu.br/index.php/lgpd/",
-  "hit_counter": 5,
+  "hit_counter": 7,
   "first_seen": "2026-08-31T05:37:15+00:00",
-  "last_updated": "2026-08-31T07:54:50+00:00",
-  "last_hit_at": "2026-08-31T07:54:50+00:00"
+  "last_updated": "2026-08-31T08:56:10+00:00",
+  "last_hit_at": "2026-08-31T08:56:10+00:00"
  },
  "ipog.edu.br": {
   "domain_signature": "ipog.edu.br",
@@ -301,10 +301,10 @@
   "platform_name": "CTU SIS",
   "tnc_url": "https://www.ctu.edu.ph/privacy-statement/",
   "privacy_policy_url": "https://www.ctu.edu.ph/privacy-statement/",
-  "hit_counter": 2,
+  "hit_counter": 3,
   "first_seen": "2026-08-31T06:17:16+00:00",
-  "last_updated": "2026-08-31T07:54:29+00:00",
-  "last_hit_at": "2026-08-31T07:54:29+00:00"
+  "last_updated": "2026-08-31T08:53:11+00:00",
+  "last_hit_at": "2026-08-31T08:53:11+00:00"
  },
  "edu.uy": {
   "domain_signature": "edu.uy",
@@ -375,9 +375,10 @@
   "platform_name": "WTI UIS",
   "tnc_url": "https://prmsu.edu.ph/DataPrivacy.html",
   "privacy_policy_url": null,
-  "hit_counter": 1,
+  "hit_counter": 2,
   "first_seen": "2026-08-31T06:44:02+00:00",
-  "last_updated": "2026-08-31T06:44:02+00:00"
+  "last_updated": "2026-08-31T08:37:27+00:00",
+  "last_hit_at": "2026-08-31T08:37:27+00:00"
  },
  "unigrande.edu.br": {
   "domain_signature": "unigrande.edu.br",
@@ -1156,5 +1157,280 @@
   "hit_counter": 1,
   "first_seen": "2026-08-31T07:59:07+00:00",
   "last_updated": "2026-08-31T07:59:07+00:00"
+ },
+ "insunte.edu.mx": {
+  "domain_signature": "insunte.edu.mx",
+  "platform_name": "Mi Cuenta",
+  "tnc_url": "https://insunte.edu.mx/es/politica-de-privacidad/",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:32:57+00:00",
+  "last_updated": "2026-08-31T08:32:57+00:00"
+ },
+ "gregoryuniversityuturu.edu.ng": {
+  "domain_signature": "gregoryuniversityuturu.edu.ng",
+  "platform_name": "Undergraduate Portal",
+  "tnc_url": "https://elearning.gregoryuniversityuturu.edu.ng/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:35:03+00:00",
+  "last_updated": "2026-08-31T08:35:03+00:00"
+ },
+ "omsc.edu.ph": {
+  "domain_signature": "omsc.edu.ph",
+  "platform_name": "AIMS",
+  "tnc_url": "https://edunong.omsc.edu.ph/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:35:15+00:00",
+  "last_updated": "2026-08-31T08:35:15+00:00"
+ },
+ "einstein.br": {
+  "domain_signature": "einstein.br",
+  "platform_name": "Resultados de Exames",
+  "tnc_url": "https://www.einstein.br/n/o-einstein/acesso-informacao/privacidade-protecao-dados/politica-de-privacidade",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:35:17+00:00",
+  "last_updated": "2026-08-31T08:35:17+00:00"
+ },
+ "upgop.edu.mx": {
+  "domain_signature": "upgop.edu.mx",
+  "platform_name": "Moodle",
+  "tnc_url": "https://upgop.edu.mx/aviso-de-privacidad/",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:36:43+00:00",
+  "last_updated": "2026-08-31T08:36:43+00:00"
+ },
+ "exame.com": {
+  "domain_signature": "exame.com",
+  "platform_name": "Exame ID",
+  "tnc_url": "https://exame.com/institucional/politica-de-privacidade/",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:36:51+00:00",
+  "last_updated": "2026-08-31T08:36:51+00:00"
+ },
+ "grautecnico.com.br": {
+  "domain_signature": "grautecnico.com.br",
+  "platform_name": "Portal Acadêmico",
+  "tnc_url": "https://grautecnico.com.br/termos-de-uso",
+  "privacy_policy_url": null,
+  "hit_counter": 2,
+  "first_seen": "2026-08-31T08:37:03+00:00",
+  "last_updated": "2026-08-31T08:47:34+00:00",
+  "last_hit_at": "2026-08-31T08:47:34+00:00"
+ },
+ "cobamich.edu.mx": {
+  "domain_signature": "cobamich.edu.mx",
+  "platform_name": "Moodle",
+  "tnc_url": "http://cvc.cobamich.edu.mx/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 5,
+  "first_seen": "2026-08-31T08:38:44+00:00",
+  "last_updated": "2026-08-31T08:38:44+00:00",
+  "last_hit_at": "2026-08-31T08:43:43+00:00"
+ },
+ "spcf.edu.ph": {
+  "domain_signature": "spcf.edu.ph",
+  "platform_name": "Student Portal",
+  "tnc_url": "http://box104.spcf.edu.ph/dummy.html",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:38:57+00:00",
+  "last_updated": "2026-08-31T08:38:57+00:00"
+ },
+ "diu.ac": {
+  "domain_signature": "diu.ac",
+  "platform_name": "Students Portal",
+  "tnc_url": "https://diu.ac/privacy-policy",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:39:48+00:00",
+  "last_updated": "2026-08-31T08:39:48+00:00"
+ },
+ "santotomas.cl": {
+  "domain_signature": "santotomas.cl",
+  "platform_name": "Aulas Virtuales",
+  "tnc_url": "https://www.santotomas.cl/privacidad-y-condiciones/",
+  "privacy_policy_url": null,
+  "hit_counter": 2,
+  "first_seen": "2026-08-31T08:41:12+00:00",
+  "last_updated": "2026-08-31T08:55:58+00:00",
+  "last_hit_at": "2026-08-31T08:55:58+00:00"
+ },
+ "uok.edu.pk": {
+  "domain_signature": "uok.edu.pk",
+  "platform_name": "University of Karachi Annual Examination Results",
+  "tnc_url": "https://uok.edu.pk/disclaimer.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:42:29+00:00",
+  "last_updated": "2026-08-31T08:42:29+00:00"
+ },
+ "afya.com.br": {
+  "domain_signature": "afya.com.br",
+  "platform_name": "Canvas",
+  "tnc_url": "https://canvas-sso.afya.com.br/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:42:38+00:00",
+  "last_updated": "2026-08-31T08:42:38+00:00"
+ },
+ "ispsc.edu.ph": {
+  "domain_signature": "ispsc.edu.ph",
+  "platform_name": "E-DAWA",
+  "tnc_url": "https://edawa.ispsc.edu.ph/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:43:15+00:00",
+  "last_updated": "2026-08-31T08:43:15+00:00"
+ },
+ "uls.edu.ph": {
+  "domain_signature": "uls.edu.ph",
+  "platform_name": "EMIS",
+  "tnc_url": "https://uls.edu.ph/privacy_notice/",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:44:00+00:00",
+  "last_updated": "2026-08-31T08:44:00+00:00"
+ },
+ "facam-ma.com.br": {
+  "domain_signature": "facam-ma.com.br",
+  "platform_name": "Área do Aluno",
+  "tnc_url": "https://facam-ma.com.br/afacam/ambiente-virtual-de-aprendizagem-ava/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:44:42+00:00",
+  "last_updated": "2026-08-31T08:44:42+00:00"
+ },
+ "zegel.edu.pe": {
+  "domain_signature": "zegel.edu.pe",
+  "platform_name": "EVA",
+  "tnc_url": "https://eva.zegel.edu.pe/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 3,
+  "first_seen": "2026-08-31T08:44:44+00:00",
+  "last_updated": "2026-08-31T08:44:44+00:00",
+  "last_hit_at": "2026-08-31T08:51:47+00:00"
+ },
+ "camaracomercioexterior.org": {
+  "domain_signature": "camaracomercioexterior.org",
+  "platform_name": "Aula Virtual",
+  "tnc_url": "https://aulavirtual.camaracomercioexterior.org/p/privacy",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:45:16+00:00",
+  "last_updated": "2026-08-31T08:45:16+00:00"
+ },
+ "uabjb.edu.bo": {
+  "domain_signature": "uabjb.edu.bo",
+  "platform_name": "Aula Virtual UABJB",
+  "tnc_url": "https://uvirtual.uabjb.edu.bo/info/privacy",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:45:35+00:00",
+  "last_updated": "2026-08-31T08:45:35+00:00"
+ },
+ "unibr.com.br": {
+  "domain_signature": "unibr.com.br",
+  "platform_name": "Moodle",
+  "tnc_url": "https://ead.unibr.com.br/admin/tool/dataprivacy/summary.php",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:47:34+00:00",
+  "last_updated": "2026-08-31T08:47:34+00:00"
+ },
+ "uttlaxcala.edu.mx": {
+  "domain_signature": "uttlaxcala.edu.mx",
+  "platform_name": "SAIIUT",
+  "tnc_url": "https://uttlaxcala.edu.mx/avisos-utt",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:47:45+00:00",
+  "last_updated": "2026-08-31T08:47:45+00:00"
+ },
+ "ibmec.br": {
+  "domain_signature": "ibmec.br",
+  "platform_name": "Área do Aluno",
+  "tnc_url": "https://www.ibmec.br/portal-de-privacidade-ibmec",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:50:13+00:00",
+  "last_updated": "2026-08-31T08:50:13+00:00"
+ },
+ "unip.br": {
+  "domain_signature": "unip.br",
+  "platform_name": "Portal do Aluno",
+  "tnc_url": "https://unip.br/universidade/politica-privacidade.aspx",
+  "privacy_policy_url": null,
+  "hit_counter": 2,
+  "first_seen": "2026-08-31T08:50:38+00:00",
+  "last_updated": "2026-08-31T08:54:55+00:00",
+  "last_hit_at": "2026-08-31T08:54:55+00:00"
+ },
+ "arena-multimedia.com": {
+  "domain_signature": "arena-multimedia.com",
+  "platform_name": "Arena Animation",
+  "tnc_url": "https://arena-multimedia.com/terms-of-use",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:52:01+00:00",
+  "last_updated": "2026-08-31T08:52:01+00:00"
+ },
+ "rj.gov.br": {
+  "domain_signature": "rj.gov.br",
+  "platform_name": "Portal do Aluno",
+  "tnc_url": "https://macae.rj.gov.br/conteudo/leitura/titulo/politica-de-privacidade",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:52:11+00:00",
+  "last_updated": "2026-08-31T08:52:11+00:00"
+ },
+ "institutolibano.com.br": {
+  "domain_signature": "institutolibano.com.br",
+  "platform_name": "Portal do Aluno",
+  "tnc_url": "https://institutolibano.com.br/termos-de-uso",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:53:33+00:00",
+  "last_updated": "2026-08-31T08:53:33+00:00"
+ },
+ "szabist.edu.pk": {
+  "domain_signature": "szabist.edu.pk",
+  "platform_name": "Zabdesk",
+  "tnc_url": "https://hyd.szabist.edu.pk/terms.html",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:54:20+00:00",
+  "last_updated": "2026-08-31T08:54:20+00:00"
+ },
+ "sunn.edu.ph": {
+  "domain_signature": "sunn.edu.ph",
+  "platform_name": "SIAS",
+  "tnc_url": "https://sunn.edu.ph/sunn-has-officially-obtained-the-national-privacy-commission-npc-seal-of-registration/",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:54:49+00:00",
+  "last_updated": "2026-08-31T08:54:49+00:00"
+ },
+ "sfsacademy.lk": {
+  "domain_signature": "sfsacademy.lk",
+  "platform_name": "SFS Academy LMS",
+  "tnc_url": "https://sfsacademy.lk/privacy-policy",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:55:35+00:00",
+  "last_updated": "2026-08-31T08:55:35+00:00"
+ },
+ "isu-ilagan.edu.ph": {
+  "domain_signature": "isu-ilagan.edu.ph",
+  "platform_name": "Teleducation",
+  "tnc_url": "https://isu-ilagan.edu.ph/data-privacy-notice",
+  "privacy_policy_url": null,
+  "hit_counter": 1,
+  "first_seen": "2026-08-31T08:56:17+00:00",
+  "last_updated": "2026-08-31T08:56:17+00:00"
  }
 }

@@ -50,6 +50,20 @@ CONFIDENCE_THRESHOLD = 0.40
 
 W_DOMAIN, W_SEMANTIC, W_DISTANCE = 0.40, 0.40, 0.20
 
+#: S_ownership is a MULTIPLIER, not a fourth weighted term.
+#:
+#: The failure it fixes: a crawl surfaces a DIFFERENT university's Moodle, and
+#: that Moodle's own privacy page is an exact-host match to it — S_domain 1.0,
+#: S_semantic 1.0, S_distance 1.0. Every additive scheme still clears the gate,
+#: because the three signals only ever compare the portal to the legal link and
+#: never ask whether either belongs to the ORG we are working on. Measured: 5 of
+#: 25 host-mismatches were exactly this (fstm.ac.ma -> univh2c.ma,
+#: feg.uh1.ac.ma -> usmba.ac.ma, nipa.ac.zm -> zcas.ac.zm).
+#:
+#: A tenant on a known SaaS vendor is legitimately off-domain, so it is damped
+#: rather than cut.
+OWN_SELF, OWN_SAAS, OWN_FOREIGN = 1.0, 0.90, 0.35
+
 #: Crawl-provenance multipliers, per the spec.
 DISTANCE_NATIVE_CRAWL = 1.0
 DISTANCE_SEARCH_FALLBACK = 0.4
@@ -121,13 +135,31 @@ def host_of(url: str) -> str:
     return h[4:] if h.startswith("www.") else h
 
 
+#: Generic second-level labels that sit under a 2-letter ccTLD. Any
+#: `<name>.<generic>.<cc>` host has a THREE-label registrable root.
+#:
+#: This replaces the hand-maintained ccTLD list, which was the bug: `ac.ma` and
+#: `ac.zm` were simply missing, so registrable_root("fsjes.usmba.ac.ma")
+#: returned "ac.ma" and EVERY Moroccan university looked like the same
+#: organisation — which is how a foreign university's Moodle scored a perfect
+#: "org-root" ownership match. A list can always be missing a nation; this rule
+#: covers all of them.
+_GENERIC_SLD = frozenset({
+    "ac", "edu", "com", "org", "net", "gov", "co", "sch", "mil", "int",
+    "biz", "info", "or", "ne", "go", "in", "nom", "web", "gob", "gouv",
+})
+
+
 def registrable_root(url_or_host: str) -> str:
     parts = [p for p in host_of(url_or_host).split(".") if p]
     if len(parts) <= 2:
         return ".".join(parts)
+    if len(parts[-1]) == 2 and parts[-2].lower() in _GENERIC_SLD:
+        return ".".join(parts[-3:])
     if ".".join(parts[-2:]) in _TWO_LABEL_TLDS:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
+
 
 
 @dataclass
@@ -141,6 +173,8 @@ class EdgeScore:
     s_semantic: float
     s_distance: float
     domain_relation: str
+    s_ownership: float = 1.0
+    ownership_relation: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -149,7 +183,9 @@ class EdgeScore:
             "s_domain": round(self.s_domain, 3),
             "s_semantic": round(self.s_semantic, 3),
             "s_distance": round(self.s_distance, 3),
+            "s_ownership": round(self.s_ownership, 3),
             "domain_relation": self.domain_relation,
+            "ownership_relation": self.ownership_relation,
         }
 
 
@@ -220,6 +256,28 @@ class GraphComplianceMatcher:
                 return 0.5, "saas-ecosystem"
         return 0.0, "unrelated"
 
+    def score_ownership(self, legal_url: str, official_domain: str) -> tuple[float, str]:
+        """Does this legal document belong to the ORG we are processing?
+
+        `S_domain` asks whether the document relates to the PORTAL; this asks
+        whether it relates to the UNIVERSITY. Both can be needed: a foreign
+        institution's Moodle scores a perfect 1.0 against its own privacy page
+        while having nothing to do with our org.
+        """
+        if not official_domain:
+            return OWN_SELF, "no-org-domain"        # nothing to check against
+        lh, oh = host_of(legal_url), host_of(official_domain)
+        if not lh or not oh:
+            return OWN_SELF, "unknown"
+        if lh == oh or lh.endswith("." + oh) or oh.endswith("." + lh):
+            return OWN_SELF, "org-host"
+        lr, orr = registrable_root(lh), registrable_root(oh)
+        if lr and lr == orr:
+            return OWN_SELF, "org-root"
+        if lr and lr in self.saas_roots:
+            return OWN_SAAS, "org-saas-tenant"
+        return OWN_FOREIGN, "foreign-org"
+
     def score_semantic(self, legal_url: str, anchor_text: str,
                        is_primary: bool = False,
                        native_keyword: str | None = None) -> float:
@@ -258,6 +316,7 @@ class GraphComplianceMatcher:
         discovered_portals: list,
         harvested_legal_links: list,
         source_crawl_distance: float = DISTANCE_NATIVE_CRAWL,
+        official_domain: str = "",
     ) -> dict[str, dict[str, Any] | None]:
         """{portal_url: mapping-dict | None} — one decision per portal.
 
@@ -300,9 +359,11 @@ class GraphComplianceMatcher:
                 # (Brazilian orgs carrying a Philippine university's policy), so
                 # zero domain affinity is a hard veto, not a low score.
                 s_sem = self.score_semantic(lu, anchor, primary, native)
-                w = (W_DOMAIN * s_dom + W_SEMANTIC * s_sem + W_DISTANCE * s_dist
-                     ) if s_dom > 0.0 else 0.0
-                es = EdgeScore(pu, lu, w, s_dom, s_sem, s_dist, rel)
+                s_own, own_rel = self.score_ownership(lu, official_domain)
+                base = (W_DOMAIN * s_dom + W_SEMANTIC * s_sem
+                        + W_DISTANCE * s_dist) if s_dom > 0.0 else 0.0
+                w = base * s_own
+                es = EdgeScore(pu, lu, w, s_dom, s_sem, s_dist, rel, s_own, own_rel)
                 self.last_edges.append(es)
                 G.add_edge(f"P:{pu}", f"C:{lu}", weight=w, **es.as_dict())
                 cur = best_by_portal.get(pu)
