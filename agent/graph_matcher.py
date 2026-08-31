@@ -64,6 +64,21 @@ W_DOMAIN, W_SEMANTIC, W_DISTANCE = 0.40, 0.40, 0.20
 #: rather than cut.
 OWN_SELF, OWN_SAAS, OWN_FOREIGN = 1.0, 0.90, 0.35
 
+#: Hard ceiling for a vendor-corporate-terms mapping, set BELOW the 0.40 gate so
+#: such an edge is always cut.
+#:
+#: The customer's own review data settles this: of 317 T&C links they rejected,
+#: the top hosts are ucanapply.com, makaut.online, iitms.co.in, linways.com and
+#: vmedulife.com — third-party SaaS vendors, most of which sit in our own
+#: whitelist. A vendor's corporate terms are not the university's student terms,
+#: and shipping one costs a human review to reach the same conclusion.
+#:
+#: A cap rather than a lower S_domain tier, because the additive base reaches
+#: 0.60 from S_semantic and S_distance alone: no value of S_domain — not even
+#: 0.0 — can bring a semantically perfect vendor page under the gate. The edge
+#: is still scored and kept in the graph so the decision stays auditable.
+SAAS_MAX_WEIGHT = 0.35
+
 #: Crawl-provenance multipliers, per the spec.
 DISTANCE_NATIVE_CRAWL = 1.0
 DISTANCE_SEARCH_FALLBACK = 0.4
@@ -386,6 +401,8 @@ class GraphComplianceMatcher:
                 base = (W_DOMAIN * s_dom + W_SEMANTIC * s_sem
                         + W_DISTANCE * s_dist) if s_dom > 0.0 else 0.0
                 w = base * s_own
+                if rel == "saas-ecosystem" or own_rel == "org-saas-tenant":
+                    w = min(w, SAAS_MAX_WEIGHT)
                 es = EdgeScore(pu, lu, w, s_dom, s_sem, s_dist, rel, s_own, own_rel)
                 self.last_edges.append(es)
                 G.add_edge(f"P:{pu}", f"C:{lu}", weight=w, **es.as_dict())
