@@ -1,230 +1,1906 @@
 {
- "417645": {
-  "org_id": "417645",
-  "university_name": "มหาวิทยาลัยขอนแก่น (มข.)",
-  "official_domain": "kku.ac.th",
-  "sheet_row": 6,
+ "10042409": {
+  "org_id": "10042409",
+  "university_name": "Instituto Federal do Paraná - Campus Paranavaí",
+  "official_domain": "ifpr.edu.br",
+  "sheet_row": 1004,
   "portals": [
    {
-    "url": "https://reg.kku.ac.th/registrar/home.asp?avs=46020.9285648148",
+    "url": "https://suap.ifpr.edu.br/accounts/login/?next=/",
     "category": "ERP",
-    "system": "KKU Registrar System",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": "https://www.kku.ac.th/privacy-policy/",
-    "stage": "Stage 4: University Root Rescue"
+    "system": "SUAP",
+    "tnc_url": "https://ifpr.edu.br/politica-de-privacidade/",
+    "graph": {
+     "tnc_url": "https://ifpr.edu.br/politica-de-privacidade/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:45:24+00:00"
+ },
+ "10273252": {
+  "org_id": "10273252",
+  "university_name": "Національний юридичний університет імені Ярослава Мудрого",
+  "official_domain": "nlu.edu.ua",
+  "sheet_row": 2094,
+  "portals": [
+   {
+    "url": "https://neik.nlu.edu.ua/moodle/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://neik.nlu.edu.ua/moodle/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://neik.nlu.edu.ua/moodle/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:45:40+00:00"
+ },
+ "10237918": {
+  "org_id": "10237918",
+  "university_name": "Комунальний заклад вищої освіти «Луцький педагогічний інститут» Волинської обласної ради",
+  "official_domain": "lpc.in.ua",
+  "sheet_row": 2914,
+  "portals": [
+   {
+    "url": "https://mdl-lpc.site/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://mdl-lpc.site/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://mdl-lpc.site/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:45:43+00:00"
+ },
+ "10234247": {
+  "org_id": "10234247",
+  "university_name": "IPOG - Instituto de Pós-Graduação e Graduação - Manaus",
+  "official_domain": "ipog.edu.br",
+  "sheet_row": 1529,
+  "portals": [
+   {
+    "url": "https://ipogmais.ipog.edu.br/ipogmais/#/",
+    "category": "General Student Login",
+    "system": "IPOG Mais",
+    "tnc_url": "https://ipog.edu.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://ipog.edu.br/termos-de-uso",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
    },
    {
-    "url": "https://e-learning.kku.ac.th/",
-    "category": "LMS (Moodle/Canvas)",
-    "system": "KKU e-Learning",
-    "confidence": 0.9,
-    "tnc_url": null,
-    "privacy_policy_url": "https://www.kku.ac.th/privacy-policy/",
-    "stage": "Stage 4: University Root Rescue"
+    "url": "https://sei.ipog.edu.br/index.xhtml",
+    "category": "ERP",
+    "system": "SEI",
+    "tnc_url": "https://ipog.edu.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://ipog.edu.br/termos-de-uso",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
    }
   ],
   "verified_live": 2,
-  "updated_at": "2026-08-30T16:46:43+00:00"
+  "updated_at": "2026-08-31T07:45:51+00:00"
  },
- "588780": {
-  "org_id": "588780",
-  "university_name": "Trường Đại học Hà Nội",
-  "official_domain": "hanu.edu.vn",
-  "sheet_row": 5,
+ "10252967": {
+  "org_id": "10252967",
+  "university_name": "Universo - Campus Belo Horizonte",
+  "official_domain": "universo.edu.br",
+  "sheet_row": 515,
   "portals": [
    {
-    "url": "https://connections.hanu.vn/",
+    "url": "https://cdu.asoec.com.br/cdu/public/index/login",
     "category": "General Student Login",
-    "system": "HANU Connections",
-    "confidence": 0.75,
+    "system": "Espaço do Aluno",
     "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found"
-   }
-  ],
-  "verified_live": 0,
-  "updated_at": "2026-08-30T18:16:06+00:00"
- },
- "588915": {
-  "org_id": "588915",
-  "university_name": "Trường Đại học Thương mại",
-  "official_domain": "mailsv.tmu.edu.vn",
-  "sheet_row": 4,
-  "portals": [
-   {
-    "url": "https://sso.tmu.edu.vn/",
-    "category": "General Student Login",
-    "system": "TMU SSO",
-    "confidence": 0.9,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   }
-  ],
-  "verified_live": 0,
-  "updated_at": "2026-08-30T18:44:59+00:00"
- },
- "349649": {
-  "org_id": "349649",
-  "university_name": "Universitas Diponegoro",
-  "official_domain": "live.undip.ac.id",
-  "sheet_row": 3,
-  "portals": [
-   {
-    "url": "https://pemerintahan.undip.ac.id/id/login/",
-    "category": "General Student Login",
-    "system": "Bachelor of Government Studies Portal",
-    "confidence": 0.6,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "graph": null,
     "http_status": 200
    },
    {
-    "url": "https://pasca.undip.ac.id/en/student/",
-    "category": "General Student Login",
-    "system": "Sekolah Pascasarjana Portal",
-    "confidence": 0.6,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   },
-   {
-    "url": "https://ekis.feb.undip.ac.id/single-sign-on/",
-    "category": "General Student Login",
-    "system": "Ekonomi Islam SSO",
-    "confidence": 0.6,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   },
-   {
-    "url": "https://www.undip.ac.id/language/en/it-services-2",
-    "category": "General Student Login",
-    "system": "IT Services Portal",
-    "confidence": 0.6,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   },
-   {
-    "url": "https://dsti.undip.ac.id/tutorial/",
-    "category": "General Student Login",
-    "system": "Direktorat Sistem dan Teknologi Informasi Portal",
-    "confidence": 0.6,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   }
-  ],
-  "verified_live": 0,
-  "updated_at": "2026-08-30T18:45:09+00:00"
- },
- "588874": {
-  "org_id": "588874",
-  "university_name": "Trường Đại học Sài Gòn",
-  "official_domain": "sgu.edu.vn",
-  "sheet_row": 7,
-  "portals": [
-   {
-    "url": "http://daotao.sgu.edu.vn/",
-    "category": "ERP",
-    "system": "Cổng thông tin đào tạo SGU",
-    "confidence": 0.85,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   }
-  ],
-  "verified_live": 0,
-  "updated_at": "2026-08-30T18:45:13+00:00"
- },
- "662013": {
-  "org_id": "662013",
-  "university_name": "Kwame Nkrumah University Of Science And Technology",
-  "official_domain": "knust.edu.gh",
-  "sheet_row": 2,
-  "portals": [
-   {
-    "url": "https://studentportal.knust.edu.gh/",
-    "category": "ERP",
-    "system": "KNUST Student Portal",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   }
-  ],
-  "verified_live": 0,
-  "updated_at": "2026-08-30T18:46:03+00:00"
- },
- "4063994": {
-  "org_id": "4063994",
-  "university_name": "University of Zambia (UNZA)",
-  "official_domain": "unza.zm",
-  "sheet_row": 12,
-  "portals": [
-   {
-    "url": "https://sis.unza.zm/users/login",
-    "category": "ERP",
-    "system": "UNZA Student Information System (SIS)",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   },
-   {
-    "url": "http://moodle.unza.zm/",
+    "url": "http://ead.universo.edu.br/login/index.php",
     "category": "LMS (Moodle/Canvas)",
     "system": "Moodle",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "tnc_url": "https://universo.edu.br/politica-de-privacidade-2",
+    "graph": {
+     "tnc_url": "https://universo.edu.br/politica-de-privacidade-2",
+     "confidence": 0.64,
+     "s_domain": 0.8,
+     "s_semantic": 0.3,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:00+00:00"
+ },
+ "10068094": {
+  "org_id": "10068094",
+  "university_name": "Instituto Federal do Paraná - Campus Paranaguá",
+  "official_domain": "ifpr.edu.br",
+  "sheet_row": 771,
+  "portals": [
+   {
+    "url": "https://suap.ifpr.edu.br/accounts/login/?next=/",
+    "category": "ERP",
+    "system": "SUAP",
+    "tnc_url": "https://ifpr.edu.br/politica-de-privacidade/",
+    "graph": {
+     "tnc_url": "https://ifpr.edu.br/politica-de-privacidade/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:09+00:00"
+ },
+ "10239606": {
+  "org_id": "10239606",
+  "university_name": "Escola Superior De Tecnologia - EST/UEA",
+  "official_domain": "uea.edu.br",
+  "sheet_row": 1922,
+  "portals": [
+   {
+    "url": "https://acesso.uea.edu.br/app/login.php",
+    "category": "ERP",
+    "system": "Acadêmico on-line",
+    "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+    "graph": {
+     "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
     "http_status": 200
    },
    {
-    "url": "https://online.unza.zm/users/login",
-    "category": "General Student Login",
-    "system": "UNZA Online Portal",
-    "confidence": 0.85,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "url": "http://avauea.uea.edu.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "AVA UEA",
+    "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+    "graph": {
+     "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
     "http_status": 200
    }
   ],
-  "verified_live": 0,
-  "updated_at": "2026-08-30T19:04:58+00:00"
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:46:12+00:00"
  },
- "4064510": {
-  "org_id": "4064510",
-  "university_name": "University of Dar es Salaam",
-  "official_domain": "udsm.ac.tz",
-  "sheet_row": 22,
+ "10203400": {
+  "org_id": "10203400",
+  "university_name": "Instituto Federal de Educação, Ciência e Tecnologia de São Paulo - Campus Capivari",
+  "official_domain": "cpv.ifsp.edu.br",
+  "sheet_row": 2510,
   "portals": [
    {
-    "url": "https://udsm.ac.tz/directorate-students-services",
-    "category": "General Student Login",
-    "system": "Directorate of Student Services",
-    "confidence": 0.6,
+    "url": "https://ead.cpv.ifsp.edu.br",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://suap.ifsp.edu.br",
+    "category": "ERP",
+    "system": "SUAP",
+    "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:46:12+00:00"
+ },
+ "10058422": {
+  "org_id": "10058422",
+  "university_name": "Universitas Islam Negeri Alauddin Makassar",
+  "official_domain": "uin-alauddin.ac.id",
+  "sheet_row": 330,
+  "portals": [
+   {
+    "url": "http://portalakademik.uin-alauddin.ac.id/",
+    "category": "ERP",
+    "system": "Portal Akademik",
     "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "graph": null,
     "http_status": 200
    }
   ],
   "verified_live": 0,
-  "updated_at": "2026-08-30T19:28:58+00:00"
+  "updated_at": "2026-08-31T07:46:13+00:00"
+ },
+ "10249249": {
+  "org_id": "10249249",
+  "university_name": "União das Faculdades Católicas de Mato Grosso",
+  "official_domain": "unifacc.com.br",
+  "sheet_row": 916,
+  "portals": [
+   {
+    "url": "https://ava.unifacc.com.br/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://ava.unifacc.com.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ava.unifacc.com.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:17+00:00"
+ },
+ "10067062": {
+  "org_id": "10067062",
+  "university_name": "Казахский Агротехнический Исследовательский Университет Имени С.Сейфуллина",
+  "official_domain": "kazatu.edu.kz",
+  "sheet_row": 755,
+  "portals": [
+   {
+    "url": "http://platonus.kazatu.kz/",
+    "category": "ERP",
+    "system": "Platonus",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://portal.kazatu.kz/index_new_2_kaz.php",
+    "category": "General Student Login",
+    "system": "Білім порталы",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:46:19+00:00"
+ },
+ "10074756": {
+  "org_id": "10074756",
+  "university_name": "Negros Oriental State University - Bayawan - Sta. Catalina Campus",
+  "official_domain": "norsu.edu.ph",
+  "sheet_row": 1283,
+  "portals": [
+   {
+    "url": "https://norsu.edu.ph/19",
+    "category": "UMS/MIS",
+    "system": "MIS",
+    "tnc_url": "https://norsu.edu.ph/73",
+    "graph": {
+     "tnc_url": "https://norsu.edu.ph/73",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://norsu.edu.ph/23",
+    "category": "General Student Login",
+    "system": "Students",
+    "tnc_url": "https://norsu.edu.ph/80",
+    "graph": {
+     "tnc_url": "https://norsu.edu.ph/80",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:46:20+00:00"
+ },
+ "10049282": {
+  "org_id": "10049282",
+  "university_name": "Instituto De Estudios Superiores Elise Freinet",
+  "official_domain": "iesef.edu.mx",
+  "sheet_row": 1658,
+  "portals": [
+   {
+    "url": "https://plataformaestudy.mx/elisefreinet",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "eStudy",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:46:23+00:00"
+ },
+ "10058864": {
+  "org_id": "10058864",
+  "university_name": "UniVitória",
+  "official_domain": "univitoriaead.com.br",
+  "sheet_row": 1005,
+  "portals": [
+   {
+    "url": "https://univitoriaead.com.br/sou-aluno/",
+    "category": "General Student Login",
+    "system": "Portal Sou Aluno",
+    "tnc_url": "https://univitoriaead.com.br/politica-de-privacidade/",
+    "graph": {
+     "tnc_url": "https://univitoriaead.com.br/politica-de-privacidade/",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://universa.univitoriaead.com.br/financeiro/painel/titulos",
+    "category": "Fee Payment",
+    "system": "Universa",
+    "tnc_url": "https://univitoriaead.com.br/politica-de-privacidade/",
+    "graph": {
+     "tnc_url": "https://univitoriaead.com.br/politica-de-privacidade/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:46:25+00:00"
+ },
+ "10036692": {
+  "org_id": "10036692",
+  "university_name": "كلية العلوم القانونية والاقتصادية والاجتماعية بتطوان",
+  "official_domain": "fsjeste.ma",
+  "sheet_row": 2279,
+  "portals": [
+   {
+    "url": "https://espace.fsjeste.ma/espace/etudiant/login",
+    "category": "General Student Login",
+    "system": "Espace Étudiant",
+    "tnc_url": "https://www.fsjeste.ma/site/conditions-dutilisation/",
+    "graph": {
+     "tnc_url": "https://www.fsjeste.ma/site/conditions-dutilisation/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://apoweb-te.uae.ac.ma/dossier_etudiant_fsjes_tetouan/",
+    "category": "UMS/MIS",
+    "system": "Apogée",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:46:29+00:00"
+ },
+ "10042202": {
+  "org_id": "10042202",
+  "university_name": "Faculté des Sciences Université M'hamed Bougara Boumerdes",
+  "official_domain": "fdsp.univ-boumerdes.dz",
+  "sheet_row": 1667,
+  "portals": [
+   {
+    "url": "https://elearning.univ-boumerdes.dz/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://elearning.univ-boumerdes.dz/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.univ-boumerdes.dz/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:38+00:00"
+ },
+ "10082815": {
+  "org_id": "10082815",
+  "university_name": "Bali Ram Bhagat College",
+  "official_domain": "brbcollege.ac.in",
+  "sheet_row": 2789,
+  "portals": [
+   {
+    "url": "https://brbcollege.ac.in/ugsem5/student_login_internship_letter",
+    "category": "UMS/MIS",
+    "system": "BRB College Student Portal",
+    "tnc_url": "https://brbcollege.ac.in/terms-and-conditions",
+    "graph": {
+     "tnc_url": "https://brbcollege.ac.in/terms-and-conditions",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:44+00:00"
+ },
+ "10149290": {
+  "org_id": "10149290",
+  "university_name": "RIMT University",
+  "official_domain": "rimt.ac.in",
+  "sheet_row": 1547,
+  "portals": [
+   {
+    "url": "https://rimt.ac.in/rimt-university-lms/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "RIMT University LMS",
+    "tnc_url": "https://rimt.ac.in/policies/",
+    "graph": {
+     "tnc_url": "https://rimt.ac.in/policies/",
+     "confidence": 0.64,
+     "s_domain": 1.0,
+     "s_semantic": 0.1,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://rimt.ac.in/student-login/",
+    "category": "General Student Login",
+    "system": "Student Login",
+    "tnc_url": "https://rimt.ac.in/privacy-policy/",
+    "graph": {
+     "tnc_url": "https://rimt.ac.in/privacy-policy/",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:46:45+00:00"
+ },
+ "10002050": {
+  "org_id": "10002050",
+  "university_name": "Netaji Subhas Medical College and Hospital",
+  "official_domain": "nsmch.com",
+  "sheet_row": 2281,
+  "portals": [
+   {
+    "url": "https://student.nsmch.com/login.aspx?ReturnUrl=%2f",
+    "category": "ERP",
+    "system": "Academist ERP",
+    "tnc_url": "https://nsmch.com/terms-condition",
+    "graph": {
+     "tnc_url": "https://nsmch.com/terms-condition",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:49+00:00"
+ },
+ "10275088": {
+  "org_id": "10275088",
+  "university_name": "Universidad Central del Paraguay",
+  "official_domain": "central.edu.py",
+  "sheet_row": 1166,
+  "portals": [
+   {
+    "url": "https://central.edu.py/alumnos",
+    "category": "General Student Login",
+    "system": "Portal Alumnos",
+    "tnc_url": "https://central.edu.py/declaracion-de-privacidad",
+    "graph": {
+     "tnc_url": "https://central.edu.py/declaracion-de-privacidad",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:52+00:00"
+ },
+ "10041184": {
+  "org_id": "10041184",
+  "university_name": "Escuela de Kinesiología y Fisioterapia de la Facultad de Ciencias Médicas de la Universidad Nacional de Córdoba",
+  "official_domain": "ekyf.fcm.unc.edu.ar",
+  "sheet_row": 3231,
+  "portals": [
+   {
+    "url": "https://ekyf.aulavirtual.unc.edu.ar/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://ekyf.aulavirtual.unc.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ekyf.aulavirtual.unc.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://autogestion.guarani.unc.edu.ar/",
+    "category": "ERP",
+    "system": "SIU-Guaraní",
+    "tnc_url": "https://ekyf.aulavirtual.unc.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ekyf.aulavirtual.unc.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://usuarios.unc.edu.ar/#/",
+    "category": "General Student Login",
+    "system": "Usuarios UNC",
+    "tnc_url": "https://ekyf.aulavirtual.unc.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ekyf.aulavirtual.unc.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:46:56+00:00"
+ },
+ "10012256": {
+  "org_id": "10012256",
+  "university_name": "Universidad Pedagógica Nacional",
+  "official_domain": "upnqueretaro.edu.mx",
+  "sheet_row": 1951,
+  "portals": [
+   {
+    "url": "https://correo.upnqueretaro.edu.mx",
+    "category": "General Student Login",
+    "system": "Webmail de UPN Querétaro",
+    "tnc_url": "https://upnqueretaro.edu.mx/aviso-de-privacidad/",
+    "graph": {
+     "tnc_url": "https://upnqueretaro.edu.mx/aviso-de-privacidad/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:46:57+00:00"
+ },
+ "10055731": {
+  "org_id": "10055731",
+  "university_name": "Hashtag Treinamentos",
+  "official_domain": "hashtagtreinamentos.com",
+  "sheet_row": 780,
+  "portals": [
+   {
+    "url": "https://www.hashtagtreinamentos.com/acesso-portal",
+    "category": "General Student Login",
+    "system": "Hashtag Treinamentos",
+    "tnc_url": "https://www.hashtagtreinamentos.com/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://www.hashtagtreinamentos.com/politica-de-privacidade",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:47:13+00:00"
+ },
+ "10151988": {
+  "org_id": "10151988",
+  "university_name": "Полтавський Державний Медичний Університет",
+  "official_domain": "pdmu.edu.ua",
+  "sheet_row": 133,
+  "portals": [
+   {
+    "url": "https://moodle.pdmu.edu.ua/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://pdmu.edu.ua/docs/ai-policy-text",
+    "graph": {
+     "tnc_url": "https://pdmu.edu.ua/docs/ai-policy-text",
+     "confidence": 0.56,
+     "s_domain": 0.8,
+     "s_semantic": 0.1,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://ez.pdmu.edu.ua",
+    "category": "UMS/MIS",
+    "system": "Електронний журнал",
+    "tnc_url": "https://pdmu.edu.ua/cookie-policy",
+    "graph": {
+     "tnc_url": "https://pdmu.edu.ua/cookie-policy",
+     "confidence": 0.64,
+     "s_domain": 0.8,
+     "s_semantic": 0.3,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:47:21+00:00"
+ },
+ "10199855": {
+  "org_id": "10199855",
+  "university_name": "Systems Technology Institute College Balayan",
+  "official_domain": "balayan.sti.edu",
+  "sheet_row": 669,
+  "portals": [
+   {
+    "url": "https://www.sti.edu/payments/",
+    "category": "Fee Payment",
+    "system": "Alternative Payment Service",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/stionestilearningmodel",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "ONE STI Learning Model",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/e2e",
+    "category": "General Student Login",
+    "system": "E2E System",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:47:24+00:00"
+ },
+ "10245775": {
+  "org_id": "10245775",
+  "university_name": "Science Technology Institute of Rosario, Cavite",
+  "official_domain": "sti.edu",
+  "sheet_row": 2114,
+  "portals": [
+   {
+    "url": "https://www.sti.edu/payments/",
+    "category": "Fee Payment",
+    "system": "Alternative Payment Service",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/stionestilearningmodel",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "ONE STI Learning Model",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/verify-records/",
+    "category": "UMS/MIS",
+    "system": "Verification of Records",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:47:30+00:00"
+ },
+ "10010777": {
+  "org_id": "10010777",
+  "university_name": "Universidad Privada Cumbre",
+  "official_domain": "cumbre.edu.bo",
+  "sheet_row": 3119,
+  "portals": [
+   {
+    "url": "https://cumbre.edu.bo/portal",
+    "category": "General Student Login",
+    "system": "Portal UPC",
+    "tnc_url": "https://campus.cumbre.edu.bo/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://campus.cumbre.edu.bo/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://campus.cumbre.edu.bo/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Campus Virtual",
+    "tnc_url": "https://campus.cumbre.edu.bo/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://campus.cumbre.edu.bo/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:47:35+00:00"
+ },
+ "10038910": {
+  "org_id": "10038910",
+  "university_name": "TrườNg ĐạI HọC NguyễN TấT Thành",
+  "official_domain": "ntt.edu.vn",
+  "sheet_row": 358,
+  "portals": [
+   {
+    "url": "https://lms.ntt.edu.vn",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "E-learning",
+    "tnc_url": "https://lms.ntt.edu.vn/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.ntt.edu.vn/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:47:40+00:00"
+ },
+ "10311986": {
+  "org_id": "10311986",
+  "university_name": "University of Media, Arts and Communication - Institute of Film and Television",
+  "official_domain": "nafti.edu.gh",
+  "sheet_row": 353,
+  "portals": [
+   {
+    "url": "https://students.unimac.edu.gh/login",
+    "category": "ERP",
+    "system": "UniMAC Students Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://lms.unimac.edu.gh/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Virtual Classroom",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:47:40+00:00"
+ },
+ "10245424": {
+  "org_id": "10245424",
+  "university_name": "Centro Universitario de Música Fermatta",
+  "official_domain": "fermatta.edu.mx",
+  "sheet_row": 3110,
+  "portals": [
+   {
+    "url": "https://fermatta.classter.com",
+    "category": "ERP",
+    "system": "Classter",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:47:44+00:00"
+ },
+ "10238012": {
+  "org_id": "10238012",
+  "university_name": "Kasem Bundit University (Phatthanakan Campus)",
+  "official_domain": "kbu.ac.th",
+  "sheet_row": 539,
+  "portals": [
+   {
+    "url": "https://elc.kbu.ac.th/web/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "e-Learning Center",
+    "tnc_url": "https://kbu.ac.th/pdpa",
+    "graph": {
+     "tnc_url": "https://kbu.ac.th/pdpa",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:47:56+00:00"
+ },
+ "10314232": {
+  "org_id": "10314232",
+  "university_name": "Uttara High School & College",
+  "official_domain": "uhsc.edu.bd",
+  "sheet_row": 2800,
+  "portals": [
+   {
+    "url": "https://uhsc.edu.bd/edutechsadmin",
+    "category": "ERP",
+    "system": "EduTech",
+    "tnc_url": "https://uhsc.edu.bd/Privacy_Policy.html",
+    "graph": {
+     "tnc_url": "https://uhsc.edu.bd/Privacy_Policy.html",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:47:57+00:00"
+ },
+ "10043361": {
+  "org_id": "10043361",
+  "university_name": "Instituto Tecnologico De La Construcción",
+  "official_domain": "itc-ac.edu.mx",
+  "sheet_row": 2289,
+  "portals": [
+   {
+    "url": "https://siget.itc-ac.edu.mx/app/",
+    "category": "ERP",
+    "system": "SIGET",
+    "tnc_url": "https://itc-ac.edu.mx/wp-content/uploads/2025/08/Aviso-y-politica-de-privacidad.pdf",
+    "graph": {
+     "tnc_url": "https://itc-ac.edu.mx/wp-content/uploads/2025/08/Aviso-y-politica-de-privacidad.pdf",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:47:57+00:00"
+ },
+ "10052002": {
+  "org_id": "10052002",
+  "university_name": "Faculdade IBRA",
+  "official_domain": "ibra.edu.br",
+  "sheet_row": 933,
+  "portals": [
+   {
+    "url": "https://ibraava.simpleacademy.tech/login",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Simple Academy",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://ibra.edu.br/portal",
+    "category": "General Student Login",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://ibra.edu.br/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://ibra.edu.br/politica-de-privacidade",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:01+00:00"
+ },
+ "10288010": {
+  "org_id": "10288010",
+  "university_name": "Unex - Centro Universitário de Excelência",
+  "official_domain": "unex.edu.br",
+  "sheet_row": 800,
+  "portals": [
+   {
+    "url": "https://aluno.unex.edu.br/#/login",
+    "category": "ERP",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://unex.edu.br/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://unex.edu.br/politica-de-privacidade",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:11+00:00"
+ },
+ "10073747": {
+  "org_id": "10073747",
+  "university_name": "Zambia Centre for Accountancy Studies",
+  "official_domain": "zcas.ac.zm",
+  "sheet_row": 176,
+  "portals": [
+   {
+    "url": "https://sis.zcas.edu.zm",
+    "category": "ERP",
+    "system": "ZCAS SIS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://zcas.ac.zm/elearning/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "E-Learning",
+    "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:12+00:00"
+ },
+ "10204856": {
+  "org_id": "10204856",
+  "university_name": "Instituto Universitario de Ciencias Empresariales",
+  "official_domain": "i-uce.edu.ar",
+  "sheet_row": 1955,
+  "portals": [
+   {
+    "url": "https://aula.i-uce.edu.ar/virtual/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://aula.i-uce.edu.ar/virtual/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://aula.i-uce.edu.ar/virtual/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://educcom.org/campuslogin/funiversitas",
+    "category": "General Student Login",
+    "system": "Educcom",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:20+00:00"
+ },
+ "10151423": {
+  "org_id": "10151423",
+  "university_name": "Abdul Ahad Azad Memorial Degree College Bemina",
+  "official_domain": "gdcbemina.edu.in",
+  "sheet_row": 1702,
+  "portals": [
+   {
+    "url": "https://www.cusrinagar.edu.in/account/studentzone",
+    "category": "UMS/MIS",
+    "system": "Cluster University Student Zone",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://gdcbemina.edu.in/student-login",
+    "category": "General Student Login",
+    "system": "AAAMDC College Login",
+    "tnc_url": "https://gdcbemina.edu.in/privacy",
+    "graph": {
+     "tnc_url": "https://gdcbemina.edu.in/privacy",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:38+00:00"
+ },
+ "10010516": {
+  "org_id": "10010516",
+  "university_name": "كلية الحقوق - جامعة عين شمس",
+  "official_domain": "law.asu.edu.eg",
+  "sheet_row": 941,
+  "portals": [
+   {
+    "url": "https://asu2learn.asu.edu.eg/law/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "ASU2Learn",
+    "tnc_url": "https://asu2learn.asu.edu.eg/law/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://asu2learn.asu.edu.eg/law/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:44+00:00"
+ },
+ "10241057": {
+  "org_id": "10241057",
+  "university_name": "STI Education Services Group, Inc.",
+  "official_domain": "sti.edu",
+  "sheet_row": 2954,
+  "portals": [
+   {
+    "url": "https://www.sti.edu/payments/",
+    "category": "Fee Payment",
+    "system": "Alternative Payment Service",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/stionestilearningmodel",
+    "category": "General Student Login",
+    "system": "ONE STI Learning Model",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/verify-records/",
+    "category": "UMS/MIS",
+    "system": "Verification of Records",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:48:49+00:00"
+ },
+ "10237910": {
+  "org_id": "10237910",
+  "university_name": "Lincoln University College",
+  "official_domain": "lincoln.edu.my",
+  "sheet_row": 66,
+  "portals": [
+   {
+    "url": "http://phdresearch.lincoln.edu.my/student/stdlogin.aspx",
+    "category": "ERP",
+    "system": "PhD Student Portal",
+    "tnc_url": "https://www.lincoln.edu.my/refund-policy/",
+    "graph": {
+     "tnc_url": "https://www.lincoln.edu.my/refund-policy/",
+     "confidence": 0.64,
+     "s_domain": 0.8,
+     "s_semantic": 0.3,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://online.lincoln.edu.my/welcome.aspx",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Lincoln Learning System (LLS)",
+    "tnc_url": "https://www.lincoln.edu.my/privacy-policy-2/",
+    "graph": {
+     "tnc_url": "https://www.lincoln.edu.my/privacy-policy-2/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://odl.lincoln.edu.my/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Lincoln Open Distance Learning (LODL)",
+    "tnc_url": "https://www.lincoln.edu.my/terms-and-conditions/",
+    "graph": {
+     "tnc_url": "https://www.lincoln.edu.my/terms-and-conditions/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:48:52+00:00"
+ },
+ "10038522": {
+  "org_id": "10038522",
+  "university_name": "Ecole Marocaine Des Sciences De L'Ingenieur",
+  "official_domain": "emsi.ma",
+  "sheet_row": 19,
+  "portals": [
+   {
+    "url": "https://emsi.ma/campus/",
+    "category": "General Student Login",
+    "system": "Campus EMSI",
+    "tnc_url": "https://emsi.ma/conditions-generales-dutilisation/",
+    "graph": {
+     "tnc_url": "https://emsi.ma/conditions-generales-dutilisation/",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:56+00:00"
+ },
+ "10234975": {
+  "org_id": "10234975",
+  "university_name": "UNIFOR-MG",
+  "official_domain": "uniformg.edu.br",
+  "sheet_row": 695,
+  "portals": [
+   {
+    "url": "https://intranet.uniformg.edu.br/sistemasintegrados/modulos/login.xhtml",
+    "category": "ERP",
+    "system": "Sistemas Integrados",
+    "tnc_url": "https://uniformg.edu.br/espaco-lgpd/contato-lgpd/",
+    "graph": {
+     "tnc_url": "https://uniformg.edu.br/espaco-lgpd/contato-lgpd/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:48:58+00:00"
+ },
+ "10251366": {
+  "org_id": "10251366",
+  "university_name": "Grupo Educativo 16 de Septiembre",
+  "official_domain": "ceu16.edu.mx",
+  "sheet_row": 1367,
+  "portals": [
+   {
+    "url": "https://www.ceu16.collegemoodle.com/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://plataforma.ceu16.edu.mx/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Plataforma",
+    "tnc_url": "https://plataforma.ceu16.edu.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://plataforma.ceu16.edu.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:49:01+00:00"
+ },
+ "10044102": {
+  "org_id": "10044102",
+  "university_name": "Universidad Humani Mundial",
+  "official_domain": "unimundial.edu.mx",
+  "sheet_row": 571,
+  "portals": [
+   {
+    "url": "https://sige.unimundial.edu.mx/login.php",
+    "category": "ERP",
+    "system": "SIGE",
+    "tnc_url": "https://unimundial.edu.mx/privacidad",
+    "graph": {
+     "tnc_url": "https://unimundial.edu.mx/privacidad",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:49:03+00:00"
+ },
+ "10074678": {
+  "org_id": "10074678",
+  "university_name": "Faculté Des Sciences Et Techniques De Mohammedia Universite Hassan II De Casablanca",
+  "official_domain": "fstm.ac.ma",
+  "sheet_row": 1551,
+  "portals": [
+   {
+    "url": "https://e-learning.univh2c.ma",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "UnivH2C E-Learning",
+    "tnc_url": "https://e-learning.univh2c.ma/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://e-learning.univh2c.ma/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://e-fstm.fstm.ac.ma/",
+    "category": "General Student Login",
+    "system": "E-FSTM",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://e-resultat.fstm.ac.ma",
+    "category": "UMS/MIS",
+    "system": "E-résultat",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:49:06+00:00"
+ },
+ "10150552": {
+  "org_id": "10150552",
+  "university_name": "University College of Aviation Malaysia",
+  "official_domain": "aviation.edu.my",
+  "sheet_row": 2126,
+  "portals": [
+   {
+    "url": "http://www.aviation.kolej.edu.my/portal/",
+    "category": "General Student Login",
+    "system": "Student Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:49:09+00:00"
+ },
+ "10311892": {
+  "org_id": "10311892",
+  "university_name": "FSJES FES : Faculté des Sciences Juridiques, Économiques, et Sociales de Fès",
+  "official_domain": "fsjes.usmba.ac.ma",
+  "sheet_row": 824,
+  "portals": [
+   {
+    "url": "https://gcd.usmba.ac.ma/Login",
+    "category": "ERP",
+    "system": "GCD",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://elearning.fsjes.usmba.ac.ma/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "E-learning FSJES",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://elearning.fsjes.usmba.ac.ma/ers/public/index.php",
+    "category": "ERP",
+    "system": "Espace Doctorant",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://talib.fsjes.usmba.ac.ma/",
+    "category": "ERP",
+    "system": "Talib",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 4,
+  "updated_at": "2026-08-31T07:49:17+00:00"
+ },
+ "10300413": {
+  "org_id": "10300413",
+  "university_name": "Universidade Salgado de Oliveira - Juiz de Fora",
+  "official_domain": "universo.edu.br",
+  "sheet_row": 370,
+  "portals": [
+   {
+    "url": "https://cdu.asoec.com.br/cdu/public/index/login",
+    "category": "General Student Login",
+    "system": "Espaço do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://ead.universo.edu.br/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://universo.edu.br/politica-de-privacidade-2",
+    "graph": {
+     "tnc_url": "https://universo.edu.br/politica-de-privacidade-2",
+     "confidence": 0.64,
+     "s_domain": 0.8,
+     "s_semantic": 0.3,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:49:18+00:00"
+ },
+ "10278303": {
+  "org_id": "10278303",
+  "university_name": "North Eastern Mindanao State University - Bislig Campus",
+  "official_domain": "nemsu.edu.ph",
+  "sheet_row": 1735,
+  "portals": [
+   {
+    "url": "https://lms.nemsu.edu.ph",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "LMS",
+    "tnc_url": "https://lms.nemsu.edu.ph/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.nemsu.edu.ph/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:49:25+00:00"
+ },
+ "10150534": {
+  "org_id": "10150534",
+  "university_name": "University of Wollongong Malaysia KDU University College",
+  "official_domain": "uow.edu.my",
+  "sheet_row": 201,
+  "portals": [
+   {
+    "url": "https://knowledgehub.uow.edu.my/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "OpenLearning",
+    "tnc_url": "https://www.uow.edu.my/privacy/",
+    "graph": {
+     "tnc_url": "https://www.uow.edu.my/privacy/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:49:30+00:00"
+ },
+ "10282067": {
+  "org_id": "10282067",
+  "university_name": "جامعة برج العرب التكنولوجية",
+  "official_domain": "alborg-hiet.com",
+  "sheet_row": 1216,
+  "portals": [
+   {
+    "url": "http://hiet.mans.edu.eg/static/index.html",
+    "category": "ERP",
+    "system": "Ibn Al-Haytham",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:49:33+00:00"
+ },
+ "10061494": {
+  "org_id": "10061494",
+  "university_name": "Universidade da Região de Joinville",
+  "official_domain": "univille.br",
+  "sheet_row": 514,
+  "portals": [
+   {
+    "url": "https://www.univille.edu.br/access/Login.html",
+    "category": "General Student Login",
+    "system": "Meu Espaço",
+    "tnc_url": "https://www.univille.edu.br//pt-br/institucional/proreitorias/proinfra/lgpd/index/885971?nocache=1",
+    "graph": {
+     "tnc_url": "https://www.univille.edu.br//pt-br/institucional/proreitorias/proinfra/lgpd/index/885971?nocache=1",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://univilleeduca.univille.br/FrameHTML/web/app/edu/PortalEducacional/login/",
+    "category": "ERP",
+    "system": "TOTVS RM Portal Educacional",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:49:40+00:00"
+ },
+ "10066423": {
+  "org_id": "10066423",
+  "university_name": "STI College Cotabato",
+  "official_domain": "sti.edu",
+  "sheet_row": 949,
+  "portals": [
+   {
+    "url": "https://www.sti.edu/payments/",
+    "category": "Fee Payment",
+    "system": "Alternative Payment Service",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/e2e",
+    "category": "General Student Login",
+    "system": "E2E System",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/stionestilearningmodel",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "ONE STI Learning Model",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.sti.edu/verify-records/",
+    "category": "UMS/MIS",
+    "system": "Verification of Records",
+    "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+    "graph": {
+     "tnc_url": "https://www.sti.edu/dataprivacy.asp",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 4,
+  "updated_at": "2026-08-31T07:50:16+00:00"
+ },
+ "10233294": {
+  "org_id": "10233294",
+  "university_name": "FESPSP - Fundação Escola de Sociologia e Política de São Paulo",
+  "official_domain": "fespsp.org.br",
+  "sheet_row": 1032,
+  "portals": [
+   {
+    "url": "https://fundescola189535.rm.cloudtotvs.com.br/FrameHTML/Web/App/Edu/PortalEducacional/login/",
+    "category": "ERP",
+    "system": "TOTVS RM Portal Educacional",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:50:19+00:00"
+ },
+ "10080403": {
+  "org_id": "10080403",
+  "university_name": "Corporación Universitaria Reformada",
+  "official_domain": "unireformada.edu.co",
+  "sheet_row": 556,
+  "portals": [
+   {
+    "url": "https://sga-cloud.casewaresa.com/unireformada/sgacampus/#home",
+    "category": "ERP",
+    "system": "SGA Campus",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://iceberg-cloud.casewaresa.com/unireformada/iceberg-pf/",
+    "category": "Fee Payment",
+    "system": "Iceberg",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://virtual.unireformada.edu.co/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "UniReformada Virtual",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:50:22+00:00"
  },
  "10072741": {
   "org_id": "10072741",
@@ -233,47 +1909,3202 @@
   "sheet_row": 20,
   "portals": [
    {
-    "url": "https://portal.unilus.ac.zm/",
-    "category": "ERP",
-    "system": "UNILUS Student Portal",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
-    "http_status": 200
-   },
-   {
     "url": "https://undergrad.unilus.app/login/index.php",
     "category": "LMS (Moodle/Canvas)",
     "system": "Moodle",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "tnc_url": "https://undergrad.unilus.app/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://undergrad.unilus.app/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
     "http_status": 200
    },
    {
     "url": "https://moodle.unilus.app/login/index.php",
     "category": "LMS (Moodle/Canvas)",
     "system": "Moodle",
-    "confidence": 0.95,
-    "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "tnc_url": "https://moodle.unilus.app/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://moodle.unilus.app/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
     "http_status": 200
    },
    {
     "url": "https://host.unilus.app/login/index.php",
-    "category": "UMS/MIS",
+    "category": "LMS (Moodle/Canvas)",
     "system": "Moodle",
-    "confidence": 0.85,
+    "tnc_url": "https://host.unilus.app/plagiarismcheck/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://host.unilus.app/plagiarismcheck/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://host.unilus.app/plagiarismcheck/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://host.unilus.app/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://host.unilus.app/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://portal.unilus.ac.zm/",
+    "category": "ERP",
+    "system": "UNILUS Student Portal",
+    "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 5,
+  "updated_at": "2026-08-31T07:50:24+00:00"
+ },
+ "10131729": {
+  "org_id": "10131729",
+  "university_name": "TrườNg ĐạI HọC Văn Hóa Tp. Hồ Chí Minh",
+  "official_domain": "hcmuc.edu.vn",
+  "sheet_row": 395,
+  "portals": [
+   {
+    "url": "http://sinhvien.hcmuc.edu.vn/sinh-vien-dang-nhap.html",
+    "category": "ERP",
+    "system": "Cổng thông tin sinh viên",
     "tnc_url": null,
-    "privacy_policy_url": null,
-    "stage": "None Found",
+    "graph": null,
     "http_status": 200
    }
   ],
   "verified_live": 0,
-  "updated_at": "2026-08-30T19:29:32+00:00"
+  "updated_at": "2026-08-31T07:50:39+00:00"
+ },
+ "10204384": {
+  "org_id": "10204384",
+  "university_name": "Universitas Islam Negeri Sulthan Thaha Saifuddin Jambi",
+  "official_domain": "uinjambi.ac.id",
+  "sheet_row": 2301,
+  "portals": [
+   {
+    "url": "https://esima.uinjambi.ac.id/login",
+    "category": "ERP",
+    "system": "SIMA (esima)",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://suthaportal.uinjambi.ac.id/",
+    "category": "General Student Login",
+    "system": "Sutha Portal SSO",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://portalsiakad.uinjambi.ac.id/",
+    "category": "ERP",
+    "system": "Portal Siakad",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 403
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:50:50+00:00"
+ },
+ "10064179": {
+  "org_id": "10064179",
+  "university_name": "College Of Our Lady Of Mercy Of Pulilan Foundation Inc",
+  "official_domain": "colm.edu.ph",
+  "sheet_row": 457,
+  "portals": [
+   {
+    "url": "https://colm.edu.ph/student-login/",
+    "category": "General Student Login",
+    "system": "COLM Student Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:50:58+00:00"
+ },
+ "10074294": {
+  "org_id": "10074294",
+  "university_name": "Claretiano - Rede de Educação",
+  "official_domain": "claretiano.edu.br",
+  "sheet_row": 1560,
+  "portals": [
+   {
+    "url": "https://portal.redeclaretiano.edu.br",
+    "category": "General Student Login",
+    "system": "Portal do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 403
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:16+00:00"
+ },
+ "10320684": {
+  "org_id": "10320684",
+  "university_name": "IPOG - Instituto de Pós-graduação",
+  "official_domain": "ipog.edu.br",
+  "sheet_row": 1035,
+  "portals": [
+   {
+    "url": "https://ipogmais.ipog.edu.br/ipogmais/#/",
+    "category": "General Student Login",
+    "system": "IPOG Mais",
+    "tnc_url": "https://ipog.edu.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://ipog.edu.br/termos-de-uso",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://sei.ipog.edu.br/index.xhtml",
+    "category": "ERP",
+    "system": "SEI",
+    "tnc_url": "https://ipog.edu.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://ipog.edu.br/termos-de-uso",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:51:16+00:00"
+ },
+ "10059019": {
+  "org_id": "10059019",
+  "university_name": "Instituto de Especialização",
+  "official_domain": "iposespecializacao.com.br",
+  "sheet_row": 1964,
+  "portals": [
+   {
+    "url": "https://aluno.eduqtecnologia.com.br/dominio?ipos",
+    "category": "General Student Login",
+    "system": "Eduq Tecnologia",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:16+00:00"
+ },
+ "10067191": {
+  "org_id": "10067191",
+  "university_name": "Facultad De Derecho Y Ciencias Sociales Universidad Nacional De Asunción",
+  "official_domain": "der.una.py",
+  "sheet_row": 3011,
+  "portals": [
+   {
+    "url": "https://www.cnc.una.py/ealu/#/pages/login?returnUrl=%2Fdashboard",
+    "category": "ERP",
+    "system": "eAlu",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://tramites.una.py/#/pages/login?returnUrl=%2Fdashboard",
+    "category": "General Student Login",
+    "system": "eTramite",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:18+00:00"
+ },
+ "10056418": {
+  "org_id": "10056418",
+  "university_name": "Universidad De Atlacomulco",
+  "official_domain": "udat.edu.mx",
+  "sheet_row": 1755,
+  "portals": [
+   {
+    "url": "https://udat.edu.mx/uda/alumnos/",
+    "category": "General Student Login",
+    "system": "Portal Alumnos",
+    "tnc_url": "https://udat.edu.mx/uda/politica-de-privacidad/",
+    "graph": {
+     "tnc_url": "https://udat.edu.mx/uda/politica-de-privacidad/",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:51:20+00:00"
+ },
+ "10321884": {
+  "org_id": "10321884",
+  "university_name": "União das Instituições de Serviço, Ensino e Pesquisa Ltda.",
+  "official_domain": "portal.unisepe.com.br",
+  "sheet_row": 2133,
+  "portals": [
+   {
+    "url": "https://portal.unisepe.com.br/unisepe/acesso/?opc=LO&tipo=a",
+    "category": "General Student Login",
+    "system": "Portal do Aluno UNISEPE",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://portal.unisepe.com.br/unisepe/acesso/?opc=CA&filial=0000",
+    "category": "ERP",
+    "system": "Central do Aluno UNISEPE",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:28+00:00"
+ },
+ "10152029": {
+  "org_id": "10152029",
+  "university_name": "Fundación de Educación Superior San José - Usanjose",
+  "official_domain": "sitio.usanjose.edu.co",
+  "sheet_row": 2309,
+  "portals": [
+   {
+    "url": "https://campusvirtual.usanjose.co/campus",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Campus Virtual",
+    "tnc_url": "https://campusvirtual.usanjose.co/campus/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://campusvirtual.usanjose.co/campus/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://usanjose.q10.com",
+    "category": "ERP",
+    "system": "Q10",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:51:32+00:00"
+ },
+ "10151011": {
+  "org_id": "10151011",
+  "university_name": "Faculdade Mogiana do Estado de São Paulo",
+  "official_domain": "unimogi.com.br",
+  "sheet_row": 1228,
+  "portals": [
+   {
+    "url": "https://www.flexnuvem.com.br/FMG/portal/#!/",
+    "category": "ERP",
+    "system": "FlexNuvem",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://www.flexnuvem.com.br/FacSaoFrancisco/portal/#!/",
+    "category": "ERP",
+    "system": "FlexNuvem",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:37+00:00"
+ },
+ "10010112": {
+  "org_id": "10010112",
+  "university_name": "جامعة الأميرة نورة بنت عبدالرحمن",
+  "official_domain": "pnu.edu.sa",
+  "sheet_row": 29,
+  "portals": [
+   {
+    "url": "https://eservice.pnu.edu.sa/",
+    "category": "General Student Login",
+    "system": "بوابة الخدمات الإلكترونية",
+    "tnc_url": "https://pnu.edu.sa/ar/SECURITYCYBER/Pages/Privacy-Policy.aspx",
+    "graph": {
+     "tnc_url": "https://pnu.edu.sa/ar/SECURITYCYBER/Pages/Privacy-Policy.aspx",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:51:38+00:00"
+ },
+ "10049814": {
+  "org_id": "10049814",
+  "university_name": "Universidad Iberoamericana del Ecuador",
+  "official_domain": "unibe.edu.ec",
+  "sheet_row": 574,
+  "portals": [
+   {
+    "url": "https://unibe.classgestion.com/Modulos/Login/auth/login",
+    "category": "ERP",
+    "system": "ClassGestion",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:39+00:00"
+ },
+ "10330874": {
+  "org_id": "10330874",
+  "university_name": "Indira Gandhi National Open University",
+  "official_domain": "ignou.ac.in",
+  "sheet_row": 1432,
+  "portals": [
+   {
+    "url": "https://cuignou.samarth.ac.in/index.php/site/login",
+    "category": "ERP",
+    "system": "Samarth eGov",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://onlinerr.ignou.ac.in/",
+    "category": "ERP",
+    "system": "IGNOU Re-Registration Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:51:56+00:00"
+ },
+ "10310605": {
+  "org_id": "10310605",
+  "university_name": "North Eastern Mindanao State University - Cantilan Campus",
+  "official_domain": "nemsu.edu.ph",
+  "sheet_row": 1233,
+  "portals": [
+   {
+    "url": "https://epass.nemsu.edu.ph/login",
+    "category": "General Student Login",
+    "system": "ePass",
+    "tnc_url": "https://lms.nemsu.edu.ph/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.nemsu.edu.ph/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://lms.nemsu.edu.ph",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "LMS",
+    "tnc_url": "https://lms.nemsu.edu.ph/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.nemsu.edu.ph/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:51:56+00:00"
+ },
+ "10275873": {
+  "org_id": "10275873",
+  "university_name": "Ciclo Básico Común - Sede Paternal (Universidad de Buenos Aires)",
+  "official_domain": "cbc.uba.ar",
+  "sheet_row": 425,
+  "portals": [
+   {
+    "url": "https://cbc.uba.ar/campus-virtual",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Campus Virtual",
+    "tnc_url": "https://cbc.uba.ar/politica-privacidad",
+    "graph": {
+     "tnc_url": "https://cbc.uba.ar/politica-privacidad",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:51:59+00:00"
+ },
+ "10270311": {
+  "org_id": "10270311",
+  "university_name": "Universidade São Judas Tadeu",
+  "official_domain": "usjt.br",
+  "sheet_row": 836,
+  "portals": [
+   {
+    "url": "https://ulife.com.br/",
+    "category": "General Student Login",
+    "system": "Ulife",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:52:02+00:00"
+ },
+ "10241192": {
+  "org_id": "10241192",
+  "university_name": "Universidade São Judas Tadeu",
+  "official_domain": "usjt.br",
+  "sheet_row": 238,
+  "portals": [
+   {
+    "url": "https://ulife.com.br/",
+    "category": "General Student Login",
+    "system": "Ulife",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://historicoescolar.usjt.br/",
+    "category": "UMS/MIS",
+    "system": "Histórico Escolar",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:52:08+00:00"
+ },
+ "10003510": {
+  "org_id": "10003510",
+  "university_name": "Universidad Politécnica Del Estado De Nayarit",
+  "official_domain": "upnay.edu.mx",
+  "sheet_row": 3017,
+  "portals": [
+   {
+    "url": "http://www.upnay.edu.mx/mupen/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "http://www.upnay.edu.mx/mupen/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://www.upnay.edu.mx/mupen/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://app.saeko.io/login",
+    "category": "ERP",
+    "system": "Saeko",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:52:10+00:00"
+ },
+ "10080397": {
+  "org_id": "10080397",
+  "university_name": "كلية الحقوق جامعة بنها",
+  "official_domain": "bu.edu.eg",
+  "sheet_row": 2310,
+  "portals": [
+   {
+    "url": "https://stud.bu.edu.eg/",
+    "category": "General Student Login",
+    "system": "بوابة الطلاب",
+    "tnc_url": "https://bu.edu.eg/policy.php",
+    "graph": {
+     "tnc_url": "https://bu.edu.eg/policy.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://mis.bu.edu.eg/",
+    "category": "UMS/MIS",
+    "system": "MIS",
+    "tnc_url": "https://bu.edu.eg/policy.php",
+    "graph": {
+     "tnc_url": "https://bu.edu.eg/policy.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:52:15+00:00"
+ },
+ "10314315": {
+  "org_id": "10314315",
+  "university_name": "Faculty of Engineering University of Jaffna",
+  "official_domain": "eng.jfn.ac.lk",
+  "sheet_row": 1116,
+  "portals": [
+   {
+    "url": "http://lms.jfn.ac.lk/lms/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "http://lms.jfn.ac.lk/lms/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://lms.jfn.ac.lk/lms/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:52:35+00:00"
+ },
+ "10202895": {
+  "org_id": "10202895",
+  "university_name": "St Anne College Lucena Inc",
+  "official_domain": "sacli.edu.ph",
+  "sheet_row": 2655,
+  "portals": [
+   {
+    "url": "https://sacli.edu.ph/portal/",
+    "category": "General Student Login",
+    "system": "SACLI Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://staclinc.neolms.com/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "NEO LMS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:52:41+00:00"
+ },
+ "10270683": {
+  "org_id": "10270683",
+  "university_name": "गवर्नमेंट कॉलेज फॉर गर्ल्स, लुधियाना",
+  "official_domain": "gcgldh.org",
+  "sheet_row": 2827,
+  "portals": [
+   {
+    "url": "https://results.puexam.in/",
+    "category": "UMS/MIS",
+    "system": "Panjab University Examination Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://gcgldh.org/Account/Login",
+    "category": "General Student Login",
+    "system": "Government College for Girls Student Portal",
+    "tnc_url": "https://gcgldh.org/privacy-policy",
+    "graph": {
+     "tnc_url": "https://gcgldh.org/privacy-policy",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://online.gcgldh.org/Students/Fee_Payment.aspx",
+    "category": "Fee Payment",
+    "system": "Government College for Girls Fee Payment Portal",
+    "tnc_url": "https://gcgldh.org/disclaimer",
+    "graph": {
+     "tnc_url": "https://gcgldh.org/disclaimer",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:52:45+00:00"
+ },
+ "10039749": {
+  "org_id": "10039749",
+  "university_name": "Instituto Idat",
+  "official_domain": "idat.edu.pe",
+  "sheet_row": 2660,
+  "portals": [
+   {
+    "url": "https://eva.idat.edu.pe/login",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "EVA",
+    "tnc_url": "https://www.idat.edu.pe/sites/default/files/documentos/tc-ejecutiva-idat.pdf",
+    "graph": {
+     "tnc_url": "https://www.idat.edu.pe/sites/default/files/documentos/tc-ejecutiva-idat.pdf",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:52:48+00:00"
+ },
+ "10199543": {
+  "org_id": "10199543",
+  "university_name": "Faculté D'Economie Et De Gestion – Settat",
+  "official_domain": "feg.uh1.ac.ma",
+  "sheet_row": 2160,
+  "portals": [
+   {
+    "url": "https://feg-moodle.uh1.ac.ma/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://escol-feg.uh1.ac.ma/eScol/Default.aspx",
+    "category": "ERP",
+    "system": "eScol",
+    "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+    "graph": {
+     "tnc_url": "https://fsjes.usmba.ac.ma/mentions-legales.html",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:52:55+00:00"
+ },
+ "10232919": {
+  "org_id": "10232919",
+  "university_name": "Международный Инженерно-Технологический Университет",
+  "official_domain": "metu.edu.kz",
+  "sheet_row": 1429,
+  "portals": [
+   {
+    "url": "https://course.metu.kz/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "METU Courses",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://student.metu.kz",
+    "category": "General Student Login",
+    "system": "Student Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://exam.metu.kz/",
+    "category": "UMS/MIS",
+    "system": "Testing METU",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://platonus.metu.kz/",
+    "category": "ERP",
+    "system": "Platonus",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:52:56+00:00"
+ },
+ "10065155": {
+  "org_id": "10065155",
+  "university_name": "Agro-Industrial Foundation College of the Philippines, Inc.",
+  "official_domain": "agrodavao.com",
+  "sheet_row": 469,
+  "portals": [
+   {
+    "url": "https://agrodvo.edu.ph/login",
+    "category": "General Student Login",
+    "system": "Student Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://binnacle.agrodavao.com",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Binnacle LMS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:53:06+00:00"
+ },
+ "10068906": {
+  "org_id": "10068906",
+  "university_name": "Philippine Women's University",
+  "official_domain": "pwu.edu.ph",
+  "sheet_row": 863,
+  "portals": [
+   {
+    "url": "https://pwu.campus-erp.com/Student/Login.php",
+    "category": "ERP",
+    "system": "Campus ERP",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://eduspace.pwu.edu.ph/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Eduspace",
+    "tnc_url": "https://www.pwu.edu.ph/dataprivacy/",
+    "graph": {
+     "tnc_url": "https://www.pwu.edu.ph/dataprivacy/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:53:09+00:00"
+ },
+ "10064822": {
+  "org_id": "10064822",
+  "university_name": "Centro de Estudios Científicos y Tecnológicos, Narciso Bassols \"CECyT 8 \"",
+  "official_domain": "cecyt8.ipn.mx",
+  "sheet_row": 2862,
+  "portals": [
+   {
+    "url": "https://pidn.ipn.mx/pidn/auth",
+    "category": "General Student Login",
+    "system": "PIDN",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:53:11+00:00"
+ },
+ "10295147": {
+  "org_id": "10295147",
+  "university_name": "Faculdade de Enfermagem e de Medicina Nova Esperança",
+  "official_domain": "facenemossoro.com.br",
+  "sheet_row": 960,
+  "portals": [
+   {
+    "url": "https://facenemossoro.perseus.com.br/servicos/",
+    "category": "ERP",
+    "system": "Perseus",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://virtual.facenemossoro.com.br/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://facenemossoro.com.br/view.php?cod=NTM=-Base-Legal",
+    "graph": {
+     "tnc_url": "https://facenemossoro.com.br/view.php?cod=NTM=-Base-Legal",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://academico.facenemossoro.com.br/facenemossoro/",
+    "category": "ERP",
+    "system": "Acadweb",
+    "tnc_url": "https://facenemossoro.com.br/view.php?cod=NTM=-Base-Legal",
+    "graph": {
+     "tnc_url": "https://facenemossoro.com.br/view.php?cod=NTM=-Base-Legal",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:53:11+00:00"
+ },
+ "10059062": {
+  "org_id": "10059062",
+  "university_name": "Universidad Nacional De Río Negro",
+  "official_domain": "unrn.edu.ar",
+  "sheet_row": 575,
+  "portals": [
+   {
+    "url": "https://guarani.unrn.edu.ar/g3w3/",
+    "category": "ERP",
+    "system": "SIU Guaraní",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:53:16+00:00"
+ },
+ "10267733": {
+  "org_id": "10267733",
+  "university_name": "Universidade Anhembi Morumbi",
+  "official_domain": "anhembi.br",
+  "sheet_row": 269,
+  "portals": [
+   {
+    "url": "https://www.ulife.com.br/login.aspx",
+    "category": "General Student Login",
+    "system": "Ulife",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:53:21+00:00"
+ },
+ "10290085": {
+  "org_id": "10290085",
+  "university_name": "Facultad de Ciencias Médicas de la Universidad Nacional de Santiago del Estero",
+  "official_domain": "fcm.unse.edu.ar",
+  "sheet_row": 1439,
+  "portals": [
+   {
+    "url": "https://autogestion.guarani.unse.edu.ar/unse/",
+    "category": "ERP",
+    "system": "SIU Guaraní",
+    "tnc_url": "https://pefcm.unse.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://pefcm.unse.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://pefcm.unse.edu.ar/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://pefcm.unse.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://pefcm.unse.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:53:26+00:00"
+ },
+ "10004412": {
+  "org_id": "10004412",
+  "university_name": "Instituto Universitario Del Estado De Mexico S.C",
+  "official_domain": "universidadiuem.edu.mx",
+  "sheet_row": 1249,
+  "portals": [
+   {
+    "url": "https://portalalumno.universidadiuem.edu.mx/Login.aspx?ReturnUrl=%2f",
+    "category": "ERP",
+    "system": "Portal Alumno",
+    "tnc_url": "https://universidadiuem.edu.mx/aviso-de-privacidad.html",
+    "graph": {
+     "tnc_url": "https://universidadiuem.edu.mx/aviso-de-privacidad.html",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://xook.universidadiuem.edu.mx/public/autenticacion",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Plataforma Xook",
+    "tnc_url": "https://universidadiuem.edu.mx/aviso-de-privacidad.html",
+    "graph": {
+     "tnc_url": "https://universidadiuem.edu.mx/aviso-de-privacidad.html",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:53:31+00:00"
+ },
+ "10036875": {
+  "org_id": "10036875",
+  "university_name": "Faculdade Líbano",
+  "official_domain": "institutolibano.com",
+  "sheet_row": 3018,
+  "portals": [
+   {
+    "url": "https://institutolibano.com/portalv2",
+    "category": "General Student Login",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://institutolibano.com/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://institutolibano.com/termos-de-uso",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://cutt.ly/3eSGz7YC",
+    "category": "General Student Login",
+    "system": "Portal do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:53:34+00:00"
+ },
+ "10005157": {
+  "org_id": "10005157",
+  "university_name": "Instituto Federal de Educação, Ciência e Tecnologia do Pará - Campus Tucuruí",
+  "official_domain": "ifpa.edu.br",
+  "sheet_row": 429,
+  "portals": [
+   {
+    "url": "https://sigaa.ifpa.edu.br/sigaa/public/home.jsf",
+    "category": "ERP",
+    "system": "SIGAA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:53:38+00:00"
+ },
+ "10150119": {
+  "org_id": "10150119",
+  "university_name": "Câmpus Avaré do Instituto Federal de Educação e Tecnologia de São Paulo",
+  "official_domain": "avr.ifsp.edu.br",
+  "sheet_row": 1597,
+  "portals": [
+   {
+    "url": "http://avr.ifsp.edu.br/moodle/login/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://suap.ifsp.edu.br",
+    "category": "ERP",
+    "system": "SUAP",
+    "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:53:44+00:00"
+ },
+ "10003387": {
+  "org_id": "10003387",
+  "university_name": "Universitas Dinamika Bangsa Jambi",
+  "official_domain": "unama.ac.id",
+  "sheet_row": 1118,
+  "portals": [
+   {
+    "url": "https://elearning.unama.ac.id/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "E-Learning",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://epay.unama.ac.id/",
+    "category": "Fee Payment",
+    "system": "E-payment",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://siakad.unama.ac.id/",
+    "category": "ERP",
+    "system": "SIAKAD",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://sintap.unama.ac.id/",
+    "category": "UMS/MIS",
+    "system": "SINTAP",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 4,
+  "updated_at": "2026-08-31T07:53:50+00:00"
+ },
+ "10207760": {
+  "org_id": "10207760",
+  "university_name": "The Fisher's Valley College",
+  "official_domain": "hamptoncps.org",
+  "sheet_row": 979,
+  "portals": [
+   {
+    "url": "https://aspen.cps.edu/aspen/logon.do",
+    "category": "ERP",
+    "system": "Aspen SIS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:53:51+00:00"
+ },
+ "10309525": {
+  "org_id": "10309525",
+  "university_name": "মোহাম্মদপুর কেন্দ্রীয় বিশ্ববিদ্যালয় কলেজ",
+  "official_domain": "mkc.edu.bd",
+  "sheet_row": 2694,
+  "portals": [
+   {
+    "url": "https://mkc.edu.bd/login",
+    "category": "General Student Login",
+    "system": "MKC Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:54:21+00:00"
+ },
+ "10045307": {
+  "org_id": "10045307",
+  "university_name": "Universidad Tecnológica del Sur del Estado de Morelos",
+  "official_domain": "utsem-morelos.edu.mx",
+  "sheet_row": 734,
+  "portals": [
+   {
+    "url": "https://utsem-morelos.edu.mx/index.php/es/alumnos/sica-a",
+    "category": "ERP",
+    "system": "SICA-A",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://tecnologias-utsemmorelos.com.mx/talleresutsem/login.php",
+    "category": "ERP",
+    "system": "Sistema de Talleres Extracurriculares",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:54:27+00:00"
+ },
+ "10071704": {
+  "org_id": "10071704",
+  "university_name": "Cebu Technological University",
+  "official_domain": "ctu.edu.ph",
+  "sheet_row": 1251,
+  "portals": [
+   {
+    "url": "https://sis.ctu.edu.ph",
+    "category": "ERP",
+    "system": "CTU SIS",
+    "tnc_url": "https://www.ctu.edu.ph/privacy-statement/",
+    "graph": {
+     "tnc_url": "https://www.ctu.edu.ph/privacy-statement/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:54:29+00:00"
+ },
+ "10009632": {
+  "org_id": "10009632",
+  "university_name": "ড্যাফোডিল ইন্টারন্যাশনাল স্কুল",
+  "official_domain": "dis.edu.bd",
+  "sheet_row": 3033,
+  "portals": [
+   {
+    "url": "https://disenv.df.daffodil.family/web/login",
+    "category": "ERP",
+    "system": "DISEV EMIS",
+    "tnc_url": "https://disenv.df.daffodil.family/Privacy-Policy",
+    "graph": {
+     "tnc_url": "https://disenv.df.daffodil.family/Privacy-Policy",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:54:30+00:00"
+ },
+ "10148897": {
+  "org_id": "10148897",
+  "university_name": "Manipal Law School",
+  "official_domain": "manipal.edu",
+  "sheet_row": 1602,
+  "portals": [
+   {
+    "url": "https://manipal.edu/mu/students.html",
+    "category": "General Student Login",
+    "system": "Manipal Student Portal",
+    "tnc_url": "https://manipal.edu/mu/about-us/disclaimer.html",
+    "graph": {
+     "tnc_url": "https://manipal.edu/mu/about-us/disclaimer.html",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:54:35+00:00"
+ },
+ "10244775": {
+  "org_id": "10244775",
+  "university_name": "Universidad Católica Sedes Sapientiae",
+  "official_domain": "campusvirtual.ucss.edu.pe",
+  "sheet_row": 1565,
+  "portals": [
+   {
+    "url": "https://intranet.ucss.edu.pe/ciucss/login/login.aspx",
+    "category": "ERP",
+    "system": "Intranet CIUCSS",
+    "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://ucssonline.ucss.edu.pe/ciucss/login/login.aspx",
+    "category": "ERP",
+    "system": "Intranet CIUCSS Online",
+    "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://ucssonline.ucss.edu.pe/ucss-intranet/login/ingresar.aspx",
+    "category": "ERP",
+    "system": "Intranet UCSS Online",
+    "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://campusvirtual.ucss.edu.pe/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Campus Virtual UCSS",
+    "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://auladigital.ucss.edu.pe/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Aula Digital Pregrado",
+    "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://miaulaonline.ucss.edu.pe/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Aula Virtual UCSS Online",
+    "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://auladigital.ucss.edu.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 6,
+  "updated_at": "2026-08-31T07:54:39+00:00"
+ },
+ "10008938": {
+  "org_id": "10008938",
+  "university_name": "Centro Universitário Vale do Salgado (UniVS)",
+  "official_domain": "univs.edu.br",
+  "sheet_row": 481,
+  "portals": [
+   {
+    "url": "https://portal.univs.edu.br",
+    "category": "ERP",
+    "system": "Portal Acadêmico",
+    "tnc_url": "https://univs.edu.br/privacidade/",
+    "graph": {
+     "tnc_url": "https://univs.edu.br/privacidade/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://matriculas.univs.edu.br",
+    "category": "ERP",
+    "system": "Portal de Matrícula e Rematrícula",
+    "tnc_url": "https://univs.edu.br/politica-de-privacidade/",
+    "graph": {
+     "tnc_url": "https://univs.edu.br/politica-de-privacidade/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://digital.unileao.edu.br",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Ambiente Digital",
+    "tnc_url": "https://digital.unileao.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://digital.unileao.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:54:43+00:00"
+ },
+ "10322606": {
+  "org_id": "10322606",
+  "university_name": "UEA - Escola Superior de Artes e Turismo - ESAT",
+  "official_domain": "uea.edu.br",
+  "sheet_row": 2429,
+  "portals": [
+   {
+    "url": "https://acesso.uea.edu.br/app/login.php",
+    "category": "ERP",
+    "system": "Acadêmico on-line",
+    "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+    "graph": {
+     "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://avauea.uea.edu.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "AVA UEA",
+    "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+    "graph": {
+     "tnc_url": "https://uea.edu.br/index.php/lgpd/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:54:50+00:00"
+ },
+ "10236235": {
+  "org_id": "10236235",
+  "university_name": "Instituto Superior Antonio Ruiz de Montoya",
+  "official_domain": "isparm.edu.ar",
+  "sheet_row": 578,
+  "portals": [
+   {
+    "url": "https://moodle.isparm.edu.ar/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://w3sim.isparm.edu.ar/login",
+    "category": "ERP",
+    "system": "SIM Autogestión",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:54:52+00:00"
+ },
+ "10331181": {
+  "org_id": "10331181",
+  "university_name": "Unicesumar Polo De Rio De Janeiro Bonsucesso",
+  "official_domain": "unicesumar.edu.br",
+  "sheet_row": 1793,
+  "portals": [
+   {
+    "url": "https://studeo.unicesumar.edu.br/#!/access/login",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Studeo",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:54:54+00:00"
+ },
+ "10245085": {
+  "org_id": "10245085",
+  "university_name": "Centro Universitário Católico Ítalo Brasileiro",
+  "official_domain": "italo.br",
+  "sheet_row": 1482,
+  "portals": [
+   {
+    "url": "https://207582.mannesoftprime.com.br/webaluno",
+    "category": "ERP",
+    "system": "Mannesoft Prime",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:54:59+00:00"
+ },
+ "10284811": {
+  "org_id": "10284811",
+  "university_name": "สถาบันการจัดการปัญญาภิวัฒน์ วิทยาเขต อีอีซี",
+  "official_domain": "pim.ac.th",
+  "sheet_row": 1834,
+  "portals": [
+   {
+    "url": "https://reg.pim.ac.th/registrar/home.asp",
+    "category": "ERP",
+    "system": "Registrar",
+    "tnc_url": "https://www.pim.ac.th/privacy-policy/",
+    "graph": {
+     "tnc_url": "https://www.pim.ac.th/privacy-policy/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:55:16+00:00"
+ },
+ "10330328": {
+  "org_id": "10330328",
+  "university_name": "Instituto Educacional AlfaUnipac",
+  "official_domain": "alfaunipac.com.br",
+  "sheet_row": 1123,
+  "portals": [
+   {
+    "url": "https://portal.alfaunipac.com.br/FrameHTML/web/app/Edu/PortalEducacional/login",
+    "category": "ERP",
+    "system": "TOTVS RM Portal Educacional",
+    "tnc_url": "https://alfaunipac.com.br/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://alfaunipac.com.br/politica-de-privacidade",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://moodle.alfaunipac.com.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://alfaunipac.com.br/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://alfaunipac.com.br/politica-de-privacidade",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:55:17+00:00"
+ },
+ "10065575": {
+  "org_id": "10065575",
+  "university_name": "Cagayan State University",
+  "official_domain": "csu.edu.ph",
+  "sheet_row": 2245,
+  "portals": [
+   {
+    "url": "https://portal.csu.edu.ph",
+    "category": "General Student Login",
+    "system": "CSU Portal",
+    "tnc_url": "https://csu.edu.ph/docs/OP-5004-MEMO-2017-06-102-Data-Privacy.pdf",
+    "graph": {
+     "tnc_url": "https://csu.edu.ph/docs/OP-5004-MEMO-2017-06-102-Data-Privacy.pdf",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:55:22+00:00"
+ },
+ "10268887": {
+  "org_id": "10268887",
+  "university_name": "Universitas Gunadarma Kampus K",
+  "official_domain": "gunadarma.ac.id",
+  "sheet_row": 280,
+  "portals": [
+   {
+    "url": "https://v-class.gunadarma.ac.id/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Virtual Class",
+    "tnc_url": "https://v-class.gunadarma.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://v-class.gunadarma.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://studentsite.gunadarma.ac.id",
+    "category": "General Student Login",
+    "system": "StudentSite",
+    "tnc_url": "https://v-class.gunadarma.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://v-class.gunadarma.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:55:34+00:00"
+ },
+ "10308859": {
+  "org_id": "10308859",
+  "university_name": "كليه تجاره جامعه بنها",
+  "official_domain": "bu.edu.eg",
+  "sheet_row": 490,
+  "portals": [
+   {
+    "url": "https://stud.bu.edu.eg/",
+    "category": "General Student Login",
+    "system": "بوابة خدمات الطلاب",
+    "tnc_url": "https://bu.edu.eg/policy.php",
+    "graph": {
+     "tnc_url": "https://bu.edu.eg/policy.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://portal.bu.edu.eg/",
+    "category": "General Student Login",
+    "system": "البوابة الإلكترونية",
+    "tnc_url": "https://bu.edu.eg/policy.php",
+    "graph": {
+     "tnc_url": "https://bu.edu.eg/policy.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://mis.bu.edu.eg/",
+    "category": "UMS/MIS",
+    "system": "نظم المعلومات الإدارية MIS",
+    "tnc_url": "https://bu.edu.eg/policy.php",
+    "graph": {
+     "tnc_url": "https://bu.edu.eg/policy.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:55:39+00:00"
+ },
+ "10040596": {
+  "org_id": "10040596",
+  "university_name": "Faculdade FaCiencia",
+  "official_domain": "faciencia.edu.br",
+  "sheet_row": 579,
+  "portals": [
+   {
+    "url": "https://gestao.faciencia.edu.br/login",
+    "category": "ERP",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://ava.faciencia.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ava.faciencia.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://ava.faciencia.edu.br/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://ava.faciencia.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ava.faciencia.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:55:40+00:00"
+ },
+ "10084909": {
+  "org_id": "10084909",
+  "university_name": "มหาวิทยาลัยมหาจุฬาลงกรณราชวิทยาลัย วิทยาเขตเชียงใหม่",
+  "official_domain": "cm.mcu.ac.th",
+  "sheet_row": 2868,
+  "portals": [
+   {
+    "url": "https://regweb.mcu.ac.th/registrar/login.asp",
+    "category": "ERP",
+    "system": "MCU Registrar",
+    "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://mis.mcu.ac.th/account/login",
+    "category": "UMS/MIS",
+    "system": "MCU MIS",
+    "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://stud.mcu.ac.th/sas/",
+    "category": "ERP",
+    "system": "MCU SAS",
+    "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://elearning.mcu.ac.th/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "MCU e-Learning",
+    "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.mcu.ac.th/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 4,
+  "updated_at": "2026-08-31T07:55:42+00:00"
+ },
+ "10038687": {
+  "org_id": "10038687",
+  "university_name": "Universidade Candido Mendes",
+  "official_domain": "candidomendes.edu.br",
+  "sheet_row": 892,
+  "portals": [
+   {
+    "url": "https://login.ucam-campos.br/login.jsf?client_id=428f463e-14c0-46ee-869c-b114309a820d@ucam",
+    "category": "ERP",
+    "system": "Portal UCAM",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://ead.candidomendes.edu.br/segunda-via-de-boleto/",
+    "category": "Fee Payment",
+    "system": "Portal EaD Candido Mendes",
+    "tnc_url": "https://ead.candidomendes.edu.br/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://ead.candidomendes.edu.br/politica-de-privacidade",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.ucam-campos.br/servicos/boleto/",
+    "category": "Fee Payment",
+    "system": "UCAM Campos",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:55:50+00:00"
+ },
+ "10248146": {
+  "org_id": "10248146",
+  "university_name": "Arellano University – Elisa Esguerra Campus",
+  "official_domain": "arellano.edu.ph",
+  "sheet_row": 895,
+  "portals": [
+   {
+    "url": "https://www.arellanolms.com/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Arellano LMS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://cbe.auchiefs.com",
+    "category": "UMS/MIS",
+    "system": "Competency-Based Evaluation",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:55:58+00:00"
+ },
+ "10238740": {
+  "org_id": "10238740",
+  "university_name": "Faculdade Nacional de Direito - FND/UFRJ",
+  "official_domain": "direito.ufrj.br",
+  "sheet_row": 3064,
+  "portals": [
+   {
+    "url": "https://gnosys.ufrj.br/Portal/acesso?cid=8492",
+    "category": "ERP",
+    "system": "SIGA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:56:02+00:00"
+ },
+ "10003463": {
+  "org_id": "10003463",
+  "university_name": "Universitas Dinamika Bangsa Jambi",
+  "official_domain": "unama.ac.id",
+  "sheet_row": 2046,
+  "portals": [
+   {
+    "url": "https://elearning.unama.ac.id/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "E-Learning UNAMA",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://epay.unama.ac.id/",
+    "category": "Fee Payment",
+    "system": "E-payment",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://siakad.unama.ac.id/",
+    "category": "ERP",
+    "system": "SIAKAD",
+    "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unama.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:56:04+00:00"
+ },
+ "10235417": {
+  "org_id": "10235417",
+  "university_name": "CUAltos",
+  "official_domain": "cualtos.udg.mx",
+  "sheet_row": 1495,
+  "portals": [
+   {
+    "url": "http://pal.cualtos.udg.mx:8080/ce/vv/Virtual/login/index.php",
+    "category": "ERP",
+    "system": "Ventanilla Virtual",
+    "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://moodle.cualtos.udg.mx/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:56:10+00:00"
+ },
+ "10077829": {
+  "org_id": "10077829",
+  "university_name": "Faculty of Business and Economics - Universiti Malaya",
+  "official_domain": "fpe.um.edu.my",
+  "sheet_row": 593,
+  "portals": [
+   {
+    "url": "https://maya.um.edu.my",
+    "category": "ERP",
+    "system": "MAYA",
+    "tnc_url": "http://um.edu.my/privacy-policy/security-policy",
+    "graph": {
+     "tnc_url": "http://um.edu.my/privacy-policy/security-policy",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://spectrum.um.edu.my",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "SPeCTRUM",
+    "tnc_url": "http://um.edu.my/privacy-policy/disclaimer",
+    "graph": {
+     "tnc_url": "http://um.edu.my/privacy-policy/disclaimer",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:56:19+00:00"
+ },
+ "10148679": {
+  "org_id": "10148679",
+  "university_name": "Facultad de Ciencias Agrarias y Forestales",
+  "official_domain": "agro.unlp.edu.ar",
+  "sheet_row": 2720,
+  "portals": [
+   {
+    "url": "https://aulavirtual.agro.unlp.edu.ar/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Aula Virtual",
+    "tnc_url": "https://aulavirtual.agro.unlp.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://aulavirtual.agro.unlp.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://autogestion.guarani.unlp.edu.ar/",
+    "category": "ERP",
+    "system": "SIU-Guaraní",
+    "tnc_url": "https://aulavirtual.agro.unlp.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://aulavirtual.agro.unlp.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://posgrado.agro.unlp.edu.ar/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Aula Virtual Posgrado",
+    "tnc_url": "https://posgrado.agro.unlp.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://posgrado.agro.unlp.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-08-31T07:56:20+00:00"
+ },
+ "10283718": {
+  "org_id": "10283718",
+  "university_name": "Cutlaquepaque Centro Universitario De Tlaquepaque",
+  "official_domain": "udg.mx",
+  "sheet_row": 740,
+  "portals": [
+   {
+    "url": "https://mw.siiau.udg.mx/Portal/login.xhtml",
+    "category": "ERP",
+    "system": "SIIAU",
+    "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:56:26+00:00"
+ },
+ "10270141": {
+  "org_id": "10270141",
+  "university_name": "Smt.B.K.Shah Medical Institute & Research Centre",
+  "official_domain": "sumandeepvidyapeethdu.edu.in",
+  "sheet_row": 1126,
+  "portals": [
+   {
+    "url": "https://onlineresults.sumandeepvidyapeethdu.edu.in/",
+    "category": "UMS/MIS",
+    "system": "SVCET Online Results",
+    "tnc_url": "https://sumandeepvidyapeethdu.edu.in/terms-conditions",
+    "graph": {
+     "tnc_url": "https://sumandeepvidyapeethdu.edu.in/terms-conditions",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 307
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:56:28+00:00"
+ },
+ "10266706": {
+  "org_id": "10266706",
+  "university_name": "Faculdade Alphaville",
+  "official_domain": "faculdadealphaville.com.br",
+  "sheet_row": 901,
+  "portals": [
+   {
+    "url": "https://faculdadealphaville.com.br/portal-do-aluno",
+    "category": "General Student Login",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://faculdadealphaville.com.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://faculdadealphaville.com.br/termos-de-uso",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:56:28+00:00"
+ },
+ "10308072": {
+  "org_id": "10308072",
+  "university_name": "Centro Universitário UniFatecie",
+  "official_domain": "fatecie.edu.br",
+  "sheet_row": 738,
+  "portals": [
+   {
+    "url": "https://lav.eadunifatecie.com.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "LAV UniFatecie",
+    "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.8,
+     "s_domain": 0.5,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "saas-ecosystem",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.eadunifatecie.com.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "EAD UniFatecie",
+    "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://portaldoaluno.fatecie.edu.br",
+    "category": "ERP",
+    "system": "Portal do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://portalpos.fatecie.edu.br",
+    "category": "ERP",
+    "system": "Portal do Aluno Pós-Graduação",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:56:38+00:00"
+ },
+ "10248779": {
+  "org_id": "10248779",
+  "university_name": "Dr. NSAM फ़र्स्ट ग्रेड कॉलेज",
+  "official_domain": "nitte.edu.in",
+  "sheet_row": 2250,
+  "portals": [
+   {
+    "url": "https://nuelearn.nitte.edu.in/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "NUeLearn",
+    "tnc_url": "https://nitte.edu.in/legal.php",
+    "graph": {
+     "tnc_url": "https://nitte.edu.in/legal.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:56:39+00:00"
+ },
+ "10271744": {
+  "org_id": "10271744",
+  "university_name": "Centro Universitário Santa Rita",
+  "official_domain": "fasar.com.br",
+  "sheet_row": 2765,
+  "portals": [
+   {
+    "url": "https://www.unifasar.edu.br/portal/",
+    "category": "General Student Login",
+    "system": "Portal Aluno",
+    "tnc_url": "https://unifasar.edu.br/politica-privacidade/",
+    "graph": {
+     "tnc_url": "https://unifasar.edu.br/politica-privacidade/",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:58:24+00:00"
+ },
+ "10081240": {
+  "org_id": "10081240",
+  "university_name": "Corporación INACAP",
+  "official_domain": "inacap.cl",
+  "sheet_row": 986,
+  "portals": [
+   {
+    "url": "https://adfs.inacap.cl/adfs/ls/?wtrealm=https://siga.inacap.cl/sts/&wa=wsignin1.0&wreply=https://siga.inacap.cl/sts/&wctx=https%3a%2f%2fadfs.inacap.cl%2fadfs%2fls%2f%3fwreply%3dhttps%3a%2f%2fintranet.inacap.cl%2ftportalvp%2falumnos-intranet%26wtrealm%3dhttps%3a%2f%2fintranet.inacap.cl%2f",
+    "category": "ERP",
+    "system": "INACAP Intranet Alumnos",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://adfs.inacap.cl/adfs/ls/?wtrealm=https://siga.inacap.cl/sts/&wa=wsignin1.0&wreply=https://siga.inacap.cl/sts/&wctx=https%3a%2f%2fadfs.inacap.cl%2fadfs%2fls%2f%3fwreply%3dhttps%3a%2f%2fintranet.inacap.cl%2ftportalvp%2fintranet-educacion-continua%26wtrealm%3dhttps%3a%2f%2fintranet.inacap.cl%2f",
+    "category": "ERP",
+    "system": "INACAP Intranet Educación Continua",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://pagos.inacap.cl/inacap.portalpagos/home.aspx",
+    "category": "Fee Payment",
+    "system": "INACAP Portal Pagos",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://pagos.inacap.cl/inacap.portalpagos/capacitacion/home.aspx",
+    "category": "Fee Payment",
+    "system": "INACAP Portal Pagos Educación Continua",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:58:38+00:00"
+ },
+ "10010937": {
+  "org_id": "10010937",
+  "university_name": "Trường ĐạI Học Công Nghệ Tp.Hcm (Hutech)",
+  "official_domain": "hutech.edu.vn",
+  "sheet_row": 45,
+  "portals": [
+   {
+    "url": "https://sso.hutech.edu.vn",
+    "category": "General Student Login",
+    "system": "HUTECH SSO",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://sinhvien.hutech.edu.vn",
+    "category": "General Student Login",
+    "system": "Cổng thông tin sinh viên HUTECH",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:58:45+00:00"
+ },
+ "10157226": {
+  "org_id": "10157226",
+  "university_name": "Centro Universitário Opet",
+  "official_domain": "opet.com.br",
+  "sheet_row": 1865,
+  "portals": [
+   {
+    "url": "https://opet.lyceum.com.br/AOnline/index.html#/login",
+    "category": "ERP",
+    "system": "Lyceum",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:58:46+00:00"
+ },
+ "10293898": {
+  "org_id": "10293898",
+  "university_name": "Universidad Autónoma de Tlaxcala",
+  "official_domain": "uatx.mx",
+  "sheet_row": 2064,
+  "portals": [
+   {
+    "url": "https://siga.uatx.mx/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://siga.uatx.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://siga.uatx.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:58:48+00:00"
+ },
+ "10314048": {
+  "org_id": "10314048",
+  "university_name": "Facultad De Ciencias Exactas Y Tecnología - Universidad Nacional De Santiago Del Estero",
+  "official_domain": "fce.unse.edu.ar",
+  "sheet_row": 1614,
+  "portals": [
+   {
+    "url": "https://autogestion.guarani.unse.edu.ar/unse/acceso",
+    "category": "ERP",
+    "system": "SIU-Guaraní",
+    "tnc_url": "https://pefcm.unse.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://pefcm.unse.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:58:52+00:00"
+ },
+ "10152920": {
+  "org_id": "10152920",
+  "university_name": "Universitas Islam Negeri Sultan Maulana Hasanuddin Banten",
+  "official_domain": "uinbanten.ac.id",
+  "sheet_row": 743,
+  "portals": [
+   {
+    "url": "https://siakad.uinbanten.ac.id/",
+    "category": "ERP",
+    "system": "SIAKAD",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:58:52+00:00"
+ },
+ "10251305": {
+  "org_id": "10251305",
+  "university_name": "Universidad Autonoma de Guerrero Preparatoria Numero 8",
+  "official_domain": "uagro.mx",
+  "sheet_row": 2493,
+  "portals": [
+   {
+    "url": "http://www.siia.uagro.mx",
+    "category": "ERP",
+    "system": "SIIA",
+    "tnc_url": "https://uagro.mx/index.php/pagos-en-linea",
+    "graph": {
+     "tnc_url": "https://uagro.mx/index.php/pagos-en-linea",
+     "confidence": 0.56,
+     "s_domain": 0.8,
+     "s_semantic": 0.1,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://virtual.uagro.mx/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "UAGro Virtual",
+    "tnc_url": "https://uagro.mx/index.php/aviso-de-privacidad",
+    "graph": {
+     "tnc_url": "https://uagro.mx/index.php/aviso-de-privacidad",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:58:55+00:00"
+ },
+ "10253861": {
+  "org_id": "10253861",
+  "university_name": "INST TOLIMENSE DE FORMACIÓN TÉCNICA PROFESIONAL - ITFIP",
+  "official_domain": "itfip.edu.co",
+  "sheet_row": 2886,
+  "portals": [
+   {
+    "url": "https://somosuniespinal.comunisoft.com/login/?redirect_to=https%3A%2F%2Fsomosuniespinal.comunisoft.com%2F",
+    "category": "General Student Login",
+    "system": "SomosUniEspinal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://aulavirtual.itfip.edu.co/?__hstc=69023182.d873122a7bbd24c6230556c726fcd62e.1788162978118.1788162978118.1788162978118.1&__hssc=69023182.1.1788162978118&__hsfp=2f320d84be503a8f41262ef75a3f7e89",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Aula Virtual",
+    "tnc_url": "https://aulavirtual.itfip.edu.co/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://aulavirtual.itfip.edu.co/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://guia.uniespinal.edu.co/sgacampus",
+    "category": "ERP",
+    "system": "Plataforma GUIA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:58:59+00:00"
+ },
+ "10037472": {
+  "org_id": "10037472",
+  "university_name": "Fanorte - Instituição de Ensino Superior de Cacoal",
+  "official_domain": "fanorte.edu.br",
+  "sheet_row": 1001,
+  "portals": [
+   {
+    "url": "https://fanorte.edu.br/area-do-aluno.html",
+    "category": "General Student Login",
+    "system": "Área do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:59:05+00:00"
+ },
+ "10322784": {
+  "org_id": "10322784",
+  "university_name": "IPOG Brasilia",
+  "official_domain": "ipog.edu.br",
+  "sheet_row": 2892,
+  "portals": [
+   {
+    "url": "https://ipogmais.ipog.edu.br/ipogmais/#/",
+    "category": "ERP",
+    "system": "IPOG Mais",
+    "tnc_url": "https://ipog.edu.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://ipog.edu.br/termos-de-uso",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://sei.ipog.edu.br/index.xhtml",
+    "category": "ERP",
+    "system": "SEI",
+    "tnc_url": "https://ipog.edu.br/termos-de-uso",
+    "graph": {
+     "tnc_url": "https://ipog.edu.br/termos-de-uso",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:59:06+00:00"
+ },
+ "10150352": {
+  "org_id": "10150352",
+  "university_name": "Universidad Centro de Altos Estudios en Ciencias Exactas",
+  "official_domain": "caece.edu.ar",
+  "sheet_row": 1512,
+  "portals": [
+   {
+    "url": "https://campus.caece.edu.ar/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Campus Virtual",
+    "tnc_url": "https://campus.caece.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://campus.caece.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://miucaece.caece.edu.ar/sigedu/Extranet/index.php",
+    "category": "ERP",
+    "system": "SIGEDU",
+    "tnc_url": "https://campus.caece.edu.ar/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://campus.caece.edu.ar/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:59:07+00:00"
+ },
+ "10246542": {
+  "org_id": "10246542",
+  "university_name": "Harsha Institutions",
+  "official_domain": "harshainstitutions.com",
+  "sheet_row": 1523,
+  "portals": [
+   {
+    "url": "https://portal.harshainstitute.edu.in/studentLogin.php",
+    "category": "General Student Login",
+    "system": "Harsha Institutions Student Portal",
+    "tnc_url": "https://harshainstitute.edu.in/terms-and-conditions/",
+    "graph": {
+     "tnc_url": "https://harshainstitute.edu.in/terms-and-conditions/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:59:24+00:00"
+ },
+ "10204111": {
+  "org_id": "10204111",
+  "university_name": "SemcoCAD Virtual Campus",
+  "official_domain": "cadcampus.semco.pe",
+  "sheet_row": 1870,
+  "portals": [
+   {
+    "url": "https://cadcampus.semco.pe/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://cadcampus.semco.pe/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://cadcampus.semco.pe/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:59:26+00:00"
+ },
+ "10318030": {
+  "org_id": "10318030",
+  "university_name": "جامعة بنها الأهلية",
+  "official_domain": "bnu.edu.eg",
+  "sheet_row": 81,
+  "portals": [
+   {
+    "url": "https://academic.bnu.edu.eg",
+    "category": "General Student Login",
+    "system": "قطاع الشئون الأكاديمية",
+    "tnc_url": "https://bnu.edu.eg/page/Sustainability_policy",
+    "graph": {
+     "tnc_url": "https://bnu.edu.eg/page/Sustainability_policy",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "vertical-parent",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://bnu.edu.eg/page/tuition-fees",
+    "category": "Fee Payment",
+    "system": "المصروفات",
+    "tnc_url": "https://bnu.edu.eg/page/policy",
+    "graph": {
+     "tnc_url": "https://bnu.edu.eg/page/policy",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "exact-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:59:27+00:00"
+ },
+ "10279001": {
+  "org_id": "10279001",
+  "university_name": "Universidad Nacional de Río Negro",
+  "official_domain": "unrn.edu.ar",
+  "sheet_row": 3071,
+  "portals": [
+   {
+    "url": "https://guarani.unrn.edu.ar/g3w3/",
+    "category": "ERP",
+    "system": "SIU Guaraní",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:59:39+00:00"
+ },
+ "10068536": {
+  "org_id": "10068536",
+  "university_name": "Cagayan State University",
+  "official_domain": "aparri.csu.edu.ph",
+  "sheet_row": 3080,
+  "portals": [
+   {
+    "url": "https://myportal.csu.edu.ph",
+    "category": "General Student Login",
+    "system": "myportal",
+    "tnc_url": "https://aparri.csu.edu.ph/data-privacy",
+    "graph": {
+     "tnc_url": "https://aparri.csu.edu.ph/data-privacy",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-08-31T07:59:41+00:00"
+ },
+ "10066327": {
+  "org_id": "10066327",
+  "university_name": "National Institute of Public Administration",
+  "official_domain": "nipa.ac.zm",
+  "sheet_row": 1129,
+  "portals": [
+   {
+    "url": "http://moodle.nipa.ac.zm/moodle/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://sis.nipa.ac.zm/",
+    "category": "ERP",
+    "system": "SIS",
+    "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://zcas.ac.zm/elearning/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-08-31T07:59:42+00:00"
+ },
+ "10006762": {
+  "org_id": "10006762",
+  "university_name": "Feati University",
+  "official_domain": "featiu.edu.ph",
+  "sheet_row": 1268,
+  "portals": [
+   {
+    "url": "http://collegeportal.featiu.edu.ph/student-login.php",
+    "category": "ERP",
+    "system": "Feati College Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://116.50.230.237/student-login.php",
+    "category": "ERP",
+    "system": "Feati College Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://116.50.230.237/SHSPublic/student-login.php?",
+    "category": "ERP",
+    "system": "Feati SHS Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:59:42+00:00"
+ },
+ "10078660": {
+  "org_id": "10078660",
+  "university_name": "Е.А.Бөкетов Атындағы Қарағанды Мемлекеттік Университеті",
+  "official_domain": "buketov.edu.kz",
+  "sheet_row": 989,
+  "portals": [
+   {
+    "url": "https://schedule.buketov.edu.kz/login.php",
+    "category": "UMS/MIS",
+    "system": "Сабақ кестесі",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://cabinet.buketov.edu.kz/index1.php?ru",
+    "category": "General Student Login",
+    "system": "Жеке кабинет",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://e.buketov.edu.kz",
+    "category": "General Student Login",
+    "system": "e.buketov",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://courses.buketov.edu.kz/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "ЖАОК",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://ssc.buketov.edu.kz/index.php?language=kz",
+    "category": "ERP",
+    "system": "БҚҚО (Student Service Center)",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:59:47+00:00"
+ },
+ "10158229": {
+  "org_id": "10158229",
+  "university_name": "Saint Anne College Lucena Incorporated",
+  "official_domain": "sacli.edu.ph",
+  "sheet_row": 613,
+  "portals": [
+   {
+    "url": "https://sacli.edu.ph/portal/",
+    "category": "General Student Login",
+    "system": "SACLI Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://staclinc.neolms.com/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "NEO LMS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T07:59:57+00:00"
+ },
+ "10151646": {
+  "org_id": "10151646",
+  "university_name": "Universidade Estadual do Paraná",
+  "official_domain": "embap.curitiba1.unespar.edu.br",
+  "sheet_row": 445,
+  "portals": [
+   {
+    "url": "http://www.aluno.siges.pr.gov.br/bna_ies/",
+    "category": "ERP",
+    "system": "SIGES",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 403
+   },
+   {
+    "url": "http://www.siges.pr.gov.br/sere_ies/login.do",
+    "category": "ERP",
+    "system": "SIGES",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 403
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T08:00:05+00:00"
+ },
+ "10307926": {
+  "org_id": "10307926",
+  "university_name": "Unidompedro - Campus Patamares",
+  "official_domain": "unidompedro.com",
+  "sheet_row": 908,
+  "portals": [
+   {
+    "url": "https://unidom.portalava.com.br/login",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "AVA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://portalaluno.afya.com.br/web/app/edu/portaleducacional/login/",
+    "category": "ERP",
+    "system": "TOTVS RM Portal Educacional",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T08:00:19+00:00"
+ },
+ "10071792": {
+  "org_id": "10071792",
+  "university_name": "The University of Zambia",
+  "official_domain": "unza.zm",
+  "sheet_row": 32,
+  "portals": [
+   {
+    "url": "https://sis.unza.zm/users/login",
+    "category": "ERP",
+    "system": "UNZA SIS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://pgonline.unza.zm/users/login",
+    "category": "ERP",
+    "system": "UNZA PG Online",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://gsbonline.unza.zm/users/login",
+    "category": "ERP",
+    "system": "GSB Online",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://online.unza.zm/users/login",
+    "category": "ERP",
+    "system": "UNZA Online",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "http://moodle.unza.zm/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T08:00:24+00:00"
+ },
+ "10272884": {
+  "org_id": "10272884",
+  "university_name": "Universidad Anáhuac Veracruz Campus Córdoba-Orizaba",
+  "official_domain": "anahuac.mx",
+  "sheet_row": 444,
+  "portals": [
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAM/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAX/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAV/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAC/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAP/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAO/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/ssomanager/saml/login?relayState=/c/auth/SSB?campus=RUA_UAQ/twbkwbis.P_GenMenu?name=bmenu.P_MainMnu",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://rua-ssb-prod.ban.anahuac.mx/RUA_AOL/twbkwbis.P_WWWLogin",
+    "category": "ERP",
+    "system": "Banner Self-Service",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-08-31T08:00:35+00:00"
  }
 }

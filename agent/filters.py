@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Iterable
@@ -218,7 +219,7 @@ class LocalKnowledgeMatrixFilter:
         self,
         kb_path: str | Path = DEFAULT_KB_PATH,
         *,
-        max_candidates: int = 30,
+        max_candidates: int = int(os.getenv("GENIE_MAX_CANDIDATES", "40")),
         reserve_legal: int = 8,
     ) -> None:
         self.kb_path = Path(kb_path)
@@ -304,7 +305,8 @@ class LocalKnowledgeMatrixFilter:
         """
         cap = max_candidates if max_candidates is not None else self.max_candidates
         stats = {"in": len(links), "blacklisted": 0, "duplicate": 0,
-                 "no_signal": 0, "portal": 0, "legal": 0, "fallback": 0}
+                 "no_signal": 0, "portal": 0, "legal": 0, "fallback": 0,
+                 "filler": 0}
 
         seen: set[str] = set()
         portals: list[dict[str, Any]] = []
@@ -313,6 +315,9 @@ class LocalKnowledgeMatrixFilter:
         # not. This is the pool the heuristic fallback draws from, so it must be
         # collected during the main pass rather than by re-walking `links`.
         survivors: list[dict[str, str]] = []
+        # Blacklist-clean links with no keyword hit. Scored structurally and
+        # used only to fill unused capacity — never to displace a real match.
+        fillers: list[dict[str, Any]] = []
 
         for item in links:
             url = (item.get("url") or "").strip()
@@ -338,7 +343,20 @@ class LocalKnowledgeMatrixFilter:
             is_legal = bool(self.legal_re and self.legal_re.search(blob))
 
             if not (is_portal or is_legal):
+                # NOT discarded any more. Measured on the 100-org V2/V3 run:
+                # 91 of pens.ac.id's 117 links and 140 of azmiu.edu.az's 153 were
+                # dropped here, and `login.pens.ac.id/cas/login` — a portal V2
+                # found — was among them. Meanwhile the cascade was being handed
+                # 3 candidates when the cap allowed 40, so the budget this filter
+                # exists to protect was going unspent while real portals were
+                # thrown away. They are now ranked structurally and used as
+                # filler AFTER every keyword match, so they can only ever occupy
+                # slots that would otherwise have gone empty.
                 stats["no_signal"] += 1
+                sc, why = structural_score(url, text)
+                fillers.append({"url": url, "text": text[:200], "kind": "unranked",
+                                "score": round(sc - 10.0, 2),
+                                "matched": ["no-keyword-match", *why]})
                 continue
 
             score = 0.0
@@ -400,20 +418,27 @@ class LocalKnowledgeMatrixFilter:
         n_legal = min(len(legals), self.reserve_legal, cap)
         n_portal = min(len(portals), cap - n_legal)
         out = portals[:n_portal] + legals[:n_legal]
-        # Backfill if one side was short, so the cap is actually used.
+        # Backfill: leftover keyword matches first, then structurally-ranked
+        # no-signal links. The cap is a TOKEN budget — leaving it unspent buys
+        # nothing, while an extra candidate the model rejects costs ~30 tokens.
         if len(out) < cap:
-            spare = [r for r in portals[n_portal:] + legals[n_legal:]]
+            spare = portals[n_portal:] + legals[n_legal:]
             spare.sort(key=lambda r: -r["score"])
             out += spare[: cap - len(out)]
+        if len(out) < cap and fillers:
+            fillers.sort(key=lambda r: (-r["score"], len(r["url"])))
+            added = fillers[: cap - len(out)]
+            out += added
+            stats["filler"] = len(added)
 
         stats["portal"] = sum(1 for r in out if r["kind"] == "portal")
         stats["legal"] = sum(1 for r in out if r["kind"] == "legal")
         stats["out"] = len(out)
         self.last_stats = stats
         logger.info(
-            "filters: %d in -> %d out (%d portal / %d legal); dropped %d blacklist, "
-            "%d dup, %d no-signal",
+            "filters: %d in -> %d out (%d portal / %d legal / %d filler); "
+            "dropped %d blacklist, %d dup",
             stats["in"], stats["out"], stats["portal"], stats["legal"],
-            stats["blacklisted"], stats["duplicate"], stats["no_signal"],
+            stats["filler"], stats["blacklisted"], stats["duplicate"],
         )
         return out

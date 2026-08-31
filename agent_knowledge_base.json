@@ -20,7 +20,8 @@
     "confirmed": 102,
     "candidate": 205,
     "categories": 10,
-    "blacklist_groups": 16
+    "blacklist_groups": 16,
+    "learned_legal_keywords": 22
   },
   "saas_infra_whitelist": [
     {
@@ -4851,5 +4852,29 @@
         "ucanapply.com": "admissions application"
       }
     }
-  }
+  },
+  "learned_legal_keywords": [
+    "Política de Privacidade",
+    "Termos de uso",
+    "LGPD",
+    "Data Privacy Notice",
+    "Conditions d´utilisation",
+    "Declaración de Privacidad",
+    "Aviso de privacidad",
+    "Політика",
+    "Privacy Policy",
+    "นโยบายความเป็นส่วนตัว",
+    "protection des données à caractère personnel",
+    "Mentions légales",
+    "política de privacidad",
+    "سياسات",
+    "الشروط والأحكام",
+    "Base Legal",
+    "Termo de Uso",
+    "Privacidade",
+    "politica-de-privacidade",
+    "นโยบายการคุ้มครองข้อมูลส่วนบุคคล",
+    "Termos",
+    "retención de datos"
+  ]
 }

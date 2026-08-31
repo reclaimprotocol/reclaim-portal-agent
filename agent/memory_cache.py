@@ -287,17 +287,21 @@ class MemoryCache:
             self.stats["vendor_hits"] += 1
         return hit
 
-    async def remember_legal(self, entries: list[dict[str, Any]]) -> None:
-        """Compound vendor knowledge.
+    #: Only mappings at least this confident are compounded into the vendor
+    #: cache. The waterfall's "not Stage 4" rule is gone with the waterfall; the
+    #: graph's composite score is the replacement, and it is a better one — it
+    #: is continuous and it states WHY. 0.60 admits sibling/vertical matches
+    #: with a real compliance token (0.4*0.7 + 0.4*1.0 + 0.2*1.0 = 0.88) while
+    #: excluding weak-signal edges that merely scraped past the 0.40 gate. A
+    #: cache entry is inherited by every future tenant on that platform, so the
+    #: bar to enter it is deliberately higher than the bar to be reported once.
+    MEMORY_CONFIDENCE_MIN = 0.60
 
-        Stage 4 (apex root rescue) is deliberately NOT stored: it is our weakest
-        evidence — the university's front-page terms may never mention the
-        portal — and caching it under a vendor signature would propagate that
-        guess to every future tenant on the platform.
-        """
+    async def remember_legal(self, entries: list[dict[str, Any]]) -> None:
+        """Compound vendor knowledge, gated on graph confidence."""
         for e in entries or []:
-            stage = str(e.get("waterfall_discovery_stage") or "")
-            if stage.startswith("Stage 4") or stage == "None Found":
+            conf = float(e.get("graph_confidence") or 0.0)
+            if conf < self.MEMORY_CONFIDENCE_MIN:
                 continue
             self.layer5.update_cache(
                 e.get("exact_url", ""), e.get("portal_system_name", ""),
