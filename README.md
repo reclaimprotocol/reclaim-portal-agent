@@ -40,6 +40,38 @@ cp .env.example .env          # fill OPENROUTER_API_KEY + Google creds
     --sheet-id <SHEET_ID> --tab 'all orgs' --org-ids-file ids.json
 ```
 
+### Look up a single university
+
+No spreadsheet, no org ID, no OAuth — one domain in, portals and terms out.
+
+```bash
+# portals + the terms governing them
+.venv/bin/python -m agent.lookup buet.ac.bd --name "Bangladesh University of Engineering & Technology"
+
+# portals only — skips the portal crawl and graph matching, ~2x faster
+.venv/bin/python -m agent.lookup unifran.edu.br --portals-only
+
+# machine-readable
+.venv/bin/python -m agent.lookup kbu.ac.th --json > result.json
+```
+
+```
+  Bangladesh University of Engineering & Technology   (buet.ac.bd)
+  ──────────────────────────────────────────────────────────────────
+  [ERP]  BIIS
+    portal : http://biis.buet.ac.bd/BIIS_WEB/Login.do
+    terms  : https://bcc.buet.ac.bd/privacy-policy   (confidence 0.92, vertical-parent)
+```
+
+From Python:
+
+```python
+from agent.lookup import find_portals
+result = await find_portals("buet.ac.bd", portals_only=True)
+```
+
+Exits non-zero when nothing is found, so it composes in shell scripts.
+
 Results land in `output/`:
 
 ```
@@ -235,24 +267,7 @@ git status --porcelain -uall | grep -iE '\.(csv|log)$|\.env'   # must be empty
 
 ---
 
-## 6. Where V3 still trails
-
-Stated plainly, because it decides what to work on next:
-
-| | V3 |
-|---|---|
-| Portal host-match vs human ground truth | **40.1%** (ceiling measured at 78%) |
-| T&C recall | 51% |
-| Median seconds per org | **420s** (V2: ~30s) |
-| Web search at batch scale | **unusable** — DuckDuckGo gave 129 errors to 2 successes |
-
-And one known-wrong behaviour: the client rejected 317 T&C links, dominated by
-third-party vendor legal pages that our `S_domain` still rates **0.5 — a passing
-grade**. Lowering that tier below the gate is the next change.
-
----
-
-## 7. Repository layout
+## 6. Repository layout
 
 ```
 agent/
@@ -268,7 +283,7 @@ genie/           FastAPI + Next.js app (deployed; runs on V2)
 output/          generated CSVs and logs — gitignored
 ```
 
-## 8. Per-university overrides — `domain_overrides.json`
+## 7. Per-university overrides — `domain_overrides.json`
 
 Pin a known answer or hint discovery for a specific OrgID:
 
@@ -286,7 +301,7 @@ Pin a known answer or hint discovery for a specific OrgID:
 Fields: `state`, `exact_shortnames`, `extra_effective_domains`, `seed_urls`,
 `force_accept_seed_urls`, `blocked_urls`, `tc_domain`, `notes`.
 
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|

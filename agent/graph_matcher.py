@@ -64,6 +64,21 @@ W_DOMAIN, W_SEMANTIC, W_DISTANCE = 0.40, 0.40, 0.20
 #: rather than cut.
 OWN_SELF, OWN_SAAS, OWN_FOREIGN = 1.0, 0.90, 0.35
 
+#: Hard ceiling for a vendor-corporate-terms mapping, set BELOW the 0.40 gate so
+#: such an edge is always cut.
+#:
+#: The customer's own review data settles this: of 317 T&C links they rejected,
+#: the top hosts are ucanapply.com, makaut.online, iitms.co.in, linways.com and
+#: vmedulife.com — third-party SaaS vendors, most of which sit in our own
+#: whitelist. A vendor's corporate terms are not the university's student terms,
+#: and shipping one costs a human review to reach the same conclusion.
+#:
+#: A cap rather than a lower S_domain tier, because the additive base reaches
+#: 0.60 from S_semantic and S_distance alone: no value of S_domain — not even
+#: 0.0 — can bring a semantically perfect vendor page under the gate. The edge
+#: is still scored and kept in the graph so the decision stays auditable.
+SAAS_MAX_WEIGHT = 0.35
+
 #: Crawl-provenance multipliers, per the spec.
 DISTANCE_NATIVE_CRAWL = 1.0
 DISTANCE_SEARCH_FALLBACK = 0.4
@@ -90,8 +105,14 @@ _TWO_LABEL_TLDS = frozenset({
 #: word-list cannot. Non-Latin scripts are listed explicitly because they share
 #: no roots with the Latin set.
 _TIER1_ROOTS = (
-    "privac", "polit", "term", "condi", "legal", "regul", "tos", "tnc",
+    # 'polic' as well as 'polit': the Latin stem covers política/politique, but
+    # the plain English "policy" shares no stem with it, so a bare /policy.php
+    # or policy.<host> scored 0.1 — found by auditing 152 cached vendor entries.
+    "privac", "polit", "polic", "term", "condi", "legal", "regul", "tos", "tnc",
     "disclaim", "datenschutz", "impressum", "aviso", "juridic", "mentions",
+    # data-protection phrasings that share no stem with "privacy"
+    "protecao-de-dados", "proteccion-de-datos", "protecao_de_dados",
+    "protection-des-donnees", "dados-pessoais", "datos-personales",
     "confidentialit", "gdpr", "lgpd", "pdpa", "dataprivacy", "data-protection",
     # Vietnamese · Thai · Indonesian/Malay · Arabic · Chinese · Japanese · Korean
     "bảo mật", "điều khoản", "chính sách",
@@ -101,6 +122,17 @@ _TIER1_ROOTS = (
     "隐私", "条款", "プライバシー", "利用規約", "개인정보", "이용약관",
 )
 _TIER1_RE = re.compile("|".join(re.escape(t) for t in _TIER1_ROOTS), re.I)
+
+#: Leftmost host labels that ARE the signal: policy.uni.edu/ has an empty path,
+#: so a path-only scorer rates a dedicated legal subdomain 0.1.
+#:
+#: Matched as an EXACT label set, never as a substring of the host. "polit" is a
+#: tier-1 root, and a substring test would score every page on politecnico.edu.co
+#: and politeknik.ac.id as a legal document.
+_LEGAL_HOST_LABELS = frozenset({
+    "policy", "policies", "privacy", "privacidade", "privacidad",
+    "terms", "termos", "legal", "tnc", "tos", "compliance", "dataprivacy",
+})
 
 #: TIER 2 (0.3) — transactional neighbours that OVERRIDE tier 1.
 #:
@@ -288,12 +320,18 @@ class GraphComplianceMatcher:
         but it does NOT bypass the tier-2 veto: a model that flags a refund
         policy as primary is still overruled by the explicit exclusion.
         """
-        path = urlsplit(legal_url or "").path or ""
+        parts = urlsplit(legal_url or "")
+        path = parts.path or ""
         blob = f"{path} {anchor_text or ''} {native_keyword or ''}"
 
         # Tier 2 first — it wins outright.
         if _TIER2_RE.search(blob):
             return SCORE_TIER2
+
+        # A dedicated legal subdomain is tier 1 on its own.
+        label = (parts.netloc or "").lower().removeprefix("www.").split(".")[0]
+        if label in _LEGAL_HOST_LABELS:
+            return SCORE_TIER1
 
         if is_primary:
             return SCORE_TIER1
@@ -363,6 +401,8 @@ class GraphComplianceMatcher:
                 base = (W_DOMAIN * s_dom + W_SEMANTIC * s_sem
                         + W_DISTANCE * s_dist) if s_dom > 0.0 else 0.0
                 w = base * s_own
+                if rel == "saas-ecosystem" or own_rel == "org-saas-tenant":
+                    w = min(w, SAAS_MAX_WEIGHT)
                 es = EdgeScore(pu, lu, w, s_dom, s_sem, s_dist, rel, s_own, own_rel)
                 self.last_edges.append(es)
                 G.add_edge(f"P:{pu}", f"C:{lu}", weight=w, **es.as_dict())
