@@ -30,7 +30,7 @@
  "vinuni.edu.vn": {
   "domain_signature": "vinuni.edu.vn",
   "platform_name": "",
-  "tnc_url": "https://policy.vinuni.edu.vn/",
+  "tnc_url": null,
   "privacy_policy_url": "https://vinuni.edu.vn/privacy-statement/",
   "hit_counter": 1,
   "first_seen": "2026-08-30T19:37:09+00:00",
@@ -105,20 +105,11 @@
  "faculdadefocus.com.br": {
   "domain_signature": "faculdadefocus.com.br",
   "platform_name": "Faculdade Focus",
-  "tnc_url": "https://faculdadefocus.com.br/politica-de-cookies",
+  "tnc_url": null,
   "privacy_policy_url": "https://faculdadefocus.com.br/politica-de-privacidade",
   "hit_counter": 1,
   "first_seen": "2026-08-31T05:32:02+00:00",
   "last_updated": "2026-08-31T06:46:13+00:00"
- },
- "imsu.edu.ng": {
-  "domain_signature": "imsu.edu.ng",
-  "platform_name": "IMSU Portal",
-  "tnc_url": "https://imsu.edu.ng/Content/Watchdog?ID=2",
-  "privacy_policy_url": "https://imsu.edu.ng/Content/Watchdog?ID=2",
-  "hit_counter": 1,
-  "first_seen": "2026-08-31T05:32:53+00:00",
-  "last_updated": "2026-08-31T06:38:16+00:00"
  },
  "instructure.com": {
   "domain_signature": "instructure.com",
@@ -142,11 +133,12 @@
  "buet.ac.bd": {
   "domain_signature": "buet.ac.bd",
   "platform_name": "BCC",
-  "tnc_url": "https://bcc.buet.ac.bd/refund-policy",
+  "tnc_url": null,
   "privacy_policy_url": "https://bcc.buet.ac.bd/privacy-policy",
-  "hit_counter": 1,
+  "hit_counter": 5,
   "first_seen": "2026-08-31T05:36:24+00:00",
-  "last_updated": "2026-08-31T06:40:28+00:00"
+  "last_updated": "2026-08-31T06:40:28+00:00",
+  "last_hit_at": "2026-08-31T10:29:29+00:00"
  },
  "uttara.ac.bd": {
   "domain_signature": "uttara.ac.bd",
@@ -277,16 +269,6 @@
   "first_seen": "2026-08-31T05:50:30+00:00",
   "last_updated": "2026-08-31T06:44:25+00:00"
  },
- "norsu.edu.ph": {
-  "domain_signature": "norsu.edu.ph",
-  "platform_name": "MIS",
-  "tnc_url": "https://norsu.edu.ph/80",
-  "privacy_policy_url": "https://norsu.edu.ph/73",
-  "hit_counter": 3,
-  "first_seen": "2026-08-31T05:50:30+00:00",
-  "last_updated": "2026-08-31T07:46:20+00:00",
-  "last_hit_at": "2026-08-31T07:46:20+00:00"
- },
  "leiautonline.com.br": {
   "domain_signature": "leiautonline.com.br",
   "platform_name": "EAD Plataforma",
@@ -360,15 +342,6 @@
   "hit_counter": 1,
   "first_seen": "2026-08-31T06:42:31+00:00",
   "last_updated": "2026-08-31T06:42:31+00:00"
- },
- "technoindiauniversity.ac.in": {
-  "domain_signature": "technoindiauniversity.ac.in",
-  "platform_name": "Techno India University Semester Results",
-  "tnc_url": "https://www.technoindiauniversity.ac.in/index3.php?id=67",
-  "privacy_policy_url": null,
-  "hit_counter": 1,
-  "first_seen": "2026-08-31T06:43:49+00:00",
-  "last_updated": "2026-08-31T06:43:49+00:00"
  },
  "prmsu.edu.ph": {
   "domain_signature": "prmsu.edu.ph",
@@ -636,16 +609,6 @@
   "last_updated": "2026-08-31T07:58:24+00:00",
   "last_hit_at": "2026-08-31T07:58:24+00:00"
  },
- "pdmu.edu.ua": {
-  "domain_signature": "pdmu.edu.ua",
-  "platform_name": "Moodle",
-  "tnc_url": "https://pdmu.edu.ua/cookie-policy",
-  "privacy_policy_url": null,
-  "hit_counter": 3,
-  "first_seen": "2026-08-31T07:17:30+00:00",
-  "last_updated": "2026-08-31T07:47:21+00:00",
-  "last_hit_at": "2026-08-31T07:47:21+00:00"
- },
  "unex.edu.br": {
   "domain_signature": "unex.edu.br",
   "platform_name": "Portal do Aluno",
@@ -665,16 +628,6 @@
   "first_seen": "2026-08-31T07:17:55+00:00",
   "last_updated": "2026-08-31T07:48:38+00:00",
   "last_hit_at": "2026-08-31T07:48:38+00:00"
- },
- "facenemossoro.com.br": {
-  "domain_signature": "facenemossoro.com.br",
-  "platform_name": "AVA",
-  "tnc_url": "https://facenemossoro.com.br/view.php?cod=NTM=-Base-Legal",
-  "privacy_policy_url": null,
-  "hit_counter": 3,
-  "first_seen": "2026-08-31T07:18:06+00:00",
-  "last_updated": "2026-08-31T07:53:11+00:00",
-  "last_hit_at": "2026-08-31T07:53:11+00:00"
  },
  "alfaunipac.com.br": {
   "domain_signature": "alfaunipac.com.br",
@@ -1231,15 +1184,6 @@
   "first_seen": "2026-08-31T08:38:44+00:00",
   "last_updated": "2026-08-31T08:38:44+00:00",
   "last_hit_at": "2026-08-31T08:43:43+00:00"
- },
- "spcf.edu.ph": {
-  "domain_signature": "spcf.edu.ph",
-  "platform_name": "Student Portal",
-  "tnc_url": "http://box104.spcf.edu.ph/dummy.html",
-  "privacy_policy_url": null,
-  "hit_counter": 1,
-  "first_seen": "2026-08-31T08:38:57+00:00",
-  "last_updated": "2026-08-31T08:38:57+00:00"
  },
  "diu.ac": {
   "domain_signature": "diu.ac",

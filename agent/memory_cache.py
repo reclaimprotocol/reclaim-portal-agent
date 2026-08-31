@@ -195,6 +195,15 @@ class Layer5MemoryCacheManager:
         sig = self.extract_domain_signature(portal_url)
         if not sig or not (tnc_url or privacy_url):
             return False
+        # Vet on write as well as on read: an entry here is inherited by every
+        # future tenant of the platform, so a refund or cookie page must never
+        # enter it in the first place.
+        from agent.graph_matcher import GraphComplianceMatcher
+        _s = GraphComplianceMatcher()
+        tnc_url = tnc_url if (tnc_url and _s.score_semantic(tnc_url, "") >= 1.0) else None
+        privacy_url = privacy_url if (privacy_url and _s.score_semantic(privacy_url, "") >= 1.0) else None
+        if not (tnc_url or privacy_url):
+            return False
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._lock:
             entry = self.cache.get(sig)
@@ -293,9 +302,32 @@ class MemoryCache:
         return None
 
     def legal_for_portal(self, portal_url: str) -> dict[str, Any] | None:
+        """Cached legal URLs for this portal's platform, vetted on the way out.
+
+        The cache is a permanent, VENDOR-wide store: one bad entry is served to
+        every future tenant on that platform. Entries written before the tier
+        rules existed slipped through — an audit of 152 entries found 16 that
+        fail the tier-1 test, including a `/refund-policy` and two
+        `/cookie-policy` pages. Vetting on read means a poisoned entry stops
+        being served the moment the rules improve, without a migration.
+        """
         hit = self.layer5.check_cache(portal_url)
-        if hit:
-            self.stats["vendor_hits"] += 1
+        if not hit:
+            return None
+        from agent.graph_matcher import GraphComplianceMatcher
+        scorer = getattr(self, "_scorer", None)
+        if scorer is None:
+            scorer = self._scorer = GraphComplianceMatcher()
+        for field in ("tnc_url", "privacy_policy_url"):
+            url = hit.get(field)
+            if url and scorer.score_semantic(url, "") < 1.0:
+                logger.warning("memory: cached %s for %s fails the compliance "
+                               "test (%s) — not served", field,
+                               hit.get("domain_signature"), url[:70])
+                hit = {**hit, field: None}
+        if not (hit.get("tnc_url") or hit.get("privacy_policy_url")):
+            return None
+        self.stats["vendor_hits"] += 1
         return hit
 
     #: Only mappings at least this confident are compounded into the vendor

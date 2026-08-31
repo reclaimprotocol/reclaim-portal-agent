@@ -90,8 +90,14 @@ _TWO_LABEL_TLDS = frozenset({
 #: word-list cannot. Non-Latin scripts are listed explicitly because they share
 #: no roots with the Latin set.
 _TIER1_ROOTS = (
-    "privac", "polit", "term", "condi", "legal", "regul", "tos", "tnc",
+    # 'polic' as well as 'polit': the Latin stem covers política/politique, but
+    # the plain English "policy" shares no stem with it, so a bare /policy.php
+    # or policy.<host> scored 0.1 — found by auditing 152 cached vendor entries.
+    "privac", "polit", "polic", "term", "condi", "legal", "regul", "tos", "tnc",
     "disclaim", "datenschutz", "impressum", "aviso", "juridic", "mentions",
+    # data-protection phrasings that share no stem with "privacy"
+    "protecao-de-dados", "proteccion-de-datos", "protecao_de_dados",
+    "protection-des-donnees", "dados-pessoais", "datos-personales",
     "confidentialit", "gdpr", "lgpd", "pdpa", "dataprivacy", "data-protection",
     # Vietnamese · Thai · Indonesian/Malay · Arabic · Chinese · Japanese · Korean
     "bảo mật", "điều khoản", "chính sách",
@@ -101,6 +107,17 @@ _TIER1_ROOTS = (
     "隐私", "条款", "プライバシー", "利用規約", "개인정보", "이용약관",
 )
 _TIER1_RE = re.compile("|".join(re.escape(t) for t in _TIER1_ROOTS), re.I)
+
+#: Leftmost host labels that ARE the signal: policy.uni.edu/ has an empty path,
+#: so a path-only scorer rates a dedicated legal subdomain 0.1.
+#:
+#: Matched as an EXACT label set, never as a substring of the host. "polit" is a
+#: tier-1 root, and a substring test would score every page on politecnico.edu.co
+#: and politeknik.ac.id as a legal document.
+_LEGAL_HOST_LABELS = frozenset({
+    "policy", "policies", "privacy", "privacidade", "privacidad",
+    "terms", "termos", "legal", "tnc", "tos", "compliance", "dataprivacy",
+})
 
 #: TIER 2 (0.3) — transactional neighbours that OVERRIDE tier 1.
 #:
@@ -288,12 +305,18 @@ class GraphComplianceMatcher:
         but it does NOT bypass the tier-2 veto: a model that flags a refund
         policy as primary is still overruled by the explicit exclusion.
         """
-        path = urlsplit(legal_url or "").path or ""
+        parts = urlsplit(legal_url or "")
+        path = parts.path or ""
         blob = f"{path} {anchor_text or ''} {native_keyword or ''}"
 
         # Tier 2 first — it wins outright.
         if _TIER2_RE.search(blob):
             return SCORE_TIER2
+
+        # A dedicated legal subdomain is tier 1 on its own.
+        label = (parts.netloc or "").lower().removeprefix("www.").split(".")[0]
+        if label in _LEGAL_HOST_LABELS:
+            return SCORE_TIER1
 
         if is_primary:
             return SCORE_TIER1
