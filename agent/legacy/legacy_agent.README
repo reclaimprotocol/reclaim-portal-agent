@@ -1,0 +1,153 @@
+Genie V2 — the legacy discovery engine
+======================================
+
+This directory holds the second-generation agent. It is NOT deprecated and it
+is NOT dead code. It is the engine that:
+
+  * the deployed Genie web app (`genie/`, Vercel + Render) still runs against,
+  * 111 scripts in `scripts/` still import,
+  * produced every portal currently delivered to the customer, and
+  * still owns the only working T&C waterfall — 3,114 rows on the August4000
+    sheet are waiting on it.
+
+It was moved here on 2026-08-31 for one reason: readability. V3 is ~3,500 lines
+and was buried under ~15,800 lines of V2 in a flat `agent/` directory. Nothing
+about how it runs changed.
+
+
+-------------------------------------------------------------------------------
+1. EVERY OLD IMPORT PATH STILL WORKS
+-------------------------------------------------------------------------------
+
+    import agent.magic                  ->  agent.legacy.magic
+    from agent.pipeline import ...      ->  agent.legacy.pipeline
+    from agent.stages.discovery import  ->  agent.legacy.stages.discovery
+    from agent.stages.js_renderer ...   ->  agent.legacy.stages.js_renderer
+
+You do not need to update anything. Shims left at the original paths rebind
+`sys.modules[__name__]` to the real module object, so:
+
+    agent.magic is agent.legacy.magic   ->  True
+
+That aliasing is deliberate and load-bearing. A shim that merely RE-EXPORTED
+names would create a SECOND module object, and the module-level caches, locks
+and `_PARENT_PORTAL_CACHE`-style state inside the V2 engine would silently
+diverge between the two copies — a bug that only appears under concurrency and
+looks like random cache misses.
+
+`agent/stages/` needs only a package-level shim: once `sys.modules['agent.stages']`
+is the legacy package, submodule imports resolve through its `__path__`.
+
+
+-------------------------------------------------------------------------------
+2. RUNNING IT
+-------------------------------------------------------------------------------
+
+All entry points verified working on 2026-08-31.
+
+    # one organisation, full pipeline
+    .venv/bin/python scripts/run_single.py --help
+
+    # next N organisations
+    .venv/bin/python scripts/run_batch.py --help
+
+    # discovery only (no T&C)
+    .venv/bin/python scripts/run_batch_discovery.py --help
+
+    # T&C analysis only
+    .venv/bin/python scripts/run_batch_tnc_analysis.py --help
+
+    # office sheet: fill portals in place, per state tab
+    .venv/bin/python scripts/run_portal_sheet.py --help
+
+Or call the engine directly:
+
+    from dotenv import load_dotenv; load_dotenv(".env")
+    import agent.magic as M
+    portals = M.discover("Bangladesh University of Engineering & Technology",
+                         "buet.ac.bd", "Bangladesh")
+    # -> [{'url': 'https://biis.buet.ac.bd/BIIS_WEB/Login.do',
+    #      'category': 'Student Portal', ...}, ...]
+
+Long batch runs use the daemonised + sharded pattern; see the main README
+section "Running batches" for the driver shape and the rules that make it
+survive overnight.
+
+
+-------------------------------------------------------------------------------
+3. WHAT IS IN HERE
+-------------------------------------------------------------------------------
+
+    magic.py           1,178  condensed discovery entry point (harvest ->
+                              fetch -> LLM judge -> filters). What the batch
+                              runners actually call.
+    magic_tnc.py         365  inline T&C attach used by magic.discover()
+    pipeline.py          185  stage sequencing for the full pipeline
+    orchestrator.py      114  top-level run loop
+    stages/           13,967  the engine proper:
+      discovery.py      5,031   rule-based discovery
+      discovery_rules.py 3,600  recognition rules, shortname/geography logic
+      tc_finder.py      2,378   T&C search
+      tc_levels.py      1,315   the level cascade (portal host -> linked
+                                university -> parent domain -> vendor)
+      tc_analyzer.py      925   renders a T&C page, returns a
+                                Yes/Maybe/No scraping-permission verdict
+      js_renderer.py      368   Playwright/Chromium rendering
+      sheet_writer.py     162   writes results back to Sheets
+      discovery_claude.py 164   Claude fallback for hard rows
+      confidence.py        19
+
+Modules that stayed in `agent/` because BOTH generations use them:
+`config.py` (the 90 shared-platform patterns live here), `sheets_client.py`,
+`state.py`, `proxy.py`, `regions.py`, `anthropic_client.py`.
+
+
+-------------------------------------------------------------------------------
+4. THINGS THAT WILL BITE YOU
+-------------------------------------------------------------------------------
+
+THE PROXY FAILS CLOSED. If Bright Data rejects our IP
+(`401 ip_blacklisted`), every proxied fetch returns status 0 and the reviewer
+writes "unreachable (status 0) — remove" for portals that are perfectly alive.
+This has produced dozens of false removals. ALWAYS probe first:
+
+    .venv/bin/python -c "
+    from dotenv import load_dotenv; load_dotenv('.env')
+    import requests, agent.magic as M
+    print(requests.get('https://api.ipify.org',
+          proxies=M._proxies('https://x.edu.br/'), timeout=25).text)"
+    # expect a FOREIGN exit IP, not a 401
+
+"UNREACHABLE" USUALLY MEANS SLOW, NOT DEAD. Re-checking 52 "unreachable"
+portals at a longer timeout flipped 26 of them to working. University servers
+in Nigeria, Bangladesh and Indonesia routinely take 8-15s for a first byte.
+
+WEB SEARCH IS OFF. `MAGIC_WEB_SEARCH=0` by default: DuckDuckGo rate-limits the
+scraper to zero results while still costing ~72s per org across 6 sequential
+queries. It was the single biggest harvest cost. V3 hit the identical wall —
+129 errors against 2 successes under batch load.
+
+THE OAUTH TOKEN EXPIRES EVERY 7 DAYS while the consent screen is in Testing,
+and long unattended runs die mid-batch when it does. Publish the consent
+screen to production, or re-auth interactively from a terminal you can watch.
+
+RESOLVE SHEET COLUMNS BY HEADER, NEVER BY LETTER. The Portals TnC layout has
+changed several times; letter-indexed writers silently put verdicts in the
+`Category` column.
+
+
+-------------------------------------------------------------------------------
+5. WHEN THIS DIRECTORY CAN BE DELETED
+-------------------------------------------------------------------------------
+
+Not yet. In order:
+
+  1. V3 reaches parity on portal recall (it is at 40.1% ground-truth host match
+     against V2's delivered results; see the main README).
+  2. `genie/` is repointed off `agent.config` / `agent.sheets_client` /
+     `agent.stages.js_renderer` / `agent.pipeline`.
+  3. The outstanding T&C pass on the August4000 sheet is finished.
+  4. `scripts/_build_agent_kb.py` stops reading the platform table from
+     `agent/config.py`.
+
+Only then is this ~15,800 lines safe to remove, in one clean commit.

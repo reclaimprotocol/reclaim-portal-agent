@@ -53,7 +53,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +66,8 @@ except Exception:  # noqa: BLE001
 from agent import proxy as _proxy                                   # noqa: E402
 from agent.crawler import extract_raw_university_links, is_blocked  # noqa: E402
 from agent.filters import LocalKnowledgeMatrixFilter                # noqa: E402
+from agent.graph_matcher import (GraphComplianceMatcher,            # noqa: E402
+                                 DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
 from agent.guardrails import verify_portal_endpoint_detailed        # noqa: E402
 from agent.memory_cache import MemoryCache, signature               # noqa: E402
 from agent.openrouter_cascade import execute_model_cascade          # noqa: E402
@@ -74,10 +76,10 @@ from agent.search_fallback import execute_search_fallback           # noqa: E402
 
 logger = logging.getLogger("genie.v3")
 
-LOG_FILE = Path(os.getenv("GENIE_LOG_FILE", ROOT / "agent_run.log"))
 
 
-def setup_logging(level: int = logging.INFO, log_file: Path = LOG_FILE) -> None:
+
+def setup_logging(level: int = logging.INFO, log_file: Path | None = None) -> None:
     """Timestamped text to the console AND an append-only agent_run.log.
 
     Configured on the `genie` parent logger so every component — crawler,
@@ -103,6 +105,9 @@ def setup_logging(level: int = logging.INFO, log_file: Path = LOG_FILE) -> None:
 
         def format(self, record: logging.LogRecord) -> str:
             return super().format(record).replace("\r", " ").replace("\n", " | ")
+
+    log_file = Path(log_file or os.getenv("GENIE_LOG_FILE") or LOG_FILE_DEFAULT)
+    os.makedirs(log_file.parent, exist_ok=True)
 
     fmt = _SingleLine(
         "%(asctime)s %(levelname)-7s [%(name)s] %(message)s", datefmt="%H:%M:%S")
@@ -130,8 +135,28 @@ def setup_logging(level: int = logging.INFO, log_file: Path = LOG_FILE) -> None:
 ROW_SEMAPHORE = 20
 BROWSER_SEMAPHORE = int(os.getenv("GENIE_BROWSER_CONCURRENCY", "6"))
 
-VERIFIED_CSV = ROOT / "verified_compliance.csv"
-MISSING_CSV = ROOT / "missing_tnc_portals.csv"
+# --------------------------------------------------------------------------- #
+#  Output paths — one date stamp per RUN                                       #
+# --------------------------------------------------------------------------- #
+#: Computed exactly once, at import. Every parallel task therefore writes to the
+#: SAME three files: calling strftime per task would let a run that starts at
+#: 23:59 silently split its results across two dates mid-flight.
+CURRENT_DATE = datetime.now().strftime("%Y-%m-%d")
+
+#: Anchored to the repo root, not to os.getcwd(). A relative "output" would put
+#: the directory wherever the process happened to be launched from — fine for
+#: `python -m agent.v3_orchestrator` at the root, silently wrong under cron, a
+#: systemd unit, or an IDE with a different working directory.
+OUTPUT_DIR = ROOT / "output"
+
+VERIFIED_CSV = OUTPUT_DIR / f"verified_compliance_{CURRENT_DATE}.csv"
+MISSING_CSV = OUTPUT_DIR / f"missing_tnc_portals_{CURRENT_DATE}.csv"
+LOG_FILE_DEFAULT = OUTPUT_DIR / f"agent_run_{CURRENT_DATE}.log"
+
+#: Memory files stay at the REPOSITORY ROOT: they are tracked core assets that
+#: compound across runs, not per-run output. Date-stamping them would reset the
+#: agent's learning every midnight, and `output/` is gitignored so they would
+#: also stop being versioned.
 TNC_MEMORY = ROOT / "tnc_memory.json"
 DOMAIN_HISTORY = ROOT / "domain_history.json"
 
@@ -204,7 +229,8 @@ class RowOutcome:
 # --------------------------------------------------------------------------- #
 #  1. Bulk sheet read                                                          #
 # --------------------------------------------------------------------------- #
-def _fetch_rows_sync(sheet_id: str, tab: str, start_row: int, count: int) -> list[UniversityRow]:
+def _fetch_rows_sync(sheet_id: str, tab: str, start_row: int, count: int,
+                     only_org_ids: set[str] | None = None) -> list[UniversityRow]:
     """ONE ranged read for the whole block, then resolve columns by HEADER.
 
     Two hard-won V2 rules: never poll row-by-row (that is what exhausts the
@@ -240,7 +266,9 @@ def _fetch_rows_sync(sheet_id: str, tab: str, start_row: int, count: int) -> lis
     if c_id is None or c_dm is None:
         raise SystemExit(f"'{tab}': could not resolve Org ID / Email Domains from header {header}")
 
-    last = start_row + count - 1
+    # With an explicit org list the rows are scattered, so scan a wide window
+    # and filter — still ONE ranged read, which is what protects the quota.
+    last = 100_000 if only_org_ids else (start_row + count - 1)
     values = (svc.values().get(spreadsheetId=sheet_id, range=f"'{tab}'!A{start_row}:Z{last}")
               .execute().get("values", []))
     width = max((len(r) for r in values), default=0)
@@ -251,6 +279,8 @@ def _fetch_rows_sync(sheet_id: str, tab: str, start_row: int, count: int) -> lis
         oid = str(r[c_id]).strip() if c_id < len(r) else ""
         dom = str(r[c_dm]).strip() if c_dm < len(r) else ""
         if not oid or not dom:
+            continue
+        if only_org_ids is not None and oid not in only_org_ids:
             continue
         primary = dom.replace(",", " ").split()[0].strip() if dom.strip() else ""
         if not primary:
@@ -265,8 +295,10 @@ def _fetch_rows_sync(sheet_id: str, tab: str, start_row: int, count: int) -> lis
     return out
 
 
-async def fetch_rows(sheet_id: str, tab: str, start_row: int, count: int) -> list[UniversityRow]:
-    return await asyncio.to_thread(_fetch_rows_sync, sheet_id, tab, start_row, count)
+async def fetch_rows(sheet_id: str, tab: str, start_row: int, count: int,
+                     only_org_ids: set[str] | None = None) -> list[UniversityRow]:
+    return await asyncio.to_thread(_fetch_rows_sync, sheet_id, tab, start_row,
+                                   count, only_org_ids)
 
 
 # --------------------------------------------------------------------------- #
@@ -327,75 +359,6 @@ async def append_rows(path: Path, columns: list[str],
                 w.writeheader()
             for r in rows:
                 w.writerow(r)
-
-
-async def update_tnc_memory(entries: list[dict[str, Any]]) -> None:
-    """Cache legal URLs under the portal's DOMAIN SIGNATURE (registrable root).
-
-    Keyed by vendor root rather than university, because that is what makes it
-    reusable: learn jacad.com.br's terms once and every one of its tenants is
-    answered without another lookup.
-
-    Only Stage 1-3 hits are stored. Stage 4 is the apex-root rescue — it may not
-    mention the portal at all, and caching it would propagate our weakest guess
-    to every future university on that domain.
-    """
-    if not entries:
-        return
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    async with _mem_lock:
-        try:
-            mem = json.loads(TNC_MEMORY.read_text() or "{}")
-        except Exception:  # noqa: BLE001
-            mem = {}
-        for e in entries:
-            stage = e.get("waterfall_discovery_stage") or ""
-            if stage.startswith("Stage 4") or stage == "None Found":
-                continue
-            if not (e.get("tnc_url") or e.get("privacy_policy_url")):
-                continue
-            sig = registrable_root(e["exact_url"])
-            cur = mem.get(sig) or {"domain_signature": sig, "first_seen": now,
-                                   "hits": 0, "orgs": []}
-            cur.update({
-                "tnc_url": e.get("tnc_url") or cur.get("tnc_url"),
-                "privacy_policy_url": e.get("privacy_policy_url") or cur.get("privacy_policy_url"),
-                "waterfall_discovery_stage": stage,
-                "last_seen": now,
-                "hits": int(cur.get("hits", 0)) + 1,
-            })
-            orgs = list(dict.fromkeys([*cur.get("orgs", []), str(e.get("org_id", ""))]))
-            cur["orgs"] = [o for o in orgs if o][:50]
-            mem[sig] = cur
-        _atomic_json_write(TNC_MEMORY, mem)
-
-
-async def record_history(row: UniversityRow, result: IntegratedDiscoveryOutput,
-                         verified: int) -> None:
-    """Successful university -> portal mapping, doubling as the resume record."""
-    async with _hist_lock:
-        try:
-            hist = json.loads(DOMAIN_HISTORY.read_text() or "{}")
-        except Exception:  # noqa: BLE001
-            hist = {}
-        hist[row.org_id] = {
-            "org_id": row.org_id,
-            "university_name": row.name,
-            "official_domain": row.domain,
-            "sheet_row": row.row,
-            "portals": [
-                {"url": p.exact_url, "category": p.category,
-                 "system": p.portal_system_name,
-                 "confidence": p.confidence_score,
-                 "tnc_url": p.compliance_metrics.tnc_url,
-                 "privacy_policy_url": p.compliance_metrics.privacy_policy_url,
-                 "stage": p.compliance_metrics.waterfall_discovery_stage}
-                for p in result.discovered_portals
-            ],
-            "verified_live": verified,
-            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-        _atomic_json_write(DOMAIN_HISTORY, hist)
 
 
 # --------------------------------------------------------------------------- #
@@ -481,12 +444,165 @@ async def search_rescue(row: "UniversityRow",
 
 
 # --------------------------------------------------------------------------- #
+#  Dynamic linguistic co-learning                                              #
+# --------------------------------------------------------------------------- #
+KB_PATH = ROOT / "agent_knowledge_base.json"
+_kb_lock = asyncio.Lock()
+
+#: Phrases shorter than this are too generic to be a useful signal ("cs", "pp")
+#: and would fire tier 1 on unrelated links across every future run.
+_MIN_LEARNED_LEN = 4
+
+
+async def learn_native_keywords(words: Iterable[str],
+                                matcher: GraphComplianceMatcher) -> list[str]:
+    """Persist newly seen native legal phrases into agent_knowledge_base.json.
+
+    A language is translated by the model ONCE. After that the phrase lives in
+    the knowledge base and every later run scores it locally by regex, with no
+    model call — which is the point: the agent widens its own dictionary as it
+    meets new nations.
+
+    The matcher is updated in the same breath, so the other nineteen workers in
+    THIS run benefit immediately rather than only the next run.
+    """
+    cand = {w.strip() for w in words
+            if w and len(w.strip()) >= _MIN_LEARNED_LEN}
+    if not cand:
+        return []
+    async with _kb_lock:
+        try:
+            kb = json.loads(KB_PATH.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("v3: cannot read knowledge base (%s) — skipping learn",
+                           type(exc).__name__)
+            return []
+        learned = kb.setdefault("learned_legal_keywords", [])
+        have = {str(x).strip().lower() for x in learned}
+        fresh = [w for w in sorted(cand) if w.lower() not in have]
+        if not fresh:
+            return []
+        learned.extend(fresh)
+        kb.setdefault("counts", {})["learned_legal_keywords"] = len(learned)
+        _atomic_json_write(KB_PATH, kb)
+    added = matcher.add_learned_keywords(fresh)
+    logger.info("[LINGUISTIC CO-LEARNING] +%d new native keyword(s): %s "
+                "(dictionary now %d)", added, ", ".join(fresh[:4]),
+                len(matcher.learned_keywords))
+    return fresh
+
+
+# --------------------------------------------------------------------------- #
+#  Two-Step Portal-Level Crawl                                                 #
+# --------------------------------------------------------------------------- #
+#: Shorter than the 30s homepage budget — a login page is small, and unlike a
+#: marketing homepage there is nothing worth waiting for.
+PORTAL_CRAWL_TIMEOUT_MS = int(os.getenv("GENIE_PORTAL_CRAWL_TIMEOUT_MS", "20000"))
+
+#: Moodle publishes its data-privacy summary at a fixed path under the install
+#: root. Probing it is one request instead of a browser render.
+MOODLE_LEGAL_PATH = "/admin/tool/dataprivacy/summary.php"
+_MOODLE_LOGIN_TAIL = re.compile(r"/login/index\.php.*$|/login/?$", re.I)
+_MOODLE_HINT = re.compile(r"moodle|/login/index\.php|/course/|/my/?$|\bava\b|aula.?virtual", re.I)
+
+
+def _moodle_wwwroot(portal_url: str) -> str:
+    """Moodle install root for a login URL.
+
+    NOT simply scheme+host: Moodle is frequently installed under a subpath, and
+    the T&C sits under THAT root. Observed in the sheet —
+        https://host.unilus.app/plagiarismcheck/login/index.php
+        https://host.unilus.app/plagiarismcheck/admin/tool/dataprivacy/summary.php
+    Appending the legal path to the bare host would 404 on every such install.
+    """
+    s = urlsplit(portal_url)
+    path = _MOODLE_LOGIN_TAIL.sub("", s.path or "")
+    return f"{s.scheme or 'https'}://{s.netloc}{path.rstrip('/')}"
+
+
+def _is_moodle(portal: Any) -> bool:
+    blob = (f"{getattr(portal, 'portal_system_name', '')} "
+            f"{getattr(portal, 'category', '')} {getattr(portal, 'exact_url', '')}")
+    return bool(_MOODLE_HINT.search(blob))
+
+
+async def harvest_portal_legal_links(
+    row: UniversityRow,
+    live_portals: list,
+    lkm: LocalKnowledgeMatrixFilter,
+    cache: MemoryCache,
+    browser_sem: asyncio.Semaphore,
+) -> list[dict[str, str]]:
+    """Step two: fetch each LIVE portal and return the legal links published on it.
+
+    The homepage crawl can only surface legal pages linked from the university's
+    front page. Measured over 453 portal/T&C pairs in the August4000 sheet, that
+    is 45% of them — 42% sit on the PORTAL's own host and are structurally
+    unreachable without this step. That gap, not the matcher, is why T&C recall
+    was stuck at 30%.
+
+    Anything found here scores S_domain = 1.0 (exact host) in the graph, so it
+    clears the 0.40 gate on domain structure alone.
+    """
+    found: dict[str, dict[str, str]] = {}
+    for portal, _check in live_portals:
+        purl = (getattr(portal, "exact_url", "") or "").strip()
+        if not purl:
+            continue
+
+        # Vendor already known -> no network at all.
+        if cache.legal_for_portal(purl):
+            logger.info("v3: org %s — portal harvest skipped, vendor cached (%s)",
+                        row.org_id, signature(purl))
+            continue
+
+        # --- cheap probe: Moodle ------------------------------------------
+        if _is_moodle(portal):
+            cand = _moodle_wwwroot(purl) + MOODLE_LEGAL_PATH
+            alive, code, _n = await verify_portal_endpoint_detailed(
+                cand, GUARDRAIL_TIMEOUT_S, country_hint=row.country)
+            # Strict 2xx only. verify_portal_endpoint treats 401/403/429 as
+            # "alive" (correct for a login), but a WAF page is not a T&C — the
+            # document has to actually be served.
+            if alive and 200 <= code < 300:
+                found[cand] = {"url": cand, "anchor_text": "Data privacy summary"}
+                logger.info("[PORTAL PROBE HIT] org %s — Moodle legal page %s (%s)",
+                            row.org_id, cand[:66], code)
+                continue
+            logger.info("v3: org %s — Moodle probe missed (%s) for %s, crawling",
+                        row.org_id, code, purl[:48])
+
+        # --- fallback: render the portal page -----------------------------
+        async with browser_sem:
+            links = await extract_raw_university_links(
+                purl, page_timeout_ms=PORTAL_CRAWL_TIMEOUT_MS,
+                country_hint=row.country)
+        if not links:
+            continue
+        # Route through the SAME local matrix the homepage links go through, so
+        # blacklist rules apply identically and no new noise path opens up.
+        kept = lkm.filter_and_rank_links(links)
+        n = 0
+        for cand in kept:
+            blob = f"{cand.get('url','')} {cand.get('text','')}"
+            if lkm.legal_re and lkm.legal_re.search(blob):
+                u = cand["url"]
+                if u not in found:
+                    found[u] = {"url": u, "anchor_text": (cand.get("text") or "")[:160]}
+                    n += 1
+        logger.info("v3: org %s — portal crawl %s -> %d legal of %d link(s)",
+                    row.org_id, purl[:48], n, len(links))
+    return list(found.values())
+
+
+# --------------------------------------------------------------------------- #
 #  4. Worker                                                                   #
 # --------------------------------------------------------------------------- #
 async def process_university(
     row: UniversityRow,
     lkm: LocalKnowledgeMatrixFilter,
     cache: MemoryCache,
+    matcher: GraphComplianceMatcher,
     row_sem: asyncio.Semaphore,
     browser_sem: asyncio.Semaphore,
     *,
@@ -495,6 +611,7 @@ async def process_university(
 ) -> RowOutcome:
     """Shield -> crawl -> filter -> cascade -> verify -> (search) -> persist."""
     t0 = time.monotonic()
+    used_search = False
     async with row_sem:
         try:
             # -- 1. PRE-CRAWL SHIELD -------------------------------------
@@ -527,6 +644,7 @@ async def process_university(
                 logger.info("[FALLBACK TRIGGER] org %s (%s) — no crawl candidates, "
                             "entering DuckDuckGo search", row.org_id, row.domain)
                 candidates = await search_rescue(row, lkm)
+                used_search = bool(candidates)
                 if not candidates:
                     return RowOutcome(row.org_id, False,
                                       seconds=round(time.monotonic() - t0, 1),
@@ -557,14 +675,13 @@ async def process_university(
                                    "(http=%s, %s) — discarded",
                                    row.org_id, p.exact_url, code, note)
 
-            # Every portal failed verification -> search for a replacement and
-            # re-run the cascade over what search found.
             if not live_portals:
                 logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
                                "verification, routing to DuckDuckGo search",
                                row.org_id, dead)
                 hits = await search_rescue(row, lkm)
                 if hits:
+                    used_search = True
                     result, _t2 = await cascade_with_pacing(row, hits)
                     checks = await asyncio.gather(*(
                         verify_portal_endpoint_detailed(
@@ -578,33 +695,78 @@ async def process_university(
                                       seconds=round(time.monotonic() - t0, 1),
                                       note=f"all portals dead ({dead})")
 
-            # -- 5/6. PERSIST + COMPOUND MEMORY --------------------------
-            verified_rows, missing_rows, mem_entries, stages, detail = [], [], [], [], []
+            # -- 4b. TWO-STEP PORTAL CRAWL -------------------------------
+            legal_links: list[Any] = list(result.harvested_legal_links or [])
+            n_home = len(legal_links)
+            portal_legal = await harvest_portal_legal_links(
+                row, live_portals, lkm, cache, browser_sem)
+            if portal_legal:
+                seen_l = {(getattr(c, "url", "") or "") for c in legal_links}
+                legal_links += [c for c in portal_legal if c["url"] not in seen_l]
+                logger.info("v3: org %s — legal candidates: %d homepage + %d portal-level",
+                            row.org_id, n_home, len(legal_links) - n_home)
+
+            # -- 5. GRAPH MATCH ------------------------------------------
+            # Association is decided HERE, not by the model. Distance decays to
+            # 0.4 when the candidates came from search rather than the crawl,
+            # because a search result is weaker provenance for "this document
+            # governs this portal".
+            distance = DISTANCE_SEARCH_FALLBACK if used_search else DISTANCE_NATIVE_CRAWL
+            mapping = matcher.resolve_optimal_compliance_mappings(
+                [p for p, _ in live_portals],
+                legal_links,
+                distance,
+                official_domain=row.domain)
+
+            # -- 6/7. PERSIST + COMPOUND MEMORY --------------------------
+            verified_rows, missing_rows, mem_entries, detail = [], [], [], []
+            confidences: list[float] = []
+            learned_now: list[str] = []
             for p, (live, code, _note) in live_portals:
-                cm = p.compliance_metrics
-                tnc = cm.tnc_url or cm.privacy_policy_url or ""
-                # Vendor memory can answer what this run could not.
+                m = mapping.get(p.exact_url)
+                tnc = (m or {}).get("tnc_url") or ""
                 if not tnc:
                     cached = cache.legal_for_portal(p.exact_url)
                     if cached:
                         tnc = cached.get("tnc_url") or cached.get("privacy_policy_url") or ""
+                        m = {"tnc_url": tnc, "confidence": 0.0,
+                             "domain_relation": "memory-cache", "assignment": "memory"}
                         logger.info("v3: org %s — legal injected from memory (%s)",
                                     row.org_id, signature(p.exact_url))
-                stages.append(cm.waterfall_discovery_stage)
                 if tnc:
+                    logger.info("[GRAPH MATCH SUCCESS] org %s — %s -> %s "
+                                "(W=%.2f: domain=%.2f/%s semantic=%.2f distance=%.2f "
+                                "ownership=%.2f/%s, %s)",
+                                row.org_id, p.exact_url[:52], tnc[:52],
+                                m.get("confidence", 0.0), m.get("s_domain", 0.0),
+                                m.get("domain_relation", "?"), m.get("s_semantic", 0.0),
+                                m.get("s_distance", 0.0), m.get("s_ownership", 1.0),
+                                m.get("ownership_relation", "?"), m.get("assignment", "?"))
+                    confidences.append(float(m.get("confidence", 0.0)))
+                    # Co-learning: this document is live AND matched, so the
+                    # phrase that identified it is trustworthy enough to keep.
+                    kw = next((getattr(c, "detected_native_keyword", None)
+                               for c in legal_links
+                               if (getattr(c, "url", "") or "") == tnc), None)
+                    if kw:
+                        learned_now.append(kw)
                     verified_rows.append({"orgId": result.org_id,
                                           "portal_url": p.exact_url, "tnc_url": tnc})
                     mem_entries.append({"org_id": result.org_id, "exact_url": p.exact_url,
-                                        "tnc_url": cm.tnc_url,
-                                        "privacy_policy_url": cm.privacy_policy_url,
-                                        "waterfall_discovery_stage": cm.waterfall_discovery_stage})
+                                        "portal_system_name": p.portal_system_name,
+                                        "tnc_url": tnc, "privacy_policy_url": None,
+                                        "graph_confidence": m.get("confidence", 0.0)})
                 else:
+                    logger.info("[GRAPH MATCH GATED] org %s — %s: no legal link "
+                                "cleared the %.2f threshold",
+                                row.org_id, p.exact_url[:52], matcher.threshold)
                     missing_rows.append({"orgId": result.org_id, "portal_url": p.exact_url})
                 detail.append({"url": p.exact_url, "category": p.category,
-                               "system": p.portal_system_name,
-                               "confidence": p.confidence_score,
-                               "tnc_url": cm.tnc_url, "privacy_policy_url": cm.privacy_policy_url,
-                               "stage": cm.waterfall_discovery_stage, "http_status": code})
+                               "system": p.portal_system_name, "tnc_url": tnc or None,
+                               "graph": m, "http_status": code})
+
+            if learned_now and not dry_run:
+                await learn_native_keywords(learned_now, matcher)
 
             if not dry_run:
                 await asyncio.gather(
@@ -618,7 +780,8 @@ async def process_university(
 
             return RowOutcome(row.org_id, True, portals=len(live_portals),
                               verified=len(verified_rows), missing=len(missing_rows),
-                              seconds=round(time.monotonic() - t0, 1), stages=stages,
+                              seconds=round(time.monotonic() - t0, 1),
+                              stages=[f"{c:.2f}" for c in confidences],
                               note=f"{dead} dead" if dead else "")
 
         except asyncio.CancelledError:
@@ -636,8 +799,9 @@ async def run_pipeline(
     sheet_id: str, tab: str, start_row: int, count: int, *,
     resume: bool = True, dry_run: bool = False, page_timeout_ms: int = 30_000,
     row_concurrency: int = ROW_SEMAPHORE, retry_blocked: bool = False,
+    only_org_ids: set[str] | None = None,
 ) -> list[RowOutcome]:
-    rows = await fetch_rows(sheet_id, tab, start_row, count)
+    rows = await fetch_rows(sheet_id, tab, start_row, count, only_org_ids)
     if not rows:
         logger.info("v3: nothing to do")
         return []
@@ -647,6 +811,15 @@ async def run_pipeline(
     # vendor lookups stay on, since those are correctness aids rather than
     # progress tracking.
     cache = MemoryCache(retry_blocked=retry_blocked)
+    # Vendor roots from the knowledge base feed S_domain's SaaS tier, so a
+    # tenant portal can be matched to its vendor's corporate terms.
+    matcher = GraphComplianceMatcher(
+        saas_roots={e["root"] for e in (lkm.kb.get("saas_infra_whitelist") or [])
+                    if e.get("root")},
+        learned_keywords=lkm.kb.get("learned_legal_keywords") or [])
+    if matcher.learned_keywords:
+        logger.info("v3: loaded %d learned native keyword(s) from the knowledge base",
+                    len(matcher.learned_keywords))
     if not resume:
         cache.history = {}
     row_sem = asyncio.Semaphore(row_concurrency)
@@ -654,7 +827,7 @@ async def run_pipeline(
     logger.info("v3: %d universities | row turnstile %d | browsers %d | dry_run=%s",
                 len(rows), row_concurrency, BROWSER_SEMAPHORE, dry_run)
 
-    tasks = [process_university(r, lkm, cache, row_sem, browser_sem,
+    tasks = [process_university(r, lkm, cache, matcher, row_sem, browser_sem,
                                 page_timeout_ms=page_timeout_ms, dry_run=dry_run)
              for r in rows]
     outcomes: list[RowOutcome] = []
@@ -683,7 +856,7 @@ def summarise(outcomes: Sequence[RowOutcome]) -> None:
     from collections import Counter
     st = Counter(s for o in outcomes for s in o.stages)
     if st:
-        print("  waterfall stages       :", dict(st))
+        print("  graph confidences      :", dict(st))
     fails = Counter(o.note.split(":")[0] for o in outcomes if not o.ok and o.note)
     if fails:
         print("  failure reasons        :", dict(fails))
@@ -702,18 +875,36 @@ def main() -> None:
     ap.add_argument("--page-timeout-ms", type=int, default=30_000)
     ap.add_argument("--no-resume", action="store_true",
                     help="ignore domain_history so already-done orgs re-run")
+    ap.add_argument("--org-ids-file", default=None,
+                    help="JSON list/dict or newline-delimited org IDs; restricts "
+                         "the run to those orgs wherever they sit in the tab")
     ap.add_argument("--retry-blocked", action="store_true",
                     help="re-attempt hosts recorded in infrastructure_block.json")
     ap.add_argument("--dry-run", action="store_true", help="run everything, write nothing")
     ap.add_argument("--verbose", action="store_true", help="DEBUG-level logging")
-    ap.add_argument("--log-file", default=str(LOG_FILE))
+    ap.add_argument("--log-file", default=None,
+                    help=f"default: {LOG_FILE_DEFAULT}")
     a = ap.parse_args()
 
-    setup_logging(logging.DEBUG if a.verbose else logging.INFO)
+    # Guarantees the directory exists before any handler or writer touches it.
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    setup_logging(logging.DEBUG if a.verbose else logging.INFO,
+                  Path(a.log_file) if a.log_file else None)
+    only = None
+    if a.org_ids_file:
+        raw = Path(a.org_ids_file).read_text()
+        try:
+            parsed = json.loads(raw)
+            only = set(map(str, parsed.keys() if isinstance(parsed, dict) else parsed))
+        except json.JSONDecodeError:
+            only = {ln.strip() for ln in raw.splitlines() if ln.strip()}
+        logger.info("v3: restricted to %d org id(s) from %s", len(only), a.org_ids_file)
+
     outcomes = asyncio.run(run_pipeline(
         a.sheet_id, a.tab, a.start_row, a.count,
         resume=not a.no_resume, dry_run=a.dry_run, retry_blocked=a.retry_blocked,
         page_timeout_ms=a.page_timeout_ms, row_concurrency=a.concurrency,
+        only_org_ids=only,
     ))
     summarise(outcomes)
 
