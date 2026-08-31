@@ -92,12 +92,56 @@ output/agent_run_<date>.log              timestamped, one record per line
 | **L4** | Production | Concurrency, pacing, observability | `v3_orchestrator.py` |
 | **L5** | Optimisation | Memory, caching, co-learning | `memory_cache.py` |
 
-**Request path**
+**Architecture**
 
+![Genie-V3 architecture](docs/architecture.gif)
+
+<details>
+<summary>Same diagram as text (Mermaid — renders inline on GitHub)</summary>
+
+```mermaid
+flowchart TD
+    IN["📥 Google Sheets bulk read<br/><i>or</i> agent.lookup — one domain, no auth"]
+
+    IN --> L5A
+    subgraph L5A["🛡️ L5 · Pre-Crawl Shield"]
+      SH["domain_history · infrastructure_block · tnc_memory<br/><i>already resolved or firewalled → skip, 0.0s</i>"]
+    end
+
+    L5A --> L2A
+    subgraph L2A["🌐 L2 · Crawl"]
+      CR["crawl4ai + Chromium · images off · cache bypassed<br/>Bright Data exit by ccTLD · direct retry · meta-refresh follow<br/><i>55–300 anchors, parsed from the DOM</i>"]
+    end
+
+    L2A --> L2B
+    subgraph L2B["🔎 L2 · Knowledge-Matrix filter"]
+      FI["agent_knowledge_base.json — 307 vendors · 179 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · DuckDuckGo rescue<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
+    end
+
+    L2B --> L1
+    subgraph L1["🧠 L1 · Model cascade"]
+      MO["gemini-3.7-flash → gpt-4o-mini → claude-sonnet-5<br/>OpenRouter · instructor · Pydantic · MD_JSON<br/><i>extraction only — two flat sets, no associations</i>"]
+    end
+
+    L1 --> L3
+    subgraph L3["✅ L3 · Liveness guardrail"]
+      GU["aiohttp HEAD → GET on 405 · 401/403/429 = alive<br/><i>5s, then 20s retry on timeout only</i>"]
+    end
+
+    L3 --> L2C
+    subgraph L2C["🕸️ L2 · Two-step crawl + graph match"]
+      GM["Moodle probe / render the portal itself<br/>networkx weighted bipartite matching<br/><b>W = 0.40·domain + 0.40·semantic + 0.20·distance × ownership</b><br/><i>gate 0.40 · zero-domain veto · vendor terms capped 0.35</i>"]
+    end
+
+    L2C --> OUT["📤 verified_compliance.csv · missing_tnc_portals.csv<br/>🔁 L5 co-learning — native legal phrase → knowledge base, live"]
+
+    L4["⚙️ L4 · Ops — 20 rows / 6 browsers · token pacing · 429 backoff · 5 tagged log events"]
+    L4 -.spans every stage.-> L2A
+    L4 -.-> L1
+    L4 -.-> L2C
 ```
-shield ─→ crawl ─→ filter ─→ extract ─→ verify ─→ graph match ─→ learn
- (L5)     (L2)      (L2)      (L1)      (L3)        (L2)        (L5)
-```
+
+</details>
 
 ### L1 — model cascade
 
