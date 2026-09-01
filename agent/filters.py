@@ -295,13 +295,22 @@ class LocalKnowledgeMatrixFilter:
 
     # ------------------------------------------------------------------ #
     def filter_and_rank_links(
-        self, links: list[dict[str, str]], *, max_candidates: int | None = None
+        self, links: list[dict[str, str]], *, max_candidates: int | None = None,
+        allow_heuristic_fallback: bool = True,
     ) -> list[dict[str, Any]]:
         """Drop noise, dedupe, tag, rank, and cap.
 
         Returns `[{'url', 'text', 'kind', 'score', 'matched'}]` where `kind` is
         'portal' or 'legal'. Both kinds are preserved so the model can map a
         portal to the terms that govern it in one pass.
+
+        `allow_heuristic_fallback=False` suppresses the zero-match rescue that
+        forwards structurally-plausible survivors. That rescue is right when the
+        row has nothing and noise beats silence — a non-English homepage whose
+        anchors match no English keyword. It is wrong for opportunistic
+        capability expansion, where the row ALREADY has portals: there, a search
+        that found only news articles and faculty pages should contribute
+        nothing rather than dilute a working result.
         """
         cap = max_candidates if max_candidates is not None else self.max_candidates
         stats = {"in": len(links), "blacklisted": 0, "duplicate": 0,
@@ -389,7 +398,7 @@ class LocalKnowledgeMatrixFilter:
         # than hand the orchestrator an empty array, forward the structurally
         # most promising survivors and let the model's own multilingual reading
         # do the work our regexes cannot.
-        if not portals and not legals and survivors:
+        if not portals and not legals and survivors and allow_heuristic_fallback:
             scored: list[dict[str, Any]] = []
             for s_item in survivors:
                 sc, why = structural_score(s_item["url"], s_item["text"])

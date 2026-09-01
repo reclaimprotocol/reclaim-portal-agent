@@ -637,11 +637,11 @@
  "icloudph.com": {
   "domain": "icloudph.com",
   "first_seen": "2026-08-31T08:41:20+00:00",
-  "attempts": 2,
+  "attempts": 4,
   "resolved": null,
   "block_type": "anti_bot",
-  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements, script_heavy_shell (1322 bytes, 0 chars visible)",
-  "last_seen": "2026-08-31T08:41:23+00:00",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements, script_heavy_shell (1280 bytes, 0 chars visible)",
+  "last_seen": "2026-09-01T10:12:53+00:00",
   "exit_country": null,
   "stealth_tried": true
  },
@@ -980,5 +980,182 @@
   "exit_country": "ph",
   "stealth_tried": true,
   "resolved_at": "2026-08-31T08:56:17+00:00"
+ },
+ "cnc.una.py": {
+  "domain": "cnc.una.py",
+  "first_seen": "2026-09-01T10:11:29+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: no_content_elements, script_heavy_shell (3576 bytes, 86 chars visible)",
+  "last_seen": "2026-09-01T10:11:38+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "asu.edu.kz": {
+  "domain": "asu.edu.kz",
+  "first_seen": "2026-09-01T10:11:36+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (39 bytes, 0 chars visible)",
+  "last_seen": "2026-09-01T10:11:39+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "marinersnaga.schoolautomate.com": {
+  "domain": "marinersnaga.schoolautomate.com",
+  "first_seen": "2026-09-01T10:11:38+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (561 bytes, 0 chars visible)",
+  "last_seen": "2026-09-01T10:12:11+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "unay.edu.mx": {
+  "domain": "unay.edu.mx",
+  "first_seen": "2026-09-01T10:11:59+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: HTTP 403 with HTML content (357 bytes)",
+  "last_seen": "2026-09-01T10:12:03+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "guportal.in": {
+  "domain": "guportal.in",
+  "first_seen": "2026-09-01T10:12:36+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "cloudflare_challenge",
+  "detail": "Blocked by anti-bot protection: Cloudflare JS challenge",
+  "last_seen": "2026-09-01T10:12:36+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "lms.neust.edu.ph": {
+  "domain": "lms.neust.edu.ph",
+  "first_seen": "2026-09-01T10:13:31+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Access Denied on short page (HTTP 403, 237 bytes)",
+  "last_seen": "2026-09-01T10:13:31+00:00",
+  "exit_country": "ph",
+  "stealth_tried": true
+ },
+ "enroll.neust.edu.ph": {
+  "domain": "enroll.neust.edu.ph",
+  "first_seen": "2026-09-01T10:14:10+00:00",
+  "attempts": 1,
+  "resolved": "direct",
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Access Denied on short page (HTTP 403, 240 bytes)",
+  "last_seen": "2026-09-01T10:14:10+00:00",
+  "exit_country": "ph",
+  "stealth_tried": true,
+  "resolved_at": "2026-09-01T10:14:17+00:00"
+ },
+ "pnu.edu.ph": {
+  "domain": "pnu.edu.ph",
+  "first_seen": "2026-09-01T10:14:45+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: HTTP 403 with HTML content (198 bytes)",
+  "last_seen": "2026-09-01T10:14:47+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "ivycollege.com.pk": {
+  "domain": "ivycollege.com.pk",
+  "first_seen": "2026-09-01T10:15:51+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text on small page (2977 bytes, 34 chars visible)",
+  "last_seen": "2026-09-01T10:15:51+00:00",
+  "exit_country": "pk",
+  "stealth_tried": true
+ },
+ "139.59.81.101": {
+  "domain": "139.59.81.101",
+  "first_seen": "2026-09-01T10:17:27+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Near-empty content (39 bytes) with HTTP 200",
+  "last_seen": "2026-09-01T10:17:27+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "connections.hanu.vn": {
+  "domain": "connections.hanu.vn",
+  "first_seen": "2026-09-01T10:33:37+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements, script_heavy_shell (7230 bytes, 0 chars visible)",
+  "last_seen": "2026-09-01T10:33:40+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "fa-hists.edu.eg": {
+  "domain": "fa-hists.edu.eg",
+  "first_seen": "2026-09-01T11:04:15+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: HTTP 403 with HTML content (357 bytes)",
+  "last_seen": "2026-09-01T11:04:18+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "anhanguera.com": {
+  "domain": "anhanguera.com",
+  "first_seen": "2026-09-01T11:04:24+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Akamai block (Reference #)",
+  "last_seen": "2026-09-01T11:04:28+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "ifba.edu.br": {
+  "domain": "ifba.edu.br",
+  "first_seen": "2026-09-01T11:04:39+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text on small page (1489 bytes, 3 chars visible)",
+  "last_seen": "2026-09-01T11:04:39+00:00",
+  "exit_country": "br",
+  "stealth_tried": true
+ },
+ "aloysius.in": {
+  "domain": "aloysius.in",
+  "first_seen": "2026-09-01T11:04:51+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements, script_heavy_shell (709 bytes, 0 chars visible)",
+  "last_seen": "2026-09-01T11:04:51+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "unime.edu.br": {
+  "domain": "unime.edu.br",
+  "first_seen": "2026-09-01T11:05:06+00:00",
+  "attempts": 2,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Akamai block (Reference #)",
+  "last_seen": "2026-09-01T11:05:09+00:00",
+  "exit_country": null,
+  "stealth_tried": true
  }
 }

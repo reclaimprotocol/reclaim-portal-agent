@@ -21,7 +21,8 @@
   "candidate": 205,
   "categories": 10,
   "blacklist_groups": 16,
-  "learned_legal_keywords": 26
+  "learned_legal_keywords": 28,
+  "compliance_exclusion_blacklist_terms": 278
  },
  "saas_infra_whitelist": [
   {
@@ -4839,6 +4840,7 @@
     "jntuksdc.co.in",
     "okiedokiepay.com",
     "oucealumni.org",
+    "samarth.ac.in",
     "ucanapply.com",
     "upago.cl"
    ],
@@ -4849,7 +4851,62 @@
     "easebuzz.in": "payment gateway",
     "okiedokiepay.com": "payment gateway",
     "enrollonline.co.in": "admissions/enrolment",
-    "ucanapply.com": "admissions application"
+    "ucanapply.com": "admissions application",
+    "samarth.ac.in": "Samarth eGov's ADMIN/faculty tenant space. Student tenants live on samarth.edu.in; a `{inst}.samarth.ac.in` host is an employee, recruitment or administrative console. Human review rejected these repeatedly."
+   }
+  },
+  "aggregators_news_listings": {
+   "severity": "hard",
+   "reason": "Third-party listing, ranking, news and ebook sites. These never host a student login, but they rank highly for '<university> fees/moodle/portal' and so only appear once search is in the pipeline — a homepage crawl never produces them. Added when Serper replaced the DuckDuckGo scraper and this noise class arrived with it.",
+   "match": [
+    "aajtak.in",
+    "academia.edu",
+    "altillo.com",
+    "amarujala.com",
+    "careers360.com",
+    "collegedekho.com",
+    "collegedunia.com",
+    "collegesearch.in",
+    "coursehero.com",
+    "dailypost.ng",
+    "emagister.com",
+    "estudarfora.org.br",
+    "getmyuni.com",
+    "guiadacarreira.com.br",
+    "hindustantimes.com",
+    "icbse.com",
+    "indiatimes.com",
+    "jagran.com",
+    "jjkane.com",
+    "legit.ng",
+    "ndtv.com",
+    "news18.com",
+    "punchng.com",
+    "quero bolsa",
+    "querobolsa.com.br",
+    "researchgate.net",
+    "rssing.com",
+    "scribd.com",
+    "shiksha.com",
+    "slideshare.net",
+    "squarespace.com",
+    "studocu.com",
+    "successcds.net",
+    "targetstudy.com",
+    "thehindu.com",
+    "timesofindia",
+    "universidades.com",
+    "universitykart.com",
+    "vanguardngr.com",
+    "website-files.com",
+    "wixstatic.com",
+    "yumpu.com"
+   ],
+   "detail": {
+    "studocu.com": "student note-sharing, not a login",
+    "shiksha.com": "ranks for '<uni> fees' — listing page, never a portal",
+    "rssing.com": "content mirror/scraper",
+    "website-files.com": "Webflow asset CDN"
    }
   }
  },
@@ -4879,6 +4936,8 @@
   "Declaração de privacidade",
   "Privacidad y condiciones",
   "Avisos de Privacidad",
-  "politica-privacidade"
+  "politica-privacidade",
+  "Terma & Syarat",
+  "Términos y condiciones"
  ]
 }
