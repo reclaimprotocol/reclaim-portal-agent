@@ -72,7 +72,8 @@ from agent.guardrails import verify_portal_endpoint_detailed        # noqa: E402
 from agent.memory_cache import MemoryCache, signature               # noqa: E402
 from agent.openrouter_cascade import execute_model_cascade          # noqa: E402
 from agent.schemas import IntegratedDiscoveryOutput                 # noqa: E402
-from agent.search_fallback import execute_search_fallback           # noqa: E402
+from agent.search_fallback import (build_category_query,           # noqa: E402
+                                   execute_search_fallback)
 
 logger = logging.getLogger("genie.v3")
 
@@ -430,7 +431,7 @@ async def search_rescue(row: "UniversityRow",
     list: a rescue path that silently cancels itself is worse than a noisy one,
     and the model still applies its own judgement downstream.
     """
-    hits = await execute_search_fallback(row.name, row.domain)
+    hits = await paced_search(row.name, row.domain)
     if not hits:
         return []
     filtered = lkm.filter_and_rank_links(hits)
@@ -441,6 +442,129 @@ async def search_rescue(row: "UniversityRow",
     logger.info("v3: org %s — filter dropped all %d search hit(s); "
                 "passing raw to the cascade", row.org_id, len(hits))
     return hits
+
+
+# --------------------------------------------------------------------------- #
+#  Opportunistic category-aware search expansion                               #
+# --------------------------------------------------------------------------- #
+#: The three capabilities a student actually needs to reach. A university that
+#: exposes an ERP but no LMS has not been fully mapped — it almost always has
+#: both, on separate hosts, and the homepage links only the one that marketing
+#: cared about. `UMS/MIS` and `General Student Login` are deliberately NOT here:
+#: they are frequently the same system under another name, so demanding them
+#: would fire a search on rows that are already complete.
+#:
+#: Values are the search vocabulary for that capability, not the label — the
+#: label is our taxonomy, the value is what a university's own pages call it.
+#: OR-grouped, because Google ANDs bare term lists and no single page contains
+#: every synonym at once — the same trap that made the broad query return zero.
+MANDATORY_CAPABILITIES: dict[str, str] = {
+    "ERP": '(erp OR "student information system" OR "academic portal")',
+    "LMS (Moodle/Canvas)": '(moodle OR canvas OR lms OR "virtual learning")',
+    "Fee Payment": '("fee payment" OR "online payment" OR tuition)',
+}
+
+#: Opportunistic expansion costs one search per missing capability on rows that
+#: already succeeded. Off-switch kept for A/B and for constrained reruns.
+CAPABILITY_EXPANSION = os.getenv("GENIE_CAPABILITY_EXPANSION", "1").strip().lower() \
+    in ("1", "true", "yes", "on")
+
+#: Serper is metered: every search is a billable credit and bursts draw 429s.
+#: 20 row workers each firing up to three category searches would spend quota in
+#: a spike and get a share of it rejected. This turnstile is GLOBAL — shared by
+#: rescue and expansion — because the quota is per account, not per code path.
+SEARCH_CONCURRENCY = int(os.getenv("GENIE_SEARCH_CONCURRENCY", "3"))
+_search_sem: asyncio.Semaphore | None = None
+#: Serialises the gap between searches as well as their number: a small stagger
+#: costs nothing on a 4-hour run and keeps us under the burst detector.
+SEARCH_STAGGER_S = float(os.getenv("GENIE_SEARCH_STAGGER_S", "1.0"))
+
+
+def _get_search_sem() -> asyncio.Semaphore:
+    """Created lazily: a module-level Semaphore would bind to whichever event
+    loop imported the module, which is not the loop `asyncio.run` creates."""
+    global _search_sem
+    if _search_sem is None:
+        _search_sem = asyncio.Semaphore(SEARCH_CONCURRENCY)
+    return _search_sem
+
+
+async def paced_search(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
+    """`execute_search_fallback` behind the global turnstile plus a stagger."""
+    async with _get_search_sem():
+        await asyncio.sleep(random.uniform(0.0, SEARCH_STAGGER_S))
+        return await execute_search_fallback(*args, **kwargs)
+
+
+def _norm_url(url: str) -> str:
+    """Host+path, lowercased, no scheme/query/trailing slash — for dedup only."""
+    try:
+        p = urlsplit((url or "").strip())
+    except ValueError:
+        return (url or "").strip().lower()
+    host = (p.netloc or "").lower().removeprefix("www.")
+    path = (p.path or "").rstrip("/")
+    return f"{host}{path}" or (url or "").strip().lower()
+
+
+def detect_missing_capabilities(portals: Sequence[Any]) -> list[str]:
+    """Mandatory capabilities absent from what the primary crawl produced.
+
+    Reads the `category` the model assigned to each portal. Returns [] when the
+    row already covers all three, which is the common case and costs nothing.
+    """
+    have = {str(getattr(p, "category", "") or "").strip() for p in portals}
+    return [c for c in MANDATORY_CAPABILITIES if c not in have]
+
+
+async def expand_search_for_categories(
+    row: "UniversityRow", lkm: LocalKnowledgeMatrixFilter, missing: Sequence[str],
+) -> list[dict[str, Any]]:
+    """One targeted Google (Serper) scavenge per missing capability, concurrently.
+
+    This is ADDITIVE, not a fallback: it runs on rows that already succeeded,
+    to catch the second and third student system that lives on a domain the
+    homepage never links to. Every hit still goes through the same token shield
+    the crawl output does — a search result is not privileged evidence.
+
+    Never raises. Expansion is a bonus; a throttled search must not cost a row
+    the portals it already has.
+    """
+    async def _one(cat: str) -> list[dict[str, Any]]:
+        try:
+            hits = await paced_search(
+                row.name, row.domain,
+                query=build_category_query(row.name, row.domain,
+                                           MANDATORY_CAPABILITIES[cat]))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[CAPABILITY EXPANSION] org %s — %s search failed (%s)",
+                           row.org_id, cat, type(exc).__name__)
+            return []
+        if not hits:
+            return []
+        # Unfiltered hits are NOT passed through here, unlike search_rescue:
+        # there, raw noise beats returning nothing at all, because the row has
+        # no portals either way. Here the row already has portals, so injecting
+        # unfiltered search noise could only dilute a working result. The
+        # heuristic fallback is suppressed for the same reason — a targeted LMS
+        # search that returns a newspaper article about the university's Moodle
+        # rollout must contribute nothing, not its three most plausible-looking
+        # links.
+        return lkm.filter_and_rank_links(
+            hits, allow_heuristic_fallback=False) or []
+
+    batches = await asyncio.gather(*(_one(c) for c in missing))
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for cat, batch in zip(missing, batches):
+        for link in batch:
+            key = _norm_url(link.get("url", ""))
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(link)
+        logger.info("[CAPABILITY EXPANSION] org %s — %s: %d candidate(s)",
+                    row.org_id, cat, len(batch))
+    return merged
 
 
 # --------------------------------------------------------------------------- #
@@ -642,7 +766,7 @@ async def process_university(
             candidates = lkm.filter_and_rank_links(links) if links else []
             if not candidates:
                 logger.info("[FALLBACK TRIGGER] org %s (%s) — no crawl candidates, "
-                            "entering DuckDuckGo search", row.org_id, row.domain)
+                            "entering Google search rescue", row.org_id, row.domain)
                 candidates = await search_rescue(row, lkm)
                 used_search = bool(candidates)
                 if not candidates:
@@ -659,6 +783,49 @@ async def process_university(
                 return RowOutcome(row.org_id, False,
                                   seconds=round(time.monotonic() - t0, 1),
                                   note="cascade returned no portals")
+
+            # -- 3b. OPPORTUNISTIC CAPABILITY EXPANSION ------------------
+            # The row already has portals. Ask a different question from the
+            # fallback's: not "did we find anything?" but "did we find
+            # EVERYTHING a student needs?". A university with an ERP and no LMS
+            # is under-mapped, and the missing system is usually on a domain the
+            # homepage never links to — invisible to any amount of crawling.
+            missing = detect_missing_capabilities(result.discovered_portals)
+            if CAPABILITY_EXPANSION and missing:
+                logger.info("[CAPABILITY EXPANSION] org %s — have %s, missing %s",
+                            row.org_id,
+                            sorted({str(p.category) for p in result.discovered_portals}),
+                            missing)
+                extra = await expand_search_for_categories(row, lkm, missing)
+                # Only links we do not already hold reach the cascade: re-sending
+                # known candidates would spend tokens to rediscover them and let
+                # the model restate them under a second URL spelling.
+                known = {_norm_url(p.exact_url) for p in result.discovered_portals}
+                known |= {_norm_url(c.get("url", "")) for c in candidates}
+                fresh = [c for c in extra if _norm_url(c.get("url", "")) not in known]
+                if fresh:
+                    exp_result, _te = await cascade_with_pacing(row, fresh)
+                    seen_p = {_norm_url(p.exact_url) for p in result.discovered_portals}
+                    gained = [p for p in (exp_result.discovered_portals or [])
+                              if _norm_url(p.exact_url) not in seen_p
+                              and str(p.category) in missing]
+                    if gained:
+                        # Merged into the SAME array the guardrail and the
+                        # two-step portal crawl consume, so expansion portals
+                        # are verified and legal-harvested identically. They are
+                        # not a second-class result.
+                        result.discovered_portals.extend(gained)
+                        logger.info("[CAPABILITY EXPANSION] org %s — +%d portal(s) "
+                                    "%s from detached domains",
+                                    row.org_id, len(gained),
+                                    sorted({str(p.category) for p in gained}))
+                    # Legal pages the scavenge surfaced are worth keeping even
+                    # when no new portal came with them: a vendor's terms page
+                    # is exactly what the graph needs to resolve a tenant portal.
+                    if exp_result.harvested_legal_links:
+                        result.harvested_legal_links = list(
+                            result.harvested_legal_links or []
+                        ) + list(exp_result.harvested_legal_links)
 
             # -- 4. GUARDRAIL --------------------------------------------
             checks = await asyncio.gather(*(
@@ -677,7 +844,7 @@ async def process_university(
 
             if not live_portals:
                 logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
-                               "verification, routing to DuckDuckGo search",
+                               "verification, routing to Google search rescue",
                                row.org_id, dead)
                 hits = await search_rescue(row, lkm)
                 if hits:

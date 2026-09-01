@@ -115,7 +115,7 @@ flowchart TD
 
     L2A --> L2B
     subgraph L2B["🔎 L2 · Knowledge-Matrix filter"]
-      FI["agent_knowledge_base.json — 307 vendors · 179 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · DuckDuckGo rescue<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
+      FI["agent_knowledge_base.json — 307 vendors · 278 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · Google/Serper rescue + capability expansion<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
     end
 
     L2B --> L1
@@ -168,10 +168,30 @@ bypassed, proxy exit country per-URL from the ccTLD, with a direct retry because
 the proxy fails closed. It parses the rendered HTML itself — crawl4ai's
 `result.links` is a filtered view that returned 3 links where the DOM held 50.
 
-**Filter** (`filters.py`) is pure regex over `agent_knowledge_base.json` — 179
+**Filter** (`filters.py`) is pure regex over `agent_knowledge_base.json` — 278
 blacklist, 173 portal, 23 legal terms, 307 vendor roots. No network, no model.
 Cuts 55–300 anchors to 40. When *no* keyword matches (a non-English site), a
 heuristic fallback ranks links on subdomain depth, digits and anchor length.
+
+**Search** (`search_fallback.py`) is Google via the **Serper** API. It runs on
+two distinct triggers:
+
+* **Rescue** — the crawl produced no candidates at all. Broad sweep across the
+  platform vocabulary.
+* **Capability expansion** — the crawl succeeded but is *incomplete*. Three
+  pillars are mandatory (`ERP`, `LMS (Moodle/Canvas)`, `Fee Payment`); if the
+  cascade returned an ERP and no LMS, one targeted search per missing pillar
+  fires and its results merge into the same portal array *before* the guardrail,
+  so they are liveness-checked and legal-harvested identically. This is what
+  catches the second student system on a domain the homepage never links to.
+
+Queries are **OR-grouped**, not space-separated. Google ANDs bare term lists, so
+the old DuckDuckGo-era string returned nothing; measured across four
+universities, space-separated scored 14 results and OR-grouped scored 24.
+
+Expansion suppresses the heuristic fallback: the row already has portals, so a
+search that surfaces only news articles must contribute nothing rather than
+dilute a working result.
 
 **Graph matcher** (`graph_matcher.py`) decides which terms govern which portal:
 
@@ -245,8 +265,11 @@ well as a wide IPv4 range.
 | Variable | Purpose |
 |---|---|
 | `OPENROUTER_API_KEY` | required — all model calls |
+| `SERPER_API_KEY` | required for search — rescue and capability expansion both no-op without it |
 | `GENIE_MODEL_TIERS` | override the cascade (comma-separated) |
 | `GENIE_BROWSER_CONCURRENCY` | browser semaphore, default 6 |
+| `GENIE_SEARCH_CONCURRENCY` | global search turnstile, default 3 — quota is per account, not per code path |
+| `GENIE_CAPABILITY_EXPANSION` | `0` disables opportunistic expansion, default on |
 | `GENIE_GUARDRAIL_TIMEOUT` / `_RETRY` | liveness budgets, default 5s / 20s |
 | `GENIE_MAX_CANDIDATES` | filter cap, default 40 |
 | `USE_PROXY`, `RESIDENTIAL_PROXY_*` | residential proxy |
@@ -289,6 +312,18 @@ skips completed orgs. Use `--no-resume` for a clean baseline.
 - **Snapshot before every destructive write.**
 - **Read what a filter dropped, not just how many.** Two silent-deletion bugs
   were invisible in the counts and obvious in the contents.
+- **A scraped search engine fails silently, and that is worse than failing.**
+  DuckDuckGo began serving a CAPTCHA page that parses as valid HTML, so the
+  scraper read it as "no results". Across 128 orgs, 44 of 47 searches returned
+  nothing and every one was recorded as a discovery miss rather than a search
+  outage. A keyed API turns that into an explicit 401/429 you can act on.
+- **Samarth: `.edu.in` is the student tenant, `.ac.in` is not.**
+  `{inst}.samarth.edu.in` is a student portal; `{inst}.samarth.ac.in` is an
+  employee, recruitment or admin console. The legacy engine enforced this;
+  V3 did not until it was caught in review.
+- **Search brings a noise class crawling never does.** Aggregators, rankings,
+  news and ebook mirrors rank highly for "*university* fees/moodle/portal" and
+  match our own keywords legitimately. They need their own blacklist group.
 
 ---
 

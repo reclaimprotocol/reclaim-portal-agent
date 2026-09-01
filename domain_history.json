@@ -3175,5 +3175,1969 @@
   ],
   "verified_live": 0,
   "updated_at": "2026-08-31T08:57:08+00:00"
+ },
+ "353736": {
+  "org_id": "353736",
+  "university_name": "Universitas Pendidikan Nasional",
+  "official_domain": "undiknas.ac.id",
+  "sheet_row": 184,
+  "portals": [
+   {
+    "url": "http://lms.undiknas.ac.id",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "LMS Undiknas",
+    "tnc_url": "http://lms.undiknas.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://lms.undiknas.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:10:02+00:00"
+ },
+ "10043549": {
+  "org_id": "10043549",
+  "university_name": "Caspian University",
+  "official_domain": "cu.edu.kz",
+  "sheet_row": 483,
+  "portals": [
+   {
+    "url": "https://cu.edu.kz/onlajn-portal/",
+    "category": "General Student Login",
+    "system": "Онлайн портал",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:10:38+00:00"
+ },
+ "3809259": {
+  "org_id": "3809259",
+  "university_name": "Siddhartha Institute of Technology & Sciences",
+  "official_domain": "siddhartha.co.in",
+  "sheet_row": 820,
+  "portals": [
+   {
+    "url": "https://sitsexams.com/",
+    "category": "UMS/MIS",
+    "system": "SITS Exams",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:10:38+00:00"
+ },
+ "3816064": {
+  "org_id": "3816064",
+  "university_name": "Katuri Medical College",
+  "official_domain": "katurimedicalcollege.org",
+  "sheet_row": 2473,
+  "portals": [
+   {
+    "url": "https://katurimedicalcollege.org/login",
+    "category": "General Student Login",
+    "system": "Katuri Medical College",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:10:49+00:00"
+ },
+ "10483260": {
+  "org_id": "10483260",
+  "university_name": "Dhanamanjuri College Of Commerce, Imphal",
+  "official_domain": "dmccommerce.edu.in",
+  "sheet_row": 2640,
+  "portals": [
+   {
+    "url": "https://dmccommerce.edu.in/fees.aspx",
+    "category": "Fee Payment",
+    "system": "Dhanamanjuri College Fee Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:11:06+00:00"
+ },
+ "415238": {
+  "org_id": "415238",
+  "university_name": "Libertas - Faculdades Integradas",
+  "official_domain": "libertas.edu.br",
+  "sheet_row": 2740,
+  "portals": [
+   {
+    "url": "http://portal.libertas.edu.br/FrameHTML/web/app/edu/portaleducacional/login/",
+    "category": "ERP",
+    "system": "TOTVS RM Portal Educacional",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://fecom.myopenlms.net/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Open LMS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:11:06+00:00"
+ },
+ "10003257": {
+  "org_id": "10003257",
+  "university_name": "Baguio Central University",
+  "official_domain": "bcu.edu.ph",
+  "sheet_row": 651,
+  "portals": [
+   {
+    "url": "https://portal.bcu.edu.ph",
+    "category": "General Student Login",
+    "system": "BCU Student Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:11:25+00:00"
+ },
+ "414993": {
+  "org_id": "414993",
+  "university_name": "Centro Universitário União das Américas Descomplica",
+  "official_domain": "descomplica.com.br",
+  "sheet_row": 3077,
+  "portals": [
+   {
+    "url": "https://accounts.descomplica.com.br/",
+    "category": "General Student Login",
+    "system": "Descomplica Accounts",
+    "tnc_url": "https://descomplica.com.br/sobre/politica-de-privacidade/",
+    "graph": {
+     "tnc_url": "https://descomplica.com.br/sobre/politica-de-privacidade/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://aulas.descomplica.com.br/?cat=faculdade",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Descomplica Aulas",
+    "tnc_url": "https://aulas.descomplica.com.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://aulas.descomplica.com.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:11:33+00:00"
+ },
+ "10084553": {
+  "org_id": "10084553",
+  "university_name": "Facultad de Arquitectura, Diseño y Arte de la Universidad Nacional de Asunción",
+  "official_domain": "fada.una.py",
+  "sheet_row": 333,
+  "portals": [
+   {
+    "url": "https://www.cnc.una.py/ealu/#/pages/login?returnUrl=%2Fdashboard",
+    "category": "ERP",
+    "system": "eAlu",
+    "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "ownership_relation": "org-root",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.cnc.una.py/pagosuna/",
+    "category": "Fee Payment",
+    "system": "Pagos UNA",
+    "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "ownership_relation": "org-root",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://fadavirtual.una.py/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "FadaVirtual",
+    "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-root",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-09-01T10:11:41+00:00"
+ },
+ "7107411": {
+  "org_id": "7107411",
+  "university_name": "Lusaka Apex Medical University",
+  "official_domain": "lamu.edu.zm",
+  "sheet_row": 185,
+  "portals": [
+   {
+    "url": "https://ecampusportal.lamu.edu.zm",
+    "category": "ERP",
+    "system": "eCampus",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:11:50+00:00"
+ },
+ "6797650": {
+  "org_id": "6797650",
+  "university_name": "Lagos State Polytechnic",
+  "official_domain": "lasustech.edu.ng",
+  "sheet_row": 2205,
+  "portals": [
+   {
+    "url": "https://students.lasustech.edu.ng/Login",
+    "category": "ERP",
+    "system": "LASUSTECH Undergraduate Portal",
+    "tnc_url": "https://lasustech.edu.ng/page?slug=terms-of-use",
+    "graph": {
+     "tnc_url": "https://lasustech.edu.ng/page?slug=terms-of-use",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:11:53+00:00"
+ },
+ "11427358": {
+  "org_id": "11427358",
+  "university_name": "Universidade Paulista",
+  "official_domain": "unip.br",
+  "sheet_row": 1326,
+  "portals": [
+   {
+    "url": "https://unip.br/aluno",
+    "category": "General Student Login",
+    "system": "Área do Aluno",
+    "tnc_url": "https://unip.br/universidade/politica-privacidade.aspx",
+    "graph": {
+     "tnc_url": "https://unip.br/universidade/politica-privacidade.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:11:54+00:00"
+ },
+ "5432748": {
+  "org_id": "5432748",
+  "university_name": "معهد مصر العالي للتجارة والحاسبات بالمنصورة",
+  "official_domain": "metmans.edu.eg",
+  "sheet_row": 484,
+  "portals": [
+   {
+    "url": "http://student.metmans.edu.eg",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "المنصة الإلكترونية",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:03+00:00"
+ },
+ "3841746": {
+  "org_id": "3841746",
+  "university_name": "Vidyasagar College (Kolkata, West Bengal)",
+  "official_domain": "vcfw.org",
+  "sheet_row": 2306,
+  "portals": [
+   {
+    "url": "https://vcfw.org/payment.php",
+    "category": "Fee Payment",
+    "system": "VCFW Online Fees Payment Portal",
+    "tnc_url": "https://vcfw.org/policy_documents.php",
+    "graph": {
+     "tnc_url": "https://vcfw.org/policy_documents.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://vcfw.in/vcfw_spm/students.php",
+    "category": "ERP",
+    "system": "Student Profile Mapping System",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://vcfw.in/mcq_portal/",
+    "category": "UMS/MIS",
+    "system": "MCQ Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://vcfw.in/eshikshak/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "eShikshak LMS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:12:06+00:00"
+ },
+ "10063163": {
+  "org_id": "10063163",
+  "university_name": "Institut Pendidikan Guru Kampus Pendidikan Islam",
+  "official_domain": "ipgkpi.moe.edu.my",
+  "sheet_row": 2908,
+  "portals": [
+   {
+    "url": "https://items.moe.edu.my/umum/",
+    "category": "UMS/MIS",
+    "system": "iTEMS",
+    "tnc_url": "https://ipgkpi.moe.edu.my/index.php/bm/terma-syarat",
+    "graph": {
+     "tnc_url": "https://ipgkpi.moe.edu.my/index.php/bm/terma-syarat",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://pismp.moe.gov.my/e-Pelajar/",
+    "category": "ERP",
+    "system": "e-Pelajar",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://mypdpp.moe.gov.my/myIPG/index.cfm",
+    "category": "ERP",
+    "system": "myIPG",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:12:06+00:00"
+ },
+ "4637444": {
+  "org_id": "4637444",
+  "university_name": "Mariners Polytechnic Colleges, Inc.",
+  "official_domain": "marinersnaga.edu.ph",
+  "sheet_row": 3915,
+  "portals": [
+   {
+    "url": "https://marinersnaga.schoolautomate.com/PARENTS_STUDENTS/parents_student_index.jsp",
+    "category": "ERP",
+    "system": "SchoolAutomate",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 403
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:11+00:00"
+ },
+ "590157": {
+  "org_id": "590157",
+  "university_name": "Харківський національний економічний університет імені Семена Кузнеця",
+  "official_domain": "hneu.edu.ua",
+  "sheet_row": 80,
+  "portals": [
+   {
+    "url": "https://pns.hneu.edu.ua/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://pns.hneu.edu.ua/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://pns.hneu.edu.ua/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:12:23+00:00"
+ },
+ "417709": {
+  "org_id": "417709",
+  "university_name": "มหาวิทยาลัยเทคโนโลยีราชมงคลสุวรรณภูมิ",
+  "official_domain": "rmutsb.ac.th",
+  "sheet_row": 821,
+  "portals": [
+   {
+    "url": "https://reg.rmutsb.ac.th/",
+    "category": "ERP",
+    "system": "ระบบทะเบียนและประมวลผล",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://grad.rmutsb.ac.th/",
+    "category": "ERP",
+    "system": "ระบบทะเบียนและประมวลผล (ระดับบัณฑิตศึกษา)",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:30+00:00"
+ },
+ "3805214": {
+  "org_id": "3805214",
+  "university_name": "Jawaharlal Nehru Architecture and Fine Arts University",
+  "official_domain": "jnafau.ac.in",
+  "sheet_row": 3581,
+  "portals": [
+   {
+    "url": "https://spa.jnafaudap.in/student/login",
+    "category": "Fee Payment",
+    "system": "SPA Examination Fee Payment Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:36+00:00"
+ },
+ "3826278": {
+  "org_id": "3826278",
+  "university_name": "Carmel College Of Engineering And Technology",
+  "official_domain": "carmelcet.in",
+  "sheet_row": 2875,
+  "portals": [
+   {
+    "url": "https://carmelcetv4.linways.com/",
+    "category": "ERP",
+    "system": "Linways",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:38+00:00"
+ },
+ "10329411": {
+  "org_id": "10329411",
+  "university_name": "Mount Kenya University-Nakuru Campus",
+  "official_domain": "mku.ac.ke",
+  "sheet_row": 3246,
+  "portals": [
+   {
+    "url": "https://studentportal.mku.ac.ke/umis/studentportal/",
+    "category": "ERP",
+    "system": "UMIS Student Portal",
+    "tnc_url": "https://mku.ac.ke/download/data-protection-and-privacy-policy-identifier/",
+    "graph": {
+     "tnc_url": "https://mku.ac.ke/download/data-protection-and-privacy-policy-identifier/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:12:47+00:00"
+ },
+ "10078660": {
+  "org_id": "10078660",
+  "university_name": "Е.А.Бөкетов Атындағы Қарағанды Мемлекеттік Университеті",
+  "official_domain": "buketov.edu.kz",
+  "sheet_row": 989,
+  "portals": [
+   {
+    "url": "https://schedule.buketov.edu.kz/login.php",
+    "category": "UMS/MIS",
+    "system": "Сабақ кестесі",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://cabinet.buketov.edu.kz/index1.php?ru",
+    "category": "General Student Login",
+    "system": "Жеке кабинет",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://e.buketov.edu.kz",
+    "category": "General Student Login",
+    "system": "e.buketov",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://courses.buketov.edu.kz/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "ЖАОК",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://ssc.buketov.edu.kz/index.php?language=kz",
+    "category": "ERP",
+    "system": "БҚҚО (Student Service Center)",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:48+00:00"
+ },
+ "11433359": {
+  "org_id": "11433359",
+  "university_name": "Medical Colleges of Northern Philippines",
+  "official_domain": "isap.edu.ph",
+  "sheet_row": 335,
+  "portals": [
+   {
+    "url": "https://miles.mcnp.edu.ph/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://icloudph.com/isap/sias/",
+    "category": "ERP",
+    "system": "SIAS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:12:53+00:00"
+ },
+ "10297061": {
+  "org_id": "10297061",
+  "university_name": "B. Borooah College",
+  "official_domain": "bborooahcollege.ac.in",
+  "sheet_row": 3414,
+  "portals": [
+   {
+    "url": "https://guportal.in/",
+    "category": "UMS/MIS",
+    "system": "GU Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 403
+   },
+   {
+    "url": "https://onlinecourse.bborooahcollege.ac.in",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Institutional MOOCs",
+    "tnc_url": "https://bborooahcollege.ac.in/soon.php",
+    "graph": {
+     "tnc_url": "https://bborooahcollege.ac.in/soon.php",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:12:57+00:00"
+ },
+ "5146879": {
+  "org_id": "5146879",
+  "university_name": "SVKM's NMIMS Deemed-to-be University",
+  "official_domain": "nmims.edu",
+  "sheet_row": 1159,
+  "portals": [
+   {
+    "url": "https://portal.svkm.ac.in/usermgmt/login",
+    "category": "General Student Login",
+    "system": "SVKM Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://nmims.edu/payments/final/dataFrom.php",
+    "category": "Fee Payment",
+    "system": "NMIMS Online Fee Payment",
+    "tnc_url": "https://nmims.edu/privacy-policy.php",
+    "graph": {
+     "tnc_url": "https://nmims.edu/privacy-policy.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:12:59+00:00"
+ },
+ "6804503": {
+  "org_id": "6804503",
+  "university_name": "Simon Diedong Dombo University of Business and Integrated Development Studies",
+  "official_domain": "ubids.edu.gh",
+  "sheet_row": 990,
+  "portals": [
+   {
+    "url": "https://umis.ubids.edu.gh/login.php",
+    "category": "UMS/MIS",
+    "system": "UMIS",
+    "tnc_url": "https://ubids.edu.gh/about/policies_other_documents",
+    "graph": {
+     "tnc_url": "https://ubids.edu.gh/about/policies_other_documents",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://lms.ubids.edu.gh",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "UBIDS LMS",
+    "tnc_url": "https://lms.ubids.edu.gh/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.ubids.edu.gh/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://mis.ubids.edu.gh",
+    "category": "ERP",
+    "system": "UBIDS ERP",
+    "tnc_url": "https://ubids.edu.gh/about/policies_other_documents",
+    "graph": {
+     "tnc_url": "https://ubids.edu.gh/about/policies_other_documents",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-09-01T10:13:00+00:00"
+ },
+ "10065558": {
+  "org_id": "10065558",
+  "university_name": "Nawab Shah Alam Khan College of Engineering & Technology",
+  "official_domain": "nsakcet.ac.in",
+  "sheet_row": 1327,
+  "portals": [
+   {
+    "url": "https://nsakcet.ac.in/online-fee-payment/",
+    "category": "Fee Payment",
+    "system": "Online Fee Payment",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:13:01+00:00"
+ },
+ "10293353": {
+  "org_id": "10293353",
+  "university_name": "Trường Cao đẳng Thương mại và Du lịch Hà Nội",
+  "official_domain": "hcct.edu.vn",
+  "sheet_row": 2707,
+  "portals": [
+   {
+    "url": "http://daotao.hcct.edu.vn/SubPage.aspx",
+    "category": "ERP",
+    "system": "HCCT Đào tạo theo tín chỉ",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://dttx.hcct.edu.vn/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "HCCT Đào tạo từ xa",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:13:05+00:00"
+ },
+ "10235417": {
+  "org_id": "10235417",
+  "university_name": "CUAltos",
+  "official_domain": "cualtos.udg.mx",
+  "sheet_row": 1495,
+  "portals": [
+   {
+    "url": "http://pal.cualtos.udg.mx:8080/ce/vv/Virtual/login/index.php",
+    "category": "ERP",
+    "system": "Ventanilla Virtual",
+    "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://moodle.cualtos.udg.mx/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "http://moodle.cualtos.udg.mx/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:13:08+00:00"
+ },
+ "3841227": {
+  "org_id": "3841227",
+  "university_name": "Truba Group of Institutes",
+  "official_domain": "trubainstitute.ac.in",
+  "sheet_row": 2775,
+  "portals": [
+   {
+    "url": "https://tgi.instituteoncloud.com/Account/Login?ReturnUrl=%2F",
+    "category": "ERP",
+    "system": "InstituteOnCloud",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:13:26+00:00"
+ },
+ "11252181": {
+  "org_id": "11252181",
+  "university_name": "Mewar International University",
+  "official_domain": "miu.edu.ng",
+  "sheet_row": 3313,
+  "portals": [
+   {
+    "url": "http://portal.miu.edu.ng/site/userlogin",
+    "category": "ERP",
+    "system": "MIU Portal",
+    "tnc_url": "https://miu.edu.ng/terms-of-usage/",
+    "graph": {
+     "tnc_url": "https://miu.edu.ng/terms-of-usage/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://portal.miu.edu.ng/userlogin",
+    "category": "ERP",
+    "system": "MIU ERP Portal",
+    "tnc_url": "https://miu.edu.ng/privacy-policy/",
+    "graph": {
+     "tnc_url": "https://miu.edu.ng/privacy-policy/",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:13:59+00:00"
+ },
+ "10335736": {
+  "org_id": "10335736",
+  "university_name": "The University of Agriculture Peshawar",
+  "official_domain": "aup.edu.pk",
+  "sheet_row": 653,
+  "portals": [
+   {
+    "url": "https://aup.edu.pk/a/cms-student-login",
+    "category": "ERP",
+    "system": "Campus Management System (CMS)",
+    "tnc_url": "https://aup.edu.pk/pages/univesity-policies",
+    "graph": {
+     "tnc_url": "https://aup.edu.pk/pages/univesity-policies",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://aup.edu.pk/a/semester-renewal-fee",
+    "category": "Fee Payment",
+    "system": "UAP Semester Renewal Fee Portal",
+    "tnc_url": "https://aup.edu.pk/pages/univesity-policies",
+    "graph": {
+     "tnc_url": "https://aup.edu.pk/pages/univesity-policies",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://aup.edu.pk/a/results",
+    "category": "UMS/MIS",
+    "system": "UAP Examination Results",
+    "tnc_url": "https://aup.edu.pk/pages/univesity-policies",
+    "graph": {
+     "tnc_url": "https://aup.edu.pk/pages/univesity-policies",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-09-01T10:14:03+00:00"
+ },
+ "5816997": {
+  "org_id": "5816997",
+  "university_name": "Tanzania Institute Of Accountancy",
+  "official_domain": "tia.ac.tz",
+  "sheet_row": 186,
+  "portals": [
+   {
+    "url": "https://lms.tia.ac.tz/login/index.php",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://lms.tia.ac.tz/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.tia.ac.tz/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://sims.tia.ac.tz",
+    "category": "ERP",
+    "system": "SIMS",
+    "tnc_url": "https://lms.tia.ac.tz/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://lms.tia.ac.tz/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:14:05+00:00"
+ },
+ "3830989": {
+  "org_id": "3830989",
+  "university_name": "JNTUA College of Engineering, Kalikiri",
+  "official_domain": "jntua.ac.in",
+  "sheet_row": 3815,
+  "portals": [
+   {
+    "url": "https://jntuaresults.ac.in/",
+    "category": "UMS/MIS",
+    "system": "JNTUA Results",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:14:08+00:00"
+ },
+ "588782": {
+  "org_id": "588782",
+  "university_name": "Trường Đại học Hải Dương",
+  "official_domain": "uhd.edu.vn",
+  "sheet_row": 2105,
+  "portals": [
+   {
+    "url": "https://thuvienso.uhd.edu.vn/home/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "E-learning",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:14:08+00:00"
+ },
+ "10536973": {
+  "org_id": "10536973",
+  "university_name": "Nueva Ecija University of Science and Technology,Talavera Academic Extension Campus",
+  "official_domain": "neust.edu.ph",
+  "sheet_row": 3481,
+  "portals": [
+   {
+    "url": "http://lms.neust.edu.ph",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "NEUST LMS",
+    "tnc_url": "https://neust.edu.ph/wp-content/uploads/2020/06/Quality-Policy-scaled.jpg",
+    "graph": {
+     "tnc_url": "https://neust.edu.ph/wp-content/uploads/2020/06/Quality-Policy-scaled.jpg",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 403
+   },
+   {
+    "url": "http://enroll.neust.edu.ph",
+    "category": "ERP",
+    "system": "NEUST Enrollment System",
+    "tnc_url": "https://neust.edu.ph/wp-content/uploads/2020/06/Quality-Policy-scaled.jpg",
+    "graph": {
+     "tnc_url": "https://neust.edu.ph/wp-content/uploads/2020/06/Quality-Policy-scaled.jpg",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 403
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:14:17+00:00"
+ },
+ "413794": {
+  "org_id": "413794",
+  "university_name": "Faculdade De Medicina Nova Esperança (FAMENE)",
+  "official_domain": "facene.com.br",
+  "sheet_row": 991,
+  "portals": [
+   {
+    "url": "http://virtual.facene.com.br",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "AVA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://www.facene.com.br/central-do-aluno/",
+    "category": "General Student Login",
+    "system": "Central do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:14:31+00:00"
+ },
+ "3814511": {
+  "org_id": "3814511",
+  "university_name": "Indian Institute Of Social Weflfare & Business Management",
+  "official_domain": "iiswbm.edu",
+  "sheet_row": 3380,
+  "portals": [
+   {
+    "url": "https://iiswbmepay.in/",
+    "category": "Fee Payment",
+    "system": "IISWBM ePay",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:14:47+00:00"
+ },
+ "10512042": {
+  "org_id": "10512042",
+  "university_name": "Centro Universitário Unigrande",
+  "official_domain": "unigrande.com.br",
+  "sheet_row": 3280,
+  "portals": [
+   {
+    "url": "https://portal.unigrande.edu.br/",
+    "category": "ERP",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://unigrande.edu.br/institucional/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://unigrande.edu.br/institucional/politica-de-privacidade",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:14:52+00:00"
+ },
+ "418531": {
+  "org_id": "418531",
+  "university_name": "Instituto Profesional Escuela Moderna de Música",
+  "official_domain": "emoderna.cl",
+  "sheet_row": 823,
+  "portals": [
+   {
+    "url": "http://alumnos.emoderna.cl",
+    "category": "ERP",
+    "system": "Intranet Alumnos",
+    "tnc_url": "https://ecampus.emoderna.cl/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ecampus.emoderna.cl/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://ecampus.emoderna.cl/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "e-Campus",
+    "tnc_url": "https://ecampus.emoderna.cl/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ecampus.emoderna.cl/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://pagos.emoderna.cl/index.php/",
+    "category": "Fee Payment",
+    "system": "Portal de Pagos EMMD",
+    "tnc_url": "https://ecampus.emoderna.cl/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ecampus.emoderna.cl/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.88,
+     "s_domain": 0.7,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "sibling-subdomain",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-09-01T10:15:16+00:00"
+ },
+ "5411605": {
+  "org_id": "5411605",
+  "university_name": "VinUniversity",
+  "official_domain": "vinuni.edu.vn",
+  "sheet_row": 82,
+  "portals": [
+   {
+    "url": "https://vinuni.edu.vn/student-gateway/",
+    "category": "General Student Login",
+    "system": "Student Gateway",
+    "tnc_url": "https://vinuni.edu.vn/privacy-statement/",
+    "graph": {
+     "tnc_url": "https://vinuni.edu.vn/privacy-statement/",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 403
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:15:19+00:00"
+ },
+ "3836207": {
+  "org_id": "3836207",
+  "university_name": "Rayburn College",
+  "official_domain": "rayburncollege.ac.in",
+  "sheet_row": 1738,
+  "portals": [
+   {
+    "url": "https://app.edumarshal.com",
+    "category": "ERP",
+    "system": "EduMarshal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:15:20+00:00"
+ },
+ "10043206": {
+  "org_id": "10043206",
+  "university_name": "Politeknik Teknologi Nuklir Indonesia",
+  "official_domain": "polteknuklir.ac.id",
+  "sheet_row": 2273,
+  "portals": [
+   {
+    "url": "https://polteknuklir.siakadcloud.com/",
+    "category": "ERP",
+    "system": "SIAKAD Cloud",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:15:27+00:00"
+ },
+ "12547307": {
+  "org_id": "12547307",
+  "university_name": "Centro Universitário UNIGRANDE",
+  "official_domain": "unigrande.com.br",
+  "sheet_row": 2072,
+  "portals": [
+   {
+    "url": "https://portal.unigrande.edu.br/",
+    "category": "ERP",
+    "system": "Portal do Aluno",
+    "tnc_url": "https://unigrande.edu.br/institucional/politica-de-privacidade",
+    "graph": {
+     "tnc_url": "https://unigrande.edu.br/institucional/politica-de-privacidade",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:15:54+00:00"
+ },
+ "5429227": {
+  "org_id": "5429227",
+  "university_name": "Baba Raghav Das Medical College Gorakhpur",
+  "official_domain": "brdmc.ac.in",
+  "sheet_row": 3748,
+  "portals": [
+   {
+    "url": "https://brdmc.ac.in/Exams.aspx",
+    "category": "UMS/MIS",
+    "system": "Examination",
+    "tnc_url": "https://brdmc.ac.in/Cell-ABHApolicy.aspx",
+    "graph": {
+     "tnc_url": "https://brdmc.ac.in/Cell-ABHApolicy.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://brdmc.ac.in/Results.aspx",
+    "category": "UMS/MIS",
+    "system": "Result",
+    "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+    "graph": {
+     "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://brdmc.ac.in/MBBSStudentList.aspx",
+    "category": "General Student Login",
+    "system": "MBBS Student List",
+    "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+    "graph": {
+     "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://brdmc.ac.in/MDMSStudentList.aspx",
+    "category": "General Student Login",
+    "system": "MD/MS Student List",
+    "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+    "graph": {
+     "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://brdmc.ac.in/StudentCorner.aspx",
+    "category": "General Student Login",
+    "system": "Student Corner",
+    "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+    "graph": {
+     "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://brdmc.ac.in/HospitalFeesCharges.aspx",
+    "category": "Fee Payment",
+    "system": "Hospital Fees & Charges",
+    "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+    "graph": {
+     "tnc_url": "https://brdmc.ac.in/Cell-PolicyMatter.aspx",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 6,
+  "updated_at": "2026-09-01T10:15:58+00:00"
+ },
+ "12416078": {
+  "org_id": "12416078",
+  "university_name": "Universidad Tecmilenio",
+  "official_domain": "tecmilenio.mx",
+  "sheet_row": 1328,
+  "portals": [
+   {
+    "url": "https://miportal.tecmilenio.mx/",
+    "category": "General Student Login",
+    "system": "Mi Portal Tecmilenio",
+    "tnc_url": "https://www.tecmilenio.mx/es/terminos-y-condiciones",
+    "graph": {
+     "tnc_url": "https://www.tecmilenio.mx/es/terminos-y-condiciones",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://estadodecuenta.tec.mx",
+    "category": "Fee Payment",
+    "system": "Estado de Cuenta",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:16:09+00:00"
+ },
+ "4545409": {
+  "org_id": "4545409",
+  "university_name": "Gm Institute Of Technology",
+  "official_domain": "gmit.ac.in",
+  "sheet_row": 3949,
+  "portals": [
+   {
+    "url": "http://erp.gmit.info/axis/",
+    "category": "Fee Payment",
+    "system": "GMIT ERP",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:16:26+00:00"
+ },
+ "3843776": {
+  "org_id": "3843776",
+  "university_name": "Maharaja's College",
+  "official_domain": "maharajas.ac.in",
+  "sheet_row": 1497,
+  "portals": [
+   {
+    "url": "https://maharajas.ac.in/index.php/content/index/lms",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://maharajas.ac.in/index.php/content/index/lms/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://maharajas.ac.in/index.php/content/index/lms/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://maharajas.ac.in/index.php/content/index/students-login",
+    "category": "General Student Login",
+    "system": "Students Corner",
+    "tnc_url": "https://maharajas.ac.in/index.php/content/index/policies-and-procedures",
+    "graph": {
+     "tnc_url": "https://maharajas.ac.in/index.php/content/index/policies-and-procedures",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://maharajas.ac.in/mhsuite/",
+    "category": "ERP",
+    "system": "MH Suite",
+    "tnc_url": "https://maharajas.ac.in/index.php/content/index/policies-and-procedures",
+    "graph": {
+     "tnc_url": "https://maharajas.ac.in/index.php/content/index/policies-and-procedures",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 3,
+  "updated_at": "2026-09-01T10:16:39+00:00"
+ },
+ "412626": {
+  "org_id": "412626",
+  "university_name": "Faculdades Integradas Aparício Carvalho (FIMCA)",
+  "official_domain": "fimca.com.br",
+  "sheet_row": 2005,
+  "portals": [
+   {
+    "url": "https://fimca.portalava.com.br/login",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Portal AVA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://portal.fimca.com.br/FrameHTML/Web/App/Edu/PortalEducacional/login/",
+    "category": "ERP",
+    "system": "TOTVS RM Portal Educacional",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://portal.fimca.com.br/EducaMobile/Account/Login",
+    "category": "ERP",
+    "system": "TOTVS Educa Mobile",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:16:47+00:00"
+ },
+ "349645": {
+  "org_id": "349645",
+  "university_name": "Universitas Bengkulu",
+  "official_domain": "agriculture.unib.ac.id",
+  "sheet_row": 83,
+  "portals": [
+   {
+    "url": "https://elearning.unib.ac.id/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Electronic Learning System",
+    "tnc_url": "https://elearning.unib.ac.id/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://elearning.unib.ac.id/admin/tool/dataprivacy/summary.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-root",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:16:54+00:00"
+ },
+ "10322341": {
+  "org_id": "10322341",
+  "university_name": "Unifatecie EAD",
+  "official_domain": "unifatecie.edu.br",
+  "sheet_row": 993,
+  "portals": [
+   {
+    "url": "https://lav.eadunifatecie.com.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "LAV",
+    "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://www.eadunifatecie.com.br/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "UniFatecie EAD",
+    "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://www.eadunifatecie.com.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://portaldoaluno.fatecie.edu.br",
+    "category": "ERP",
+    "system": "Portal do Aluno",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://portalpos.fatecie.edu.br",
+    "category": "ERP",
+    "system": "Portal do Aluno Pós-Graduação",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:17:05+00:00"
+ },
+ "3840416": {
+  "org_id": "3840416",
+  "university_name": "Subodh Law College",
+  "official_domain": "subodhlawcollege.com",
+  "sheet_row": 1805,
+  "portals": [
+   {
+    "url": "https://subodhlawcollege.com/student/login",
+    "category": "General Student Login",
+    "system": "Subodh Law College Student Panel",
+    "tnc_url": "https://subodhlawcollege.com/public/judge/Terms and Condition.pdf",
+    "graph": {
+     "tnc_url": "https://subodhlawcollege.com/public/judge/Terms and Condition.pdf",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://subodhlawcollege.com/online-fee",
+    "category": "Fee Payment",
+    "system": "Subodh Law College Online Fees",
+    "tnc_url": "https://subodhlawcollege.com/public/judge/Terms and Condition.pdf",
+    "graph": {
+     "tnc_url": "https://subodhlawcollege.com/public/judge/Terms and Condition.pdf",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "shared-document"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "http://www.univraj.org/mainpageNew.php",
+    "category": "UMS/MIS",
+    "system": "Univraj",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:17:06+00:00"
+ },
+ "10555824": {
+  "org_id": "10555824",
+  "university_name": "Swami Vivekanand Subharti University",
+  "official_domain": "subharti.org",
+  "sheet_row": 825,
+  "portals": [
+   {
+    "url": "https://subharti.org/erp/",
+    "category": "ERP",
+    "system": "Subharti ERP",
+    "tnc_url": "https://subharti.org/terms-condition-subharti-university-india.php",
+    "graph": {
+     "tnc_url": "https://subharti.org/terms-condition-subharti-university-india.php",
+     "confidence": 1.0,
+     "s_domain": 1.0,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "exact-host",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:17:14+00:00"
+ },
+ "11454913": {
+  "org_id": "11454913",
+  "university_name": "Centro Universitário Santa Cecília",
+  "official_domain": "fascpinda.com.br",
+  "sheet_row": 2239,
+  "portals": [
+   {
+    "url": "https://fascinterativa.ambientedoaluno.com.br/login.html",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "FASC Interativa",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://fascava.ambientedoaluno.com.br/aluno/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "FASC AVA",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:17:21+00:00"
+ },
+ "10067191": {
+  "org_id": "10067191",
+  "university_name": "Facultad De Derecho Y Ciencias Sociales Universidad Nacional De Asunción",
+  "official_domain": "der.una.py",
+  "sheet_row": 3011,
+  "portals": [
+   {
+    "url": "https://www.cnc.una.py/ealu/#/pages/login?returnUrl=%2Fdashboard",
+    "category": "ERP",
+    "system": "eAlu",
+    "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://tramites.una.py/#/pages/login?returnUrl=%2Fdashboard",
+    "category": "General Student Login",
+    "system": "eTramite",
+    "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://fadavirtual.una.py/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T10:17:23+00:00"
+ },
+ "3840985": {
+  "org_id": "3840985",
+  "university_name": "Army College Of Medical Science",
+  "official_domain": "theacms.in",
+  "sheet_row": 2741,
+  "portals": [
+   {
+    "url": "http://139.59.81.101/acms/login.php",
+    "category": "Fee Payment",
+    "system": "ACMS Fee Portal",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T10:17:27+00:00"
+ },
+ "12434710": {
+  "org_id": "12434710",
+  "university_name": "Dhanalakshmi Srinivasan University",
+  "official_domain": "dsuniversity.ac.in",
+  "sheet_row": 339,
+  "portals": [
+   {
+    "url": "https://www.mycamu.co.in",
+    "category": "ERP",
+    "system": "MyCamu",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   },
+   {
+    "url": "https://student.dsuniversity.ac.in/dsuonline/students/loginManager/youLogin.jsp",
+    "category": "ERP",
+    "system": "eVarsity",
+    "tnc_url": "https://dsuniversity.ac.in/policy",
+    "graph": {
+     "tnc_url": "https://dsuniversity.ac.in/policy",
+     "confidence": 0.92,
+     "s_domain": 0.8,
+     "s_semantic": 1.0,
+     "s_distance": 1.0,
+     "s_ownership": 1.0,
+     "domain_relation": "vertical-parent",
+     "ownership_relation": "org-host",
+     "assignment": "matching"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 1,
+  "updated_at": "2026-09-01T10:17:31+00:00"
+ },
+ "10150119": {
+  "org_id": "10150119",
+  "university_name": "Câmpus Avaré do Instituto Federal de Educação e Tecnologia de São Paulo",
+  "official_domain": "avr.ifsp.edu.br",
+  "sheet_row": 1597,
+  "portals": [
+   {
+    "url": "http://avr.ifsp.edu.br/moodle/login/",
+    "category": "LMS (Moodle/Canvas)",
+    "system": "Moodle",
+    "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   },
+   {
+    "url": "https://suap.ifsp.edu.br",
+    "category": "ERP",
+    "system": "SUAP",
+    "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+    "graph": {
+     "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
+     "confidence": 0.0,
+     "domain_relation": "memory-cache",
+     "assignment": "memory"
+    },
+    "http_status": 200
+   }
+  ],
+  "verified_live": 2,
+  "updated_at": "2026-09-01T11:05:11+00:00"
+ },
+ "10295401": {
+  "org_id": "10295401",
+  "university_name": "اكاديمية المستقبل - المعهد العالى للدراسات التكنولوجية المتخصصة",
+  "official_domain": "fa-hists.edu.eg",
+  "sheet_row": 924,
+  "portals": [
+   {
+    "url": "https://sis.fa-hists.edu.eg/",
+    "category": "ERP",
+    "system": "UMIS",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T11:05:22+00:00"
+ },
+ "5407292": {
+  "org_id": "5407292",
+  "university_name": "Tkm Collage Of Engineering",
+  "official_domain": "tkmce.ac.in",
+  "sheet_row": 2915,
+  "portals": [
+   {
+    "url": "https://tkmce.etlab.in/user/login",
+    "category": "ERP",
+    "system": "ETLab",
+    "tnc_url": null,
+    "graph": null,
+    "http_status": 200
+   }
+  ],
+  "verified_live": 0,
+  "updated_at": "2026-09-01T11:05:23+00:00"
  }
 }
