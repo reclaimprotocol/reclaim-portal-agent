@@ -46,32 +46,52 @@ def new_run_id() -> str:
     return (f"run_{datetime.now(timezone.utc):%Y-%m-%d}_{secrets.token_hex(3)}")
 
 
+def _new_run_path(job_id: str) -> Path:
+    """Path for a run id WE generated. Not for request input.
+
+    `new_run_id()` is `secrets.token_hex`, so nothing user-supplied reaches
+    this join — which is why `create()` may build a path directly while every
+    lookup below must not.
+    """
+    return RUNS_DIR / job_id
+
+
 def run_dir(job_id: str) -> Path:
-    """Resolve a job id to its directory, rejecting anything malformed.
+    """Resolve a job id from the URL to its directory.
 
-    The id arrives from the URL path, so it is untrusted input that becomes a
-    filesystem path. Two independent defences, because one of them is a regex
-    and regexes are easy to loosen by accident:
+    The returned Path comes from scanning RUNS_DIR, NOT from joining the
+    request string onto a directory. The untrusted value is only ever compared
+    against names the filesystem reported, so it never reaches open() at all.
 
-      1. the anchored pattern, which no `../` or absolute path can satisfy;
-      2. containment — resolve the result and require it to sit under RUNS_DIR,
-         which also catches a symlink inside the runs directory pointing out of
-         it, something the pattern cannot see.
+    That indirection is the point. An anchored regex and a `relative_to()`
+    containment check were both tried first and are both correct, and CodeQL
+    reported py/path-injection through both of them — it does not model either
+    as a sanitiser, so the taint flow from URL to open() stayed live across six
+    call sites. Deriving the path from `iterdir()` removes the flow rather than
+    arguing with it, and it is genuinely stronger: a name the filesystem did
+    not report cannot be opened, whatever the pattern would have allowed.
 
-    Containment is expressed as `Path.relative_to` inside try/except rather than
-    a `parents` membership test. Both are correct, but only this form is a shape
-    CodeQL recognises as a sanitiser for py/path-injection — with the membership
-    test it kept reporting the taint flow from URL to open().
+    Raises ValueError for a malformed id, FileNotFoundError for one that is
+    well-formed but has no run.
     """
     if not _RUN_ID_RE.match(job_id or ""):
         raise ValueError("malformed job_id")
     base = RUNS_DIR.resolve()
-    candidate = (base / job_id).resolve()
     try:
-        candidate.relative_to(base)
-    except ValueError:
-        raise ValueError("job_id escapes the runs directory") from None
-    return candidate
+        for child in RUNS_DIR.iterdir():
+            if child.name != job_id or not child.is_dir():
+                continue
+            # Belt and braces. `child` came from the filesystem, so this adds
+            # no taint — but iterdir() happily reports a SYMLINK and is_dir()
+            # follows it, so without this a link planted inside runs/ would
+            # resolve anywhere. Deriving the path defeats traversal through the
+            # id; only this defeats traversal through the directory itself.
+            if child.resolve().parent != base:
+                raise ValueError("run directory escapes the runs directory")
+            return child
+    except FileNotFoundError:
+        pass                       # RUNS_DIR itself does not exist yet
+    raise FileNotFoundError(f"no such run: {job_id}")
 
 
 def create(input_csv: bytes, total: int, options: dict | None = None,
@@ -88,14 +108,14 @@ def create(input_csv: bytes, total: int, options: dict | None = None,
     for _ in range(attempts):
         job_id = new_run_id()
         try:
-            run_dir(job_id).mkdir(parents=True, exist_ok=False)
+            _new_run_path(job_id).mkdir(parents=True, exist_ok=False)
             break
         except FileExistsError:
             continue
     else:
         raise RuntimeError(f"could not allocate a free run id in {attempts} attempts")
 
-    _contained(job_id, "input.csv").write_bytes(input_csv)
+    (_new_run_path(job_id) / "input.csv").write_bytes(input_csv)
     write_status(job_id, {
         "job_id": job_id, "status": QUEUED, "created_at": _now(),
         "started_at": "", "finished_at": "",
@@ -106,23 +126,21 @@ def create(input_csv: bytes, total: int, options: dict | None = None,
 
 
 def _contained(job_id: str, *parts: str) -> Path:
-    """A path inside this run's directory, re-checked after joining.
+    """A file inside a run's directory.
 
-    Every filesystem access in this module goes through here, so the sanitiser
-    sits on one line rather than being repeated at each call site — and CodeQL
-    sees the same recognised containment check on every flow.
+    `parts` are always module-level literals ("status.json", "results.csv"),
+    and `run_dir` returns a filesystem-derived Path, so nothing here is built
+    from request input.
     """
-    base = RUNS_DIR.resolve()
-    p = run_dir(job_id).joinpath(*parts).resolve()
-    try:
-        p.relative_to(base)
-    except ValueError:
-        raise ValueError("path escapes the runs directory") from None
-    return p
+    return run_dir(job_id).joinpath(*parts)
 
 
 def read_status(job_id: str) -> dict | None:
-    p = _contained(job_id, "status.json")
+    """None when the run, or its status file, does not exist."""
+    try:
+        p = _contained(job_id, "status.json")
+    except FileNotFoundError:
+        return None
     if not p.exists():
         return None
     try:

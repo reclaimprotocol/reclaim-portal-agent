@@ -265,11 +265,13 @@ def run_results(job_id: str) -> FileResponse:
     """Downloadable at any point — partial while the run is still going."""
     _status_or_404(job_id)
     try:
-        # Containment is enforced inside results_path(); calling it here rather
-        # than joining the id onto a directory keeps the sanitiser on one path.
+        # results_path() resolves through run_dir(), which finds the directory
+        # by scanning RUNS_DIR — the request string is compared, never joined.
         path = runs.results_path(job_id)
     except ValueError:
         raise HTTPException(400, "malformed job_id") from None
+    except FileNotFoundError:
+        raise HTTPException(404, "unknown job_id") from None
     if not path.exists():
         raise HTTPException(404, "no results yet")
     return FileResponse(path, media_type="text/csv", filename=f"{job_id}.csv")
