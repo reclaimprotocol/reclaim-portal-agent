@@ -6,6 +6,10 @@ services:
     name: genie-api
     runtime: docker
     dockerfilePath: ./Dockerfile
+    # Pinned explicitly: the image's default CMD now serves the V3 service, so
+    # this entry must name the V2 app or a Dockerfile change silently swaps
+    # which application this URL is running.
+    dockerCommand: sh -c "uvicorn genie.api.main:app --host 0.0.0.0 --port ${PORT:-8799}"
     healthCheckPath: /health
     # Free plan (no card required). NOTE: 512 MB RAM — browsing/search work,
     # but live discovery (Chromium) may OOM or time out. Bump to 'starter'
@@ -32,5 +36,57 @@ services:
         value: "3"
       - key: ENABLE_JS_RENDERING    # off on free tier — Chromium is too heavy for 512 MB
         value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  # --------------------------------------------------------------------- #
+  #  Genie-V3 portal discovery — CSV in, CSV out. One service, one disk.   #
+  #                                                                        #
+  #  No database and no separate worker: runs are directories on the disk  #
+  #  and the work happens in a background task inside this process. Two    #
+  #  containers cannot share a local filesystem, so splitting them would   #
+  #  buy nothing.                                                          #
+  # --------------------------------------------------------------------- #
+  - type: web
+    name: genie-v3
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh -c "uvicorn service.api:app --host 0.0.0.0 --port ${PORT:-8800}"
+    healthCheckPath: /health
+    # 2 GB minimum. find_portals renders every homepage in headless Chromium
+    # and has NO internal browser semaphore — AGENT_CONCURRENCY is the only
+    # bound. 512 MB OOMs on the first batch, and swap presents as network
+    # timeouts, i.e. as live portals recorded dead.
+    plan: standard
+    numInstances: 1
+    # OFF deliberately: with a persistent disk there is no zero-downtime
+    # deploy, so a merge to main kills a running batch.
+    autoDeploy: false
+    branch: main
+    disk:
+      name: genie-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: AGENT_API_KEY         # shared secret; the dashboard BACKEND sends it
+        sync: false
+      - key: OPENROUTER_API_KEY    # required — the model cascade
+        sync: false
+      - key: SERPER_API_KEY        # required — rescue + capability expansion
+        sync: false
+      - key: AGENT_CONCURRENCY     # browsers in flight. Raise only with the memory graph open.
+        value: "4"
+      - key: AGENT_RUNS_DIR
+        value: /data/runs
+      # L5 memory on the disk — otherwise every deploy resets the resume shield
+      # and discards co-learned legal keywords. Seed these from the git-tracked
+      # copies on first boot; an empty tnc_memory.json throws away 166
+      # vendor->legal mappings.
+      - key: GENIE_TNC_MEMORY
+        value: /data/tnc_memory.json
+      - key: GENIE_DOMAIN_HISTORY
+        value: /data/domain_history.json
+      - key: GENIE_BLOCK_FILE
+        value: /data/infrastructure_block.json
       - key: PYTHONUNBUFFERED
         value: "1"

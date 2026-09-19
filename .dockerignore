@@ -33,3 +33,7 @@ client_secret*.json
 .tokens
 
 .DS_Store
+
+# Run artefacts — created at runtime on the mounted volume, never baked in.
+runs
+output
