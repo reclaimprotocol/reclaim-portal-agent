@@ -28,6 +28,11 @@ on the server, and none of the 7-day OAuth expiry that kills long batches.
 Auth: one shared secret in `X-API-Key`. Call it from your dashboard's
 **backend** — a key in frontend JS is a public key.
 
+**The service refuses to start if `AGENT_API_KEY` is unset.** It accepts uploads
+and runs expensive browser jobs, so an unauthenticated deploy is a data leak and
+a free compute pool. For local work set `AGENT_ALLOW_NO_AUTH=1` to opt in
+deliberately.
+
 ```bash
 curl -X POST https://<host>/runs -H 'X-API-Key: <key>' \
      -H 'Content-Type: text/csv' --data-binary @orgs.csv
@@ -59,7 +64,7 @@ One row per org **always**, plus extra rows when an org has several new portals.
 
 ```
 orgId,status,new_portal_url,category,system,tnc_url,tnc_reason,confidence,
-match_basis,http_status,suppressed_as_known,dead_known_portals,error
+match_basis,http_status,suppressed_as_known,dead_known_portals,notes,error
 ```
 
 `status` is `new_found` · `none_found` · `failed`. **Absence of a row is never
@@ -70,6 +75,11 @@ have to stay distinguishable, or a partial run reads as a complete one.
 harvested to score) vs `no_match_above_threshold` (candidates existed and were
 rejected). Those need completely different follow-up, and a blank cell hides
 which happened.
+
+`notes` qualifies a row without failing it — currently only
+`known_portals_truncated`, when more portals were supplied than
+`AGENT_KNOWN_CHECK_MAX`. Without it an empty `dead_known_portals` would be
+ambiguous between "none were dead" and "we did not check them all".
 
 Rows are in **completion order, not input order** — that is the cost of results
 being readable mid-run. Sort by `orgId` if you need input order.
@@ -100,6 +110,7 @@ with `AGENT_CHECK_KNOWN_PORTALS=0`.
 ```bash
 pip install -r requirements.txt && playwright install chromium
 export AGENT_API_KEY=dev OPENROUTER_API_KEY=... SERPER_API_KEY=...
+# or, to run with no auth at all: export AGENT_ALLOW_NO_AUTH=1
 uvicorn service.api:app --port 8800
 ```
 
@@ -136,13 +147,16 @@ downloadable, but the remaining orgs are not resumed.
 
 | | |
 |---|---|
-| `AGENT_API_KEY` | shared secret for `X-API-Key`; unset = no auth (dev only) |
+| `AGENT_API_KEY` | shared secret for `X-API-Key`. Required — the service will not start without it |
+| `AGENT_ALLOW_NO_AUTH` | `1` permits starting with no key (local dev only) |
 | `AGENT_CONCURRENCY` | browsers in flight, default 4 |
 | `AGENT_RUNS_DIR` | where run directories live |
 | `AGENT_RUN_RETENTION_DAYS` | purged on boot, default 90 |
 | `AGENT_MAX_ORGS_PER_RUN` | default 5000 |
 | `AGENT_MAX_UPLOAD_BYTES` | default 8 MB |
 | `AGENT_CHECK_KNOWN_PORTALS` | `0` skips the dead-portal sweep |
+| `AGENT_KNOWN_CHECK_CONCURRENCY` | probes in flight per org, default 8 |
+| `AGENT_KNOWN_CHECK_MAX` | portals checked per org, default 50; excess is reported in `notes` |
 | `AGENT_CORS_ORIGINS` | only if a browser calls this directly |
 | `OPENROUTER_API_KEY`, `SERPER_API_KEY` | required by the engine |
 

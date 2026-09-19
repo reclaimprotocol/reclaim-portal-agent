@@ -30,7 +30,7 @@ import hmac
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -58,7 +58,15 @@ logging.basicConfig(
 )
 
 API_KEY = (os.getenv("AGENT_API_KEY") or "").strip()
-CONCURRENCY = int(os.getenv("AGENT_CONCURRENCY", "4"))
+#: Running without a key must be a CHOICE, not an accident. An unset
+#: AGENT_API_KEY previously disabled auth silently, so a deploy that forgot the
+#: secret would serve uploaded organisation data to anyone and let strangers
+#: queue hours of Chromium work. The service now refuses to start unless the
+#: operator opts in explicitly.
+ALLOW_NO_AUTH = (os.getenv("AGENT_ALLOW_NO_AUTH") or "").strip().lower() in ("1", "true", "yes")
+#: Clamped: 0 or a negative value makes asyncio.Semaphore raise at startup for
+#: what is only a typo in an env var.
+CONCURRENCY = max(1, int(os.getenv("AGENT_CONCURRENCY", "4")))
 MAX_ORGS = int(os.getenv("AGENT_MAX_ORGS_PER_RUN", "5000"))
 MAX_UPLOAD_BYTES = int(os.getenv("AGENT_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
 OPEN_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
@@ -75,7 +83,7 @@ def _require_key(request: Request) -> None:
     if request.url.path in OPEN_PATHS or request.method == "OPTIONS":
         return
     if not API_KEY:
-        return                                    # local dev
+        return                          # explicitly opted in — see lifespan
     auth = request.headers.get("authorization", "")
     provided = (request.headers.get("x-api-key", "")
                 or (auth[7:] if auth[:7].lower() == "bearer " else ""))
@@ -138,6 +146,13 @@ async def _consumer() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not API_KEY and not ALLOW_NO_AUTH:
+        raise RuntimeError(
+            "AGENT_API_KEY is not set. This service accepts uploads and runs "
+            "expensive browser jobs, so it refuses to start unauthenticated. "
+            "Set AGENT_API_KEY, or AGENT_ALLOW_NO_AUTH=1 for local development.")
+    if not API_KEY:
+        logger.warning("AGENT_ALLOW_NO_AUTH is set — this API is UNAUTHENTICATED")
     # Before anything imports the engine — memory_cache resolves its paths at
     # module import time, so a later seed would have no effect.
     seeded = memory.seed_memory_files()
@@ -155,7 +170,13 @@ async def lifespan(app: FastAPI):
     _queue = asyncio.Queue()
     task = asyncio.create_task(_consumer())
     yield
+    # Await the cancellation. Without it shutdown races the consumer, and a run
+    # in flight can be torn down between its status write and the results flush.
+    # The consumer marks the run `interrupted` on CancelledError — give it the
+    # chance to actually do that.
     task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
 
 
 app = FastAPI(title="Genie-V3 portal discovery", version="1.0.0", lifespan=lifespan)
@@ -208,9 +229,8 @@ async def create_run(request: Request) -> dict:
     if len(rows) > MAX_ORGS:
         raise HTTPException(413, f"at most {MAX_ORGS} organisations per run")
 
-    job_id = runs.new_run_id()
-    runs.create(job_id, body, total=len(rows),
-                options={"requested_by": request.headers.get("x-requested-by", "")})
+    job_id = runs.create(body, total=len(rows),
+                         options={"requested_by": request.headers.get("x-requested-by", "")})
     csvio.open_results(runs.results_path(job_id))
     if _queue is None:
         raise HTTPException(503, "service still starting")

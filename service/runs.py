@@ -50,17 +50,48 @@ def run_dir(job_id: str) -> Path:
     """Resolve a job id to its directory, rejecting anything malformed.
 
     The id arrives from the URL path, so it is untrusted input that becomes a
-    filesystem path. The regex is the whole defence against `../` traversal —
-    keep it anchored.
+    filesystem path. Two independent defences, because one of them is a regex
+    and regexes are easy to loosen by accident:
+
+      1. the anchored pattern, which no `../` or absolute path can satisfy;
+      2. containment — resolve the result and require it to sit under RUNS_DIR,
+         which also catches a symlink inside the runs directory pointing out of
+         it, something the pattern cannot see.
+
+    CodeQL flags the taint flow from URL to path regardless of the regex; the
+    containment check is what actually discharges it.
     """
     if not _RUN_ID_RE.match(job_id or ""):
         raise ValueError("malformed job_id")
-    return RUNS_DIR / job_id
+    base = RUNS_DIR.resolve()
+    candidate = (RUNS_DIR / job_id).resolve()
+    if candidate != base and base not in candidate.parents:
+        raise ValueError("job_id escapes the runs directory")
+    return candidate
 
 
-def create(job_id: str, input_csv: bytes, total: int, options: dict | None = None) -> Path:
+def create(input_csv: bytes, total: int, options: dict | None = None,
+           attempts: int = 5) -> str:
+    """Create a fresh run directory and return its id.
+
+    The directory is created with `exist_ok=False` so a colliding id raises
+    instead of overwriting. Six hex characters is only ~16M values, and the
+    previous `exist_ok=True` meant a same-day collision would silently replace
+    another run's input, status and results — a lost batch with no error
+    anywhere. Retry on collision; give up rather than clobber.
+    """
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    for _ in range(attempts):
+        job_id = new_run_id()
+        try:
+            run_dir(job_id).mkdir(parents=True, exist_ok=False)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise RuntimeError(f"could not allocate a free run id in {attempts} attempts")
+
     d = run_dir(job_id)
-    d.mkdir(parents=True, exist_ok=True)
     (d / "input.csv").write_bytes(input_csv)
     write_status(job_id, {
         "job_id": job_id, "status": QUEUED, "created_at": _now(),
@@ -68,7 +99,7 @@ def create(job_id: str, input_csv: bytes, total: int, options: dict | None = Non
         "total": total, "done": 0, "new_found": 0, "none_found": 0, "failed": 0,
         "options": options or {},
     })
-    return d
+    return job_id
 
 
 def read_status(job_id: str) -> dict | None:

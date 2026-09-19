@@ -34,6 +34,14 @@ logger = logging.getLogger("genie.service.discovery")
 KNOWN_CHECK_TIMEOUT_S = int(os.getenv("AGENT_KNOWN_CHECK_TIMEOUT", "8"))
 KNOWN_CHECK_ENABLED = os.getenv("AGENT_CHECK_KNOWN_PORTALS", "1").strip().lower() \
     not in ("0", "false", "no")
+#: Probes in flight per organisation. `current_portals` is caller-supplied and
+#: unbounded, so firing the whole cell at once can exhaust sockets — and a
+#: probe that times out because WE ran out of sockets is recorded as a dead
+#: portal, which is exactly the false verdict this feature exists to avoid.
+KNOWN_CHECK_CONCURRENCY = max(1, int(os.getenv("AGENT_KNOWN_CHECK_CONCURRENCY", "8")))
+#: Hard cap per org. Beyond this the list is almost certainly a data error
+#: rather than a real portal inventory; truncate loudly instead of crawling it.
+KNOWN_CHECK_MAX = max(1, int(os.getenv("AGENT_KNOWN_CHECK_MAX", "50")))
 
 
 def _host(url: str) -> str:
@@ -60,8 +68,14 @@ def _tnc_reason(portal: dict, stats: dict) -> str:
     return "no_legal_links_found" if harvested == 0 else "no_match_above_threshold"
 
 
-async def check_known_portals(urls: Sequence[str], country: str = "") -> list[str]:
-    """Return the caller's portals that are NOT live.
+async def check_known_portals(urls: Sequence[str],
+                              country: str = "") -> tuple[list[str], str]:
+    """Return (portals that are NOT live, note).
+
+    `note` is non-empty when the supplied list was truncated. Returning it
+    rather than only logging it matters: an empty dead-list that came from a
+    truncated check looks identical to a clean bill of health, and the caller
+    acts on the CSV, not on our logs.
 
     Answers 'mark previous portal urls as not correct' for roughly one HTTP
     request per URL. Note the guardrail counts 401/403/429 as ALIVE — a WAF
@@ -69,18 +83,32 @@ async def check_known_portals(urls: Sequence[str], country: str = "") -> list[st
     report with false verdicts on protected portals.
     """
     if not urls or not KNOWN_CHECK_ENABLED:
-        return []
+        return [], ""
     from agent.guardrails import verify_portal_endpoint_detailed
-    checks = await asyncio.gather(*(
-        verify_portal_endpoint_detailed(u, KNOWN_CHECK_TIMEOUT_S, country_hint=country)
-        for u in urls), return_exceptions=True)
+
+    urls, supplied, note = list(urls), len(urls), ""
+    if supplied > KNOWN_CHECK_MAX:
+        note = f"known_portals_truncated: checked {KNOWN_CHECK_MAX} of {supplied}"
+        logger.warning("%d known portals supplied — checking the first %d only",
+                       supplied, KNOWN_CHECK_MAX)
+        urls = urls[:KNOWN_CHECK_MAX]
+
+    sem = asyncio.Semaphore(KNOWN_CHECK_CONCURRENCY)
+
+    async def probe(u: str):
+        async with sem:
+            return await verify_portal_endpoint_detailed(
+                u, KNOWN_CHECK_TIMEOUT_S, country_hint=country)
+
+    checks = await asyncio.gather(*(probe(u) for u in urls),
+                                  return_exceptions=True)
     dead = []
     for u, c in zip(urls, checks):
         if isinstance(c, BaseException):
             continue                      # an errored probe is not evidence of death
         if not c[0]:
             dead.append(u)
-    return dead
+    return dead, note
 
 
 async def process_org(row: InputRow) -> list[dict]:
@@ -94,7 +122,9 @@ async def process_org(row: InputRow) -> list[dict]:
             check_known_portals(row.current_portals, row.country),
             find_portals(row.website, name=row.name, country=row.country))
 
-        base["dead_known_portals"] = "|".join(dead_known)
+        dead_list, known_note = dead_known
+        base["dead_known_portals"] = "|".join(dead_list)
+        base["notes"] = known_note
         stats = result.get("stats") or {}
 
         fresh, suppressed = [], []
@@ -105,7 +135,7 @@ async def process_org(row: InputRow) -> list[dict]:
 
         if not fresh:
             logger.info("org %s (%s) — no new portals (%d already known, %d dead)",
-                        row.org_id, row.website, len(suppressed), len(dead_known))
+                        row.org_id, row.website, len(suppressed), len(dead_list))
             return [{**base, "status": STATUS_NONE,
                      "error": result.get("error", "") if not result.get("portals") else ""}]
 

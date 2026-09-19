@@ -25,6 +25,11 @@ reads as a complete one.
 
 `suppressed_as_known` and `dead_known_portals` are org-level facts repeated on
 each of that org's rows, so the file stays flat and joins on orgId.
+
+`notes` carries anything that qualifies the row without failing it — today only
+`known_portals_truncated`, when more portals were supplied than the per-org cap
+allows. An empty `dead_known_portals` would otherwise be ambiguous between "none
+were dead" and "we did not check them all".
 """
 from __future__ import annotations
 
@@ -52,7 +57,7 @@ _SPLIT = re.compile(r"[|;\n\r\t ]+")
 OUTPUT_COLUMNS = [
     "orgId", "status", "new_portal_url", "category", "system", "tnc_url",
     "tnc_reason", "confidence", "match_basis", "http_status",
-    "suppressed_as_known", "dead_known_portals", "error",
+    "suppressed_as_known", "dead_known_portals", "notes", "error",
 ]
 
 STATUS_NEW, STATUS_NONE, STATUS_FAILED = "new_found", "none_found", "failed"
