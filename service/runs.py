@@ -58,15 +58,19 @@ def run_dir(job_id: str) -> Path:
          which also catches a symlink inside the runs directory pointing out of
          it, something the pattern cannot see.
 
-    CodeQL flags the taint flow from URL to path regardless of the regex; the
-    containment check is what actually discharges it.
+    Containment is expressed as `Path.relative_to` inside try/except rather than
+    a `parents` membership test. Both are correct, but only this form is a shape
+    CodeQL recognises as a sanitiser for py/path-injection — with the membership
+    test it kept reporting the taint flow from URL to open().
     """
     if not _RUN_ID_RE.match(job_id or ""):
         raise ValueError("malformed job_id")
     base = RUNS_DIR.resolve()
-    candidate = (RUNS_DIR / job_id).resolve()
-    if candidate != base and base not in candidate.parents:
-        raise ValueError("job_id escapes the runs directory")
+    candidate = (base / job_id).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        raise ValueError("job_id escapes the runs directory") from None
     return candidate
 
 
@@ -91,8 +95,7 @@ def create(input_csv: bytes, total: int, options: dict | None = None,
     else:
         raise RuntimeError(f"could not allocate a free run id in {attempts} attempts")
 
-    d = run_dir(job_id)
-    (d / "input.csv").write_bytes(input_csv)
+    _contained(job_id, "input.csv").write_bytes(input_csv)
     write_status(job_id, {
         "job_id": job_id, "status": QUEUED, "created_at": _now(),
         "started_at": "", "finished_at": "",
@@ -102,8 +105,24 @@ def create(input_csv: bytes, total: int, options: dict | None = None,
     return job_id
 
 
+def _contained(job_id: str, *parts: str) -> Path:
+    """A path inside this run's directory, re-checked after joining.
+
+    Every filesystem access in this module goes through here, so the sanitiser
+    sits on one line rather than being repeated at each call site — and CodeQL
+    sees the same recognised containment check on every flow.
+    """
+    base = RUNS_DIR.resolve()
+    p = run_dir(job_id).joinpath(*parts).resolve()
+    try:
+        p.relative_to(base)
+    except ValueError:
+        raise ValueError("path escapes the runs directory") from None
+    return p
+
+
 def read_status(job_id: str) -> dict | None:
-    p = run_dir(job_id) / "status.json"
+    p = _contained(job_id, "status.json")
     if not p.exists():
         return None
     try:
@@ -115,10 +134,9 @@ def read_status(job_id: str) -> dict | None:
 def write_status(job_id: str, status: dict) -> None:
     """Atomic: a status file half-written when the container dies reads as
     corrupt JSON, and the run then looks lost rather than interrupted."""
-    d = run_dir(job_id)
-    tmp = d / ".status.tmp"
+    tmp = _contained(job_id, ".status.tmp")
     tmp.write_text(json.dumps(status, indent=1))
-    os.replace(tmp, d / "status.json")
+    os.replace(tmp, _contained(job_id, "status.json"))
 
 
 def update_status(job_id: str, **fields: Any) -> dict:
@@ -138,7 +156,7 @@ def bump(job_id: str, outcome: str) -> dict:
 
 
 def results_path(job_id: str) -> Path:
-    return run_dir(job_id) / "results.csv"
+    return _contained(job_id, "results.csv")
 
 
 def list_runs(limit: int = 50) -> list[dict]:
