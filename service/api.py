@@ -206,7 +206,35 @@ def health() -> dict:
             "concurrency": CONCURRENCY,
             "queued": _queue.qsize() if _queue is not None else 0,
             "openrouter_key": bool(os.getenv("OPENROUTER_API_KEY", "").strip()),
-            "serper_key": bool(os.getenv("SERPER_API_KEY", "").strip())}
+            "serper_key": bool(os.getenv("SERPER_API_KEY", "").strip()),
+            # Booleans and a country code only — never the gateway or credentials.
+            #
+            # Added after a deploy spent an hour looking like a model failure and
+            # turned out to be a proxy that was off, then a gateway with a scheme
+            # in it. Nothing in /health or in the CSV distinguished "routed
+            # through the right country" from "fetched raw from Oregon"; you had
+            # to read the crawler log line. This makes it one request.
+            "proxy": _proxy_status()}
+
+
+def _proxy_status() -> dict:
+    """Is the residential proxy actually usable, and where do we claim to be?"""
+    on = (os.getenv("USE_PROXY", "0").strip().lower() in ("1", "true", "yes", "on"))
+    gw = (os.getenv("RESIDENTIAL_PROXY_GATEWAY") or "").strip()
+    complete = bool(gw and (os.getenv("RESIDENTIAL_PROXY_USER") or "").strip()
+                    and (os.getenv("RESIDENTIAL_PROXY_PASS") or "").strip())
+    return {
+        "enabled": on,
+        "configured": complete,
+        # A gateway carrying a scheme silently produces http://user:pass@http://host
+        # and every fetch fails. Cheap to detect, expensive to notice by hand.
+        "gateway_has_scheme": "://" in gw,
+        "home_country": (os.getenv("PROXY_HOME_CC", "in") or "").strip().lower(),
+        # The decisive field: with the proxy off, or home set wrong, these are
+        # fetched direct — which for a US host is the failure we just debugged.
+        "india_routed_via_proxy": on and complete and
+                                  (os.getenv("PROXY_HOME_CC", "in") or "").strip().lower() != "in",
+    }
 
 
 @app.post("/runs", status_code=202)
