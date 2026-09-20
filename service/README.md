@@ -159,6 +159,44 @@ downloadable, but the remaining orgs are not resumed.
 | `AGENT_KNOWN_CHECK_MAX` | portals checked per org, default 50; excess is reported in `notes` |
 | `AGENT_CORS_ORIGINS` | only if a browser calls this directly |
 | `OPENROUTER_API_KEY`, `SERPER_API_KEY` | required by the engine |
+| `USE_PROXY` | `1` enables the residential proxy — see below |
+| `PROXY_HOME_CC` | the country this host egresses from; `us` on Render, default `in` |
+| `RESIDENTIAL_PROXY_GATEWAY` | `host:port`, **no scheme** |
+| `RESIDENTIAL_PROXY_USER`, `RESIDENTIAL_PROXY_PASS` | provider credentials |
+
+## The proxy is not optional on a hosted deploy
+
+Measured on this service: `buet.ac.bd` returned **no portals** from the US, and
+the correct BIIS portal plus its privacy policy through a Bangladesh exit. The
+crawl did not fail in the first case — it fetched a *different* page, with
+enough links to pass the filter and none of them the portal. The output said
+`no portals identified`, which is indistinguishable from a genuine miss.
+
+Two configuration mistakes cause this, and both are silent:
+
+* **`PROXY_HOME_CC` left at its default.** Domains in the home country skip the
+  proxy, because a direct connection is already local. The default is `in`, so
+  on a US host every `.ac.in` and `.edu.in` university — the largest slice of
+  the org list, 542 sharing `samarth.edu.in` alone — is fetched direct from the
+  wrong continent, and the log says `via direct` as though that were intended.
+* **A scheme in the gateway.** `http://host:port` becomes
+  `http://user:pass@http://host:port` and every fetch fails.
+
+`GET /health` reports both:
+
+```json
+"proxy": {"enabled": true, "configured": true, "gateway_has_scheme": false,
+          "home_country": "us", "india_routed_via_proxy": true}
+```
+
+`india_routed_via_proxy: false` on a non-Indian host means the largest part of
+your list is being fetched from the wrong place.
+
+The proxy **fails closed**: an unwhitelisted egress IP returns 401 and every
+portal is recorded dead. Whitelist the host's outbound IPs with the provider
+before enabling it. The crawler retries once directly when a proxied fetch
+fails, and logs which exit was at fault; the liveness guardrail has no such
+fallback.
 
 ## Not done yet
 

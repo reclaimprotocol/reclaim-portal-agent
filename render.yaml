@@ -76,6 +76,22 @@ services:
         sync: false
       - key: AGENT_CONCURRENCY     # browsers in flight. Raise only with the memory graph open.
         value: "4"
+      # Residential proxy. Without it a hosted run fetches every university from
+      # this datacentre, which measurably changes what the crawl sees: buet.ac.bd
+      # returned no portals from a US exit and the correct one through a BD exit.
+      - key: USE_PROXY
+        value: "1"
+      # MUST match where this runs. Default `in` skips the proxy for Indian
+      # domains on the assumption we are in India; from a US host that silently
+      # fetches the largest slice of the org list from the wrong continent.
+      - key: PROXY_HOME_CC
+        value: us
+      - key: RESIDENTIAL_PROXY_GATEWAY   # host:port, NO scheme
+        sync: false
+      - key: RESIDENTIAL_PROXY_USER
+        sync: false
+      - key: RESIDENTIAL_PROXY_PASS
+        sync: false
       - key: AGENT_RUNS_DIR
         value: /data/runs
       # L5 memory on the disk — otherwise every deploy resets the resume shield
