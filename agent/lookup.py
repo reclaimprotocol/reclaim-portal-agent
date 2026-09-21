@@ -46,9 +46,10 @@ except Exception:  # noqa: BLE001
 
 from agent.crawler import extract_raw_university_links          # noqa: E402
 from agent.filters import LocalKnowledgeMatrixFilter            # noqa: E402
-from agent.graph_matcher import (GraphComplianceMatcher,        # noqa: E402
+from agent.graph_matcher import (GraphComplianceMatcher, host_of,  # noqa: E402
                                  DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
-from agent.guardrails import verify_portal_endpoint_detailed    # noqa: E402
+from agent.guardrails import (verify_portal_endpoint_final,     # noqa: E402
+                              transport_ok, REQUIRE_HTTPS)
 from agent.memory_cache import MemoryCache, signature           # noqa: E402
 from agent.openrouter_cascade import execute_model_cascade      # noqa: E402
 from agent.schemas import IntegratedDiscoveryOutput             # noqa: E402
@@ -135,16 +136,42 @@ async def find_portals(
 
     # 4. verify ----------------------------------------------------------
     checks = await asyncio.gather(*(
-        verify_portal_endpoint_detailed(p.exact_url, GUARDRAIL_TIMEOUT_S,
-                                        country_hint=country,
-                                        retry_timeout_seconds=GUARDRAIL_RETRY_S)
+        verify_portal_endpoint_final(p.exact_url, GUARDRAIL_TIMEOUT_S,
+                                     country_hint=country,
+                                     retry_timeout_seconds=GUARDRAIL_RETRY_S)
         for p in result.discovered_portals))
-    live = [(p, c) for p, c in zip(result.discovered_portals, checks) if c[0]]
-    stats["dead_portals"] = len(result.discovered_portals) - len(live)
+    reachable = [(p, c) for p, c in zip(result.discovered_portals, checks) if c[0]]
+    stats["dead_portals"] = len(result.discovered_portals) - len(reachable)
+
+    # --- transport policy ------------------------------------------------
+    # Applied to where the request LANDED, not to the published link: many
+    # institutions advertise http and redirect to https, and judging those on
+    # the input would discard perfectly secure portals.
+    #
+    # The landing URL is adopted only when it is the SAME HOST. A portal that
+    # redirects to an identity provider lands on accounts.google.com or
+    # login.microsoftonline.com, and recording THAT as the student portal
+    # would be worse than recording nothing.
+    live: list[Any] = []
+    insecure: list[str] = []
+    for p, c in reachable:
+        landed = (c[3] or p.exact_url)
+        if host_of(landed) == host_of(p.exact_url):
+            p.exact_url = landed          # free https upgrade where it applies
+        if transport_ok(landed):
+            live.append((p, c))
+        else:
+            insecure.append(landed)
+    if insecure:
+        logger.info("lookup: %s — %d portal(s) dropped, final URL not https: %s",
+                    domain, len(insecure), ", ".join(insecure[:3]))
+    stats["dropped_insecure_http"] = len(insecure)
+    stats["require_https"] = REQUIRE_HTTPS
 
     if portals_only:
         return {
             "domain": domain, "name": result.university_name,
+            "insecure_dropped": insecure,
             "portals": [{"url": p.exact_url, "category": p.category,
                          "system": p.portal_system_name, "http_status": c[1]}
                         for p, c in live],
@@ -181,7 +208,7 @@ async def find_portals(
             "match_basis": m.get("domain_relation"),
         })
     return {"domain": domain, "name": result.university_name,
-            "portals": portals, "stats": stats}
+            "portals": portals, "insecure_dropped": insecure, "stats": stats}
 
 
 # --------------------------------------------------------------------------- #

@@ -68,7 +68,8 @@ from agent.crawler import extract_raw_university_links, is_blocked  # noqa: E402
 from agent.filters import LocalKnowledgeMatrixFilter                # noqa: E402
 from agent.graph_matcher import (GraphComplianceMatcher,            # noqa: E402
                                  DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
-from agent.guardrails import verify_portal_endpoint_detailed        # noqa: E402
+from agent.guardrails import (verify_portal_endpoint_final,          # noqa: E402
+                              verify_portal_endpoint_detailed, transport_ok)
 from agent.memory_cache import MemoryCache, signature               # noqa: E402
 from agent.openrouter_cascade import execute_model_cascade          # noqa: E402
 from agent.schemas import IntegratedDiscoveryOutput                 # noqa: E402
@@ -722,6 +723,38 @@ async def harvest_portal_legal_links(
 # --------------------------------------------------------------------------- #
 #  4. Worker                                                                   #
 # --------------------------------------------------------------------------- #
+def _apply_transport_policy(org_id: str, pairs: list) -> tuple[list, list[str]]:
+    """Split verified portals into (kept, dropped-as-insecure).
+
+    Same rule as agent/lookup.py, applied here too: the batch CSV is what ships
+    to the customer, so enforcing https only on the single-org path would leave
+    the deliverable itself unfiltered.
+
+    Judged on where the request LANDED, and the landing URL is adopted only on
+    the same host — a portal redirecting to an identity provider lands on
+    login.microsoftonline.com, which is not the student portal.
+    """
+    kept, dropped = [], []
+    for p, c in pairs:
+        landed = (c[3] if len(c) > 3 else "") or p.exact_url
+        if host_of_url(landed) == host_of_url(p.exact_url):
+            p.exact_url = landed          # free https upgrade on the same host
+        if transport_ok(landed):
+            kept.append((p, c))
+        else:
+            dropped.append(landed)
+    if dropped:
+        logger.warning("[INSECURE PORTAL DROPPED] org %s — %d portal(s) are not "
+                       "https and were discarded: %s",
+                       org_id, len(dropped), ", ".join(dropped[:3]))
+    return kept, dropped
+
+
+def host_of_url(url: str) -> str:
+    from agent.graph_matcher import host_of
+    return host_of(url)
+
+
 async def process_university(
     row: UniversityRow,
     lkm: LocalKnowledgeMatrixFilter,
@@ -829,14 +862,15 @@ async def process_university(
 
             # -- 4. GUARDRAIL --------------------------------------------
             checks = await asyncio.gather(*(
-                verify_portal_endpoint_detailed(
+                verify_portal_endpoint_final(
                     p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
                     retry_timeout_seconds=GUARDRAIL_RETRY_S)
                 for p in result.discovered_portals))
 
-            live_portals = [(p, c) for p, c in zip(result.discovered_portals, checks) if c[0]]
-            dead = len(result.discovered_portals) - len(live_portals)
-            for p, (live, code, note) in zip(result.discovered_portals, checks):
+            reachable = [(p, c) for p, c in zip(result.discovered_portals, checks) if c[0]]
+            dead = len(result.discovered_portals) - len(reachable)
+            live_portals, insecure_dropped = _apply_transport_policy(row.org_id, reachable)
+            for p, (live, code, note, _landed) in zip(result.discovered_portals, checks):
                 if not live:
                     logger.warning("[DEAD ENDPOINT DETECTED] org %s — %s "
                                    "(http=%s, %s) — discarded",
@@ -851,16 +885,21 @@ async def process_university(
                     used_search = True
                     result, _t2 = await cascade_with_pacing(row, hits)
                     checks = await asyncio.gather(*(
-                        verify_portal_endpoint_detailed(
+                        verify_portal_endpoint_final(
                             p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
                             retry_timeout_seconds=GUARDRAIL_RETRY_S)
                         for p in result.discovered_portals))
-                    live_portals = [(p, c) for p, c in
-                                    zip(result.discovered_portals, checks) if c[0]]
+                    reachable = [(p, c) for p, c in
+                                 zip(result.discovered_portals, checks) if c[0]]
+                    live_portals, dropped2 = _apply_transport_policy(row.org_id, reachable)
+                    insecure_dropped += dropped2
                 if not live_portals:
+                    note = (f"all portals dead ({dead})" if not insecure_dropped
+                            else f"all portals dead ({dead}) / "
+                                 f"{len(insecure_dropped)} dropped not-https")
                     return RowOutcome(row.org_id, False, portals=len(result.discovered_portals),
                                       seconds=round(time.monotonic() - t0, 1),
-                                      note=f"all portals dead ({dead})")
+                                      note=note)
 
             # -- 4b. TWO-STEP PORTAL CRAWL -------------------------------
             legal_links: list[Any] = list(result.harvested_legal_links or [])
