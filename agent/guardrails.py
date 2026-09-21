@@ -91,7 +91,7 @@ def _classify(status: int) -> bool:
     return False
 
 
-async def verify_portal_endpoint_detailed(
+async def verify_portal_endpoint_final(
     url_path: str,
     timeout_seconds: int = 5,
     *,
@@ -99,8 +99,14 @@ async def verify_portal_endpoint_detailed(
     use_proxy: bool = True,
     country_hint: str = "",
     retry_timeout_seconds: int | None = None,
-) -> tuple[bool, int, str]:
-    """(alive, http_status, note) for `url_path`.
+) -> tuple[bool, int, str, str]:
+    """(alive, http_status, note, final_url) for `url_path`.
+
+    `final_url` is where the request LANDED after redirects, which is not
+    always where it started: many institutional portals are published as http
+    and redirect to https. Recording the landing URL both upgrades those for
+    free and is the only way to apply an https policy correctly — V2 checked
+    `resp.url`, not the input, for exactly that reason.
 
     Same logic as `verify_portal_endpoint`, but keeps the status code so callers
     that log or persist it do not have to probe the endpoint a second time.
@@ -125,24 +131,24 @@ async def verify_portal_endpoint_detailed(
         url = _as_url(url_path)
     except ValueError as exc:
         logger.warning("guardrails: %s", exc)
-        return False, 0, "bad url"
+        return False, 0, "bad url", url_path
 
     proxy = _proxy_url(url, country_hint) if use_proxy else None
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     headers = {"User-Agent": USER_AGENT}
 
     async def _attempt(sess: aiohttp.ClientSession,
-                       budget: aiohttp.ClientTimeout) -> tuple[bool, int, str]:
+                       budget: aiohttp.ClientTimeout) -> tuple[bool, int, str, str]:
         # 1) HEAD — cheapest possible probe.
         try:
             async with sess.head(url, allow_redirects=True, timeout=budget,
                                  headers=headers, proxy=proxy,
                                  ssl=_INSECURE_SSL) as resp:
-                status = resp.status
+                status, landed = resp.status, str(resp.url)
             if status != METHOD_NOT_ALLOWED:
                 alive = _classify(status)
                 logger.debug("guardrails: HEAD %s -> %s (alive=%s)", url, status, alive)
-                return alive, status, "head"
+                return alive, status, "head", landed
         except asyncio.TimeoutError:
             raise
         except aiohttp.ClientError as exc:
@@ -156,11 +162,11 @@ async def verify_portal_endpoint_detailed(
         async with sess.get(url, allow_redirects=True, timeout=budget,
                             headers=headers, proxy=proxy,
                             ssl=_INSECURE_SSL) as resp:
-            status = resp.status
+            status, landed = resp.status, str(resp.url)
             await resp.release()
         alive = _classify(status)
         logger.debug("guardrails: GET %s -> %s (alive=%s)", url, status, alive)
-        return alive, status, "get"
+        return alive, status, "get", landed
 
     own_session = session is None
     sess = session or aiohttp.ClientSession(timeout=timeout)
@@ -176,22 +182,70 @@ async def verify_portal_endpoint_detailed(
                         sess, aiohttp.ClientTimeout(total=retry_timeout_seconds))
                 except Exception as exc:  # noqa: BLE001
                     logger.info("guardrails: %s dead on retry (%s)", url, type(exc).__name__)
-                    return False, 0, f"retry {type(exc).__name__}"
+                    return False, 0, f"retry {type(exc).__name__}", url
             logger.info("guardrails: %s timed out after %ss — treated as dead",
                         url, timeout_seconds)
-            return False, 0, "timeout"
+            return False, 0, "timeout", url
         except aiohttp.ClientError as exc:
             logger.info("guardrails: %s unreachable (%s)", url, type(exc).__name__)
-            return False, 0, type(exc).__name__
+            return False, 0, type(exc).__name__, url
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — never break the caller's loop
             logger.warning("guardrails: %s unexpected %s: %s",
                            url, type(exc).__name__, str(exc)[:160])
-            return False, 0, type(exc).__name__
+            return False, 0, type(exc).__name__, url
     finally:
         if own_session:
             await sess.close()
+
+
+async def verify_portal_endpoint_detailed(
+    url_path: str,
+    timeout_seconds: int = 5,
+    **kwargs: Any,
+) -> tuple[bool, int, str]:
+    """(alive, http_status, note) — the pre-existing 3-tuple contract.
+
+    Kept so callers that do not care where the request landed are unaffected.
+    New code should prefer `verify_portal_endpoint_final`.
+    """
+    alive, status, note, _final = await verify_portal_endpoint_final(
+        url_path, timeout_seconds, **kwargs)
+    return alive, status, note
+
+
+# --------------------------------------------------------------------------- #
+#  Transport policy — is a plain-http login acceptable?                        #
+# --------------------------------------------------------------------------- #
+#: Reject portals whose FINAL url is not https. Default on.
+#:
+#: V2 enforced this in two places (`magic.py` accept filter, and discovery's
+#: hard-gate on `resp.url`) and the V3 rewrite dropped it — so V3 shipped
+#: plain-http logins for months. 57 of 287 portals in domain_history are http,
+#: and a sample showed roughly half of those stay http after redirects.
+#:
+#: The check is on the FINAL url, never the input: plenty of institutions
+#: publish http and redirect to https, and rejecting those would throw away
+#: perfectly secure portals over a published link's spelling.
+#:
+#: It is a real trade, not a free win. Genuinely http-only student portals
+#: exist and are legitimate — Universidad Pedagógica de Durango publishes one
+#: from its own homepage. Turning this on drops them. Callers are expected to
+#: REPORT what was dropped rather than let it vanish, because a silent filter
+#: is indistinguishable from "this university has no portal".
+REQUIRE_HTTPS = os.getenv("GENIE_REQUIRE_HTTPS", "1").strip().lower() \
+    not in ("0", "false", "no", "off")
+
+
+def transport_ok(final_url: str) -> bool:
+    """True when this URL satisfies the transport policy.
+
+    Always True when REQUIRE_HTTPS is off, so the flag is the only switch.
+    """
+    if not REQUIRE_HTTPS:
+        return True
+    return (final_url or "").strip().lower().startswith("https://")
 
 
 async def verify_many(

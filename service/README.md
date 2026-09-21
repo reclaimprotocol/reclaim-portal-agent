@@ -164,6 +164,30 @@ downloadable, but the remaining orgs are not resumed.
 | `RESIDENTIAL_PROXY_GATEWAY` | `host:port`, **no scheme** |
 | `RESIDENTIAL_PROXY_USER`, `RESIDENTIAL_PROXY_PASS` | provider credentials |
 
+## Portals must be https
+
+Checked on the **final URL after redirects**, not the published link — plenty of
+institutions advertise http and redirect to https, and judging those on the input
+would discard perfectly secure portals. A portal that lands on https is kept and
+recorded at its https address, which upgrades some entries for free.
+
+Genuinely http-only logins are dropped and listed in `notes`:
+
+```
+[none_found]  notes: dropped_insecure_http: http://cvc.cobamich.edu.mx/login/index.php|...
+```
+
+That reporting matters: without it a dropped portal is indistinguishable from a
+university that has none — which is how the rule went missing unnoticed when V3
+was written (V2 enforced it in `legacy/magic.py` and `legacy/stages/discovery.py`;
+V3 had neither until 2026-09-21).
+
+It is a real trade. Roughly half the http portals in `domain_history.json` stay
+http after redirects, and some are legitimate — Universidad Pedagógica de Durango
+publishes an http-only Oracle APEX portal from its own homepage. They are dropped
+because credentials over plain http is not something to ship, not because the
+portal is fake. `GENIE_REQUIRE_HTTPS=0` disables the rule for investigation runs.
+
 ## The proxy is not optional on a hosted deploy
 
 Measured on this service: `buet.ac.bd` returned **no portals** from the US, and

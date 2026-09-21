@@ -124,7 +124,18 @@ async def process_org(row: InputRow) -> list[dict]:
 
         dead_list, known_note = dead_known
         base["dead_known_portals"] = "|".join(dead_list)
-        base["notes"] = known_note
+
+        # A portal removed by the https policy must never look like "this
+        # university has no portal" — that is the same silent-filter trap the
+        # rest of this pipeline is built to avoid, and it is exactly how the
+        # rule went missing in V3 unnoticed in the first place.
+        notes = [known_note] if known_note else []
+        insecure = result.get("insecure_dropped") or []
+        if insecure:
+            notes.append("dropped_insecure_http: " + "|".join(insecure))
+            logger.info("org %s (%s) — %d portal(s) dropped by https policy",
+                        row.org_id, row.website, len(insecure))
+        base["notes"] = "; ".join(notes)
         stats = result.get("stats") or {}
 
         fresh, suppressed = [], []
