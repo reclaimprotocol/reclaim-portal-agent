@@ -68,7 +68,17 @@ services:
       mountPath: /data
       sizeGB: 5
     envVars:
-      - key: AGENT_API_KEY         # shared secret; the dashboard BACKEND sends it
+      # Keycloak SSO for the GenieV3 browser console. AGENT_API_KEY remains an
+      # optional fallback for trusted server-to-server automation only.
+      - key: OIDC_ISSUER
+        value: https://keycloak.reclaimprotocol.org/realms/employees
+      - key: OIDC_CLIENT_ID
+        value: geniev3
+      - key: OIDC_AUDIENCE
+        value: geniev3-api
+      - key: REQUIRED_ROLE
+        value: app:geniev3:access
+      - key: AGENT_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY    # required — the model cascade
         sync: false

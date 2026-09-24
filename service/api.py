@@ -33,6 +33,8 @@ import sys
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
+import jwt
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
@@ -58,6 +60,15 @@ logging.basicConfig(
 )
 
 API_KEY = (os.getenv("AGENT_API_KEY") or "").strip()
+OIDC_ISSUER = (os.getenv("OIDC_ISSUER") or "").strip().rstrip("/")
+OIDC_AUDIENCE = (os.getenv("OIDC_AUDIENCE") or "").strip()
+REQUIRED_ROLE = (os.getenv("REQUIRED_ROLE") or "").strip()
+OIDC_CLIENT_ID = (os.getenv("OIDC_CLIENT_ID") or "").strip()
+_oidc_values = (OIDC_ISSUER, OIDC_AUDIENCE, REQUIRED_ROLE, OIDC_CLIENT_ID)
+if any(_oidc_values) and not all(_oidc_values):
+    raise RuntimeError("OIDC_ISSUER, OIDC_AUDIENCE, REQUIRED_ROLE, and OIDC_CLIENT_ID must be set together")
+OIDC_ENABLED = all(_oidc_values)
+_jwks = jwt.PyJWKClient(OIDC_ISSUER + "/protocol/openid-connect/certs", cache_keys=True) if OIDC_ENABLED else None
 #: Running without a key must be a CHOICE, not an accident. An unset
 #: AGENT_API_KEY previously disabled auth silently, so a deploy that forgot the
 #: secret would serve uploaded organisation data to anyone and let strangers
@@ -69,7 +80,7 @@ ALLOW_NO_AUTH = (os.getenv("AGENT_ALLOW_NO_AUTH") or "").strip().lower() in ("1"
 CONCURRENCY = max(1, int(os.getenv("AGENT_CONCURRENCY", "4")))
 MAX_ORGS = int(os.getenv("AGENT_MAX_ORGS_PER_RUN", "5000"))
 MAX_UPLOAD_BYTES = int(os.getenv("AGENT_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
-OPEN_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
+OPEN_PATHS = {"/", "/auth/callback", "/auth/config", "/health", "/docs", "/redoc", "/openapi.json"}
 
 #: Created inside `lifespan`, never at import. A module-level asyncio.Queue()
 #: binds to whichever event loop happens to exist when the module is imported,
@@ -79,16 +90,39 @@ OPEN_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
 _queue: asyncio.Queue | None = None
 
 
-def _require_key(request: Request) -> None:
+def _verify_oidc_token(token: str) -> dict:
+    """Verify a Keycloak access token and enforce GenieV3 membership."""
+    assert _jwks is not None
+    try:
+        signing_key = _jwks.get_signing_key_from_jwt(token)
+        claims = jwt.decode(token, signing_key.key, algorithms=["RS256"],
+                            issuer=OIDC_ISSUER, audience=OIDC_AUDIENCE,
+                            options={"require": ["exp", "iat", "sub", "iss", "aud"]})
+    except jwt.PyJWTError as exc:
+        raise HTTPException(401, "invalid or expired access token") from exc
+    role_claim = claims.get("realm_access", {})
+    roles = role_claim.get("roles", []) if isinstance(role_claim, dict) else []
+    if not isinstance(roles, list) or REQUIRED_ROLE not in roles:
+        raise HTTPException(403, "access token lacks the required role")
+    return claims
+
+
+def _authenticate(request: Request) -> None:
     if request.url.path in OPEN_PATHS or request.method == "OPTIONS":
         return
-    if not API_KEY:
-        return                          # explicitly opted in — see lifespan
     auth = request.headers.get("authorization", "")
-    provided = (request.headers.get("x-api-key", "")
-                or (auth[7:] if auth[:7].lower() == "bearer " else ""))
-    if not (provided and hmac.compare_digest(provided, API_KEY)):
-        raise HTTPException(401, "invalid or missing API key")
+    bearer = auth[7:] if auth[:7].lower() == "bearer " else ""
+    provided = request.headers.get("x-api-key", "") or bearer
+    # Retain a non-browser automation path while SSO rolls out.
+    if API_KEY and provided and hmac.compare_digest(provided, API_KEY):
+        request.state.principal = "api-key"
+        return
+    if OIDC_ENABLED and bearer:
+        request.state.principal = _verify_oidc_token(bearer).get("sub", "")
+        return
+    if ALLOW_NO_AUTH and not API_KEY and not OIDC_ENABLED:
+        return
+    raise HTTPException(401, "authentication required")
 
 
 # --------------------------------------------------------------------------- #
@@ -146,12 +180,11 @@ async def _consumer() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not API_KEY and not ALLOW_NO_AUTH:
+    if not API_KEY and not OIDC_ENABLED and not ALLOW_NO_AUTH:
         raise RuntimeError(
-            "AGENT_API_KEY is not set. This service accepts uploads and runs "
-            "expensive browser jobs, so it refuses to start unauthenticated. "
-            "Set AGENT_API_KEY, or AGENT_ALLOW_NO_AUTH=1 for local development.")
-    if not API_KEY:
+            "Configure OIDC or AGENT_API_KEY. This service accepts uploads and "
+            "runs expensive browser jobs, so it refuses to start unauthenticated.")
+    if not API_KEY and not OIDC_ENABLED:
         logger.warning("AGENT_ALLOW_NO_AUTH is set — this API is UNAUTHENTICATED")
     # Before anything imports the engine — memory_cache resolves its paths at
     # module import time, so a later seed would have no effect.
@@ -190,7 +223,7 @@ if _origins:
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     try:
-        _require_key(request)
+        _authenticate(request)
     except HTTPException as e:
         return JSONResponse({"detail": e.detail}, status_code=e.status_code)
     return await call_next(request)
@@ -217,6 +250,13 @@ def health() -> dict:
             "proxy": _proxy_status()}
 
 
+@app.get("/auth/config")
+def auth_config() -> dict:
+    """Public OIDC details consumed by the same-origin PKCE console."""
+    return {"enabled": OIDC_ENABLED, "issuer": OIDC_ISSUER,
+            "client_id": OIDC_CLIENT_ID, "redirect_uri": str("/auth/callback")}
+
+
 @app.get("/", include_in_schema=False)
 def console() -> FileResponse:
     """Serve the small same-origin operator console.
@@ -227,6 +267,11 @@ def console() -> FileResponse:
     """
     return FileResponse(Path(__file__).with_name("console.html"),
                         media_type="text/html")
+
+
+@app.get("/auth/callback", include_in_schema=False)
+def auth_callback() -> FileResponse:
+    return console()
 
 
 def _proxy_status() -> dict:
