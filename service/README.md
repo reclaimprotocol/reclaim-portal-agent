@@ -25,8 +25,9 @@ on the server, and none of the 7-day OAuth expiry that kills long batches.
 | `GET /runs/{job_id}` | progress counters |
 | `GET /runs/{job_id}/results.csv` | results — downloadable **mid-run** |
 
-Auth: one shared secret in `X-API-Key`. Call it from your dashboard's
-**backend** — a key in frontend JS is a public key.
+Browser users authenticate through Keycloak with an access token. The API
+validates its signature, issuer, audience, expiry, and required role. The
+legacy `X-API-Key` path is retained only for trusted server-to-server callers.
 
 **The service refuses to start if `AGENT_API_KEY` is unset.** It accepts uploads
 and runs expensive browser jobs, so an unauthenticated deploy is a data leak and
@@ -147,7 +148,11 @@ downloadable, but the remaining orgs are not resumed.
 
 | | |
 |---|---|
-| `AGENT_API_KEY` | shared secret for `X-API-Key`. Required — the service will not start without it |
+| `OIDC_ISSUER` | Keycloak employees-realm issuer for browser access |
+| `OIDC_CLIENT_ID` | Keycloak public client ID: `geniev3` |
+| `OIDC_AUDIENCE` | API audience: `geniev3-api` |
+| `REQUIRED_ROLE` | Realm role required to use the API: `app:geniev3:access` |
+| `AGENT_API_KEY` | optional `X-API-Key` fallback for trusted server-to-server callers |
 | `AGENT_ALLOW_NO_AUTH` | `1` permits starting with no key (local dev only) |
 | `AGENT_CONCURRENCY` | browsers in flight, default 4 |
 | `AGENT_RUNS_DIR` | where run directories live |
