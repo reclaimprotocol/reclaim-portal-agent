@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GenieV3</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --surface:#131b31; --line:#2a3657; --text:#f3f6ff; --muted:#aab6d3; --accent:#8a7dff; --ok:#45c896; --warn:#f6bd60; --bad:#ff7887; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+    main { width:min(820px, calc(100% - 32px)); margin:42px auto 64px; } h1 { margin:0; font-size:2rem; } h2 { margin:0 0 14px; font-size:1.1rem; }
+    .sub { color:var(--muted); margin:4px 0 28px; } .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:20px; margin:16px 0; }
+    label { display:block; font-weight:650; margin:0 0 7px; } input[type="password"], input[type="file"] { width:100%; color:var(--text); background:#0e1528; border:1px solid var(--line); border-radius:8px; padding:10px; }
+    .hint { color:var(--muted); font-size:.88rem; margin:6px 0 0; } button, .download { cursor:pointer; color:#fff; background:var(--accent); border:0; border-radius:8px; padding:10px 15px; font:inherit; font-weight:650; }
+    button:disabled { opacity:.55; cursor:wait; } .row { display:flex; gap:12px; align-items:end; flex-wrap:wrap; } .grow { flex:1 1 440px; }
+    .status { display:none; margin-top:14px; padding:12px; border-radius:8px; background:#0e1528; } .status.show { display:block; } .status.error { color:#ffd3d8; border:1px solid var(--bad); }
+    .bar { height:10px; overflow:hidden; border-radius:999px; background:#242d46; margin:12px 0 8px; } .bar > div { height:100%; width:0; background:var(--ok); transition:width .25s ease; }
+    .metrics { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; } .metric { background:#0e1528; border-radius:8px; padding:9px; color:var(--muted); font-size:.78rem; } .metric strong { display:block; color:var(--text); font-size:1.1rem; }
+    .download { display:none; margin-top:14px; background:transparent; border:1px solid var(--accent); } .small { font-size:.86rem; color:var(--muted); }
+    @media (max-width:560px) { main { width:min(100% - 24px,820px); margin-top:24px; } .metrics { grid-template-columns:repeat(2,1fr); } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>GenieV3</h1>
+    <p class="sub">University portal discovery — CSV in, verified new portals and legal links out.</p>
+
+    <section class="card" aria-labelledby="upload-title">
+      <h2 id="upload-title">Start a discovery run</h2>
+      <div class="row">
+        <div class="grow">
+          <label for="key">API key</label>
+          <input id="key" type="password" autocomplete="off" placeholder="Paste AGENT_API_KEY">
+          <p class="hint">Kept only in this browser tab. Do not share or save it in the CSV.</p>
+        </div>
+        <div class="grow">
+          <label for="csv">Organisation CSV</label>
+          <input id="csv" type="file" accept=".csv,text/csv">
+          <p class="hint">Required columns: <code>orgId</code> and <code>website</code>. Optional: name, country, current_portals.</p>
+        </div>
+      </div>
+      <p><button id="start" type="button">Start run</button></p>
+      <div id="message" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <section id="run-card" class="card" hidden aria-labelledby="run-title">
+      <h2 id="run-title">Current run</h2>
+      <div id="run-label" class="small"></div>
+      <div class="bar" aria-label="Run progress"><div id="progress"></div></div>
+      <div id="progress-label" class="small"></div>
+      <div class="metrics">
+        <div class="metric"><strong id="total">0</strong>Total</div>
+        <div class="metric"><strong id="found">0</strong>New found</div>
+        <div class="metric"><strong id="none">0</strong>None found</div>
+        <div class="metric"><strong id="failed">0</strong>Failed</div>
+      </div>
+      <button id="download" class="download" type="button">Download results CSV</button>
+    </section>
+  </main>
+  <script>
+    const key = document.querySelector('#key');
+    const csv = document.querySelector('#csv');
+    const start = document.querySelector('#start');
+    const message = document.querySelector('#message');
+    const runCard = document.querySelector('#run-card');
+    const download = document.querySelector('#download');
+    let jobId = '', timer = null;
+
+    function headers() { return {'X-API-Key': key.value.trim()}; }
+    function say(text, error = false) { message.textContent = text; message.className = 'status show' + (error ? ' error' : ''); }
+    function update(run) {
+      const total = Number(run.total || 0), done = Number(run.done || 0);
+      document.querySelector('#run-label').textContent = jobId + ' · ' + (run.status || 'queued');
+      document.querySelector('#progress').style.width = total ? Math.min(100, done * 100 / total) + '%' : '0%';
+      document.querySelector('#progress-label').textContent = done + ' of ' + total + ' organisations completed';
+      document.querySelector('#total').textContent = total;
+      document.querySelector('#found').textContent = run.new_found || 0;
+      document.querySelector('#none').textContent = run.none_found || 0;
+      document.querySelector('#failed').textContent = run.failed || 0;
+      download.style.display = 'inline-block';
+      if (['done', 'interrupted'].includes(run.status)) { clearInterval(timer); timer = null; }
+    }
+    async function poll() {
+      if (!jobId) return;
+      try {
+        const r = await fetch('/runs/' + encodeURIComponent(jobId), {headers: headers()});
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.detail || 'Unable to read run status');
+        update(body);
+      } catch (e) { say(e.message, true); }
+    }
+    start.addEventListener('click', async () => {
+      if (!key.value.trim()) return say('Paste the API key first.', true);
+      if (!csv.files[0]) return say('Choose a CSV file first.', true);
+      start.disabled = true; say('Uploading CSV…');
+      try {
+        const r = await fetch('/runs', {method:'POST', headers:{...headers(), 'Content-Type':'text/csv'}, body:await csv.files[0].text()});
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.detail || 'Run could not be created');
+        jobId = body.job_id; runCard.hidden = false; say('Run queued: ' + jobId); await poll();
+        clearInterval(timer); timer = setInterval(poll, 3500);
+      } catch (e) { say(e.message, true); }
+      finally { start.disabled = false; }
+    });
+    download.addEventListener('click', async () => {
+      try {
+        const r = await fetch('/runs/' + encodeURIComponent(jobId) + '/results.csv', {headers:headers()});
+        if (!r.ok) { const body = await r.json(); throw new Error(body.detail || 'Results are not available yet'); }
+        const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a');
+        a.href = url; a.download = jobId + '-results.csv'; a.click(); URL.revokeObjectURL(url);
+      } catch (e) { say(e.message, true); }
+    });
+  </script>
+</body>
+</html>

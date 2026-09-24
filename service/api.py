@@ -69,7 +69,7 @@ ALLOW_NO_AUTH = (os.getenv("AGENT_ALLOW_NO_AUTH") or "").strip().lower() in ("1"
 CONCURRENCY = max(1, int(os.getenv("AGENT_CONCURRENCY", "4")))
 MAX_ORGS = int(os.getenv("AGENT_MAX_ORGS_PER_RUN", "5000"))
 MAX_UPLOAD_BYTES = int(os.getenv("AGENT_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024)))
-OPEN_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
+OPEN_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json"}
 
 #: Created inside `lifespan`, never at import. A module-level asyncio.Queue()
 #: binds to whichever event loop happens to exist when the module is imported,
@@ -215,6 +215,18 @@ def health() -> dict:
             # through the right country" from "fetched raw from Oregon"; you had
             # to read the crawler log line. This makes it one request.
             "proxy": _proxy_status()}
+
+
+@app.get("/", include_in_schema=False)
+def console() -> FileResponse:
+    """Serve the small same-origin operator console.
+
+    The API remains key-protected; the console never persists that key. This is
+    deliberately a lightweight interim UI until the Work/Keycloak migration
+    replaces browser API-key use with employee access tokens.
+    """
+    return FileResponse(Path(__file__).with_name("console.html"),
+                        media_type="text/html")
 
 
 def _proxy_status() -> dict:
