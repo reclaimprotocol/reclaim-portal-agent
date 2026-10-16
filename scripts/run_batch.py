@@ -27,6 +27,9 @@ def main(limit: int, all_rows: bool, force: bool) -> None:
     _bootstrap.setup_logging(config.log_level)
 
     sheets = SheetsClient.from_config(config)
+    # A generic source sheet might not have an output worksheet yet.  Create
+    # the dedicated tab and its header before the first organisation runs.
+    sheets.ensure_portals_header()
     rows = sheets.read_universities()
 
     effective_limit = None if all_rows else limit

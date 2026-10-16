@@ -80,6 +80,56 @@ output/missing_tnc_portals_<date>.csv    orgId, portal_url
 output/agent_run_<date>.log              timestamped, one record per line
 ```
 
+### Run GenieV3 against a local Google Sheet
+
+`scripts/run_v3_sheet.py` runs the current GenieV3 `find_portals` engine
+against a normal organisation sheet and writes results to a separate output
+worksheet. It does not use the legacy batch-discovery engine.
+
+Before the first run, enable the Google Sheets API, create a Desktop OAuth
+client, and save its downloaded JSON as `credentials.json` in the repository
+root. The first run opens a browser for consent and stores the refresh token
+at `.tokens/token.json`.
+
+The source worksheet needs these headers:
+
+| Header | Required | Purpose |
+| --- | --- | --- |
+| `Org name` | yes | Institution name |
+| `Domain` | yes | Official website domain |
+| `Country` | no | Proxy exit-country hint |
+
+An Org ID is optional. When absent, Genie generates a stable ID from the
+source-tab name, organisation name, and domain. The source worksheet is never
+modified. Genie creates or updates a separate `Portals` worksheet in the same
+spreadsheet, even when the source worksheet already has a column named
+`Portals`.
+
+Run a small test first:
+
+```bash
+GOOGLE_SHEET_ID="<sheet-id>" \
+UNIVERSITIES_TAB_NAME="<input-tab>" \
+PORTALS_TAB_NAME="Portals" \
+.venv/bin/python scripts/run_v3_sheet.py --limit 3 --concurrency 2
+```
+
+Then process all source rows. Four concurrent lookups is a reasonable starting
+point for a local machine; lower it if Chromium or the model provider begins
+to rate-limit work.
+
+```bash
+GOOGLE_SHEET_ID="<sheet-id>" \
+UNIVERSITIES_TAB_NAME="<input-tab>" \
+PORTALS_TAB_NAME="Portals" \
+.venv/bin/python scripts/run_v3_sheet.py --all --concurrency 4
+```
+
+The output tab contains portal URLs, matching legal-page URLs, and a
+`GenieV3 status` column. The legacy `Overall T&C Verdict` column remains blank
+for these runs because GenieV3 finds legal pages but does not run the older
+content-verdict classifier.
+
 ---
 
 ## 1. The five layers

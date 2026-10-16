@@ -23,6 +23,7 @@ exponential backoff on 429 / quota-exceeded / 503 responses.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from datetime import datetime, timedelta
@@ -74,6 +75,7 @@ class SheetsClient:
         "Portal URLs",          # 3  (multiline — all portal URLs joined by "\n")
         "T&C URLs",             # 4  (multiline — unique T&C URLs joined by "\n")
         "Overall T&C Verdict",  # 5  (Yes / Maybe / No / "Yes (No T&C Found)")
+        "GenieV3 status",       # 6  (V3 discovery outcome; legacy leaves blank)
     )
 
     ORGID_COLUMN_CANDIDATES: tuple[str, ...] = (
@@ -143,6 +145,9 @@ class SheetsClient:
         if creds is None or not creds.valid:
             creds = self._run_browser_oauth()
 
+        # A fresh checkout has no `.tokens/` directory yet.  OAuth itself
+        # succeeds, then previously failed only while persisting the token.
+        self._token_path.parent.mkdir(parents=True, exist_ok=True)
         self._token_path.write_text(creds.to_json())
         return creds
 
@@ -223,7 +228,21 @@ class SheetsClient:
     # ------------------------------------------------ Universities (read)
 
     def read_universities(self) -> list[dict[str, Any]]:
-        return self._read_tab_as_dicts(self.universities_tab)
+        """Read an institution source tab in either supported layout.
+
+        The original SheerID export uses ``SheerID University Name`` and
+        ``SheerID Website Domain``.  Internal research sheets commonly use
+        the much simpler ``Org name`` and ``Domain`` headers instead.  The
+        discovery pipeline deliberately consumes the canonical keys, so map
+        common generic headers here instead of making every discovery stage
+        understand every spreadsheet layout.
+
+        Generic sheets often have no org ID.  In that case a stable, opaque
+        ID derived from the source tab, name, and domain lets the output tab
+        be upserted on subsequent runs without editing the source sheet.
+        """
+        rows = self._read_tab_as_dicts(self.universities_tab)
+        return [self._normalise_university_row(row) for row in rows]
 
     # -------------------------------------------------- Portals (read+write)
 
@@ -253,6 +272,7 @@ class SheetsClient:
         * Header conflicts with PORTALS_COLUMNS at matching positions: log a
           warning; subsequent writes still go positionally.
         """
+        self._ensure_portals_tab()
         existing = self._get_values(self.portals_tab, "1:1")
         header = list(existing[0]) if existing else []
         if not any(str(cell).strip() for cell in header):
@@ -396,6 +416,62 @@ class SheetsClient:
                 self._portals_sheet_id = int(props["sheetId"])
                 return self._portals_sheet_id
         raise RuntimeError(f"Tab {self.portals_tab!r} not found in spreadsheet")
+
+    def _ensure_portals_tab(self) -> None:
+        """Create the dedicated output tab when this is a generic source sheet.
+
+        The source may itself contain a column named ``Portals``.  A worksheet
+        tab is a separate object in Google Sheets, so creating this tab never
+        changes that source column.
+        """
+        try:
+            self._portals_tab_id()
+            return
+        except RuntimeError:
+            pass
+
+        result = self._execute_with_retry(
+            lambda: self._service.spreadsheets().batchUpdate(
+                spreadsheetId=self.sheet_id,
+                body={"requests": [{"addSheet": {"properties": {"title": self.portals_tab}}}]},
+            ).execute(),
+            label=f"create output tab {self.portals_tab!r}",
+        )
+        replies = result.get("replies", [])
+        props = ((replies[0] if replies else {}).get("addSheet") or {}).get("properties") or {}
+        if props.get("sheetId") is not None:
+            self._portals_sheet_id = int(props["sheetId"])
+        logger.info("Created output tab %r", self.portals_tab)
+
+    @staticmethod
+    def _header_value(row: dict[str, Any], *aliases: str) -> str:
+        """Return a non-empty value for a header alias, case-insensitively."""
+        wanted = {alias.strip().casefold() for alias in aliases}
+        for key, value in row.items():
+            if str(key).strip().casefold() in wanted and value not in (None, ""):
+                return str(value).strip()
+        return ""
+
+    def _normalise_university_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Supply the legacy discovery keys for simple organisation sheets."""
+        out = dict(row)
+        name = self._header_value(
+            out, "SheerID University Name", "Org name", "Organization name",
+            "Organisation name", "University name", "Name",
+        )
+        domain = self._header_value(
+            out, "SheerID Website Domain", "Domain", "Website domain",
+            "Website", "Email domains",
+        )
+        if name:
+            out.setdefault("SheerID University Name", name)
+        if domain:
+            out.setdefault("SheerID Website Domain", domain)
+
+        if not self.extract_orgid(out) and (name or domain):
+            stable_key = "\x1f".join((self.universities_tab, name.casefold(), domain.casefold()))
+            out["OrgID"] = "local-" + hashlib.sha256(stable_key.encode("utf-8")).hexdigest()[:16]
+        return out
 
     def _read_tab_as_dicts(self, tab: str) -> list[dict[str, Any]]:
         header_rows = self._get_values(tab, "1:1")
