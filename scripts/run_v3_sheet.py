@@ -54,9 +54,9 @@ async def _process_one(row: dict, sheets: SheetsClient, *, portals_only: bool) -
     if error:
         status = f"V3: {error}"
     elif portal_urls:
-        status = f"V3: found {len(portal_urls)} live portal(s)"
+        status = f"V3: found {len(portal_urls)} verified student login portal(s)"
     else:
-        status = "V3: no live portals found"
+        status = "V3: no verified student login portals found"
 
     output = {
         "OrgID": org_id,

@@ -32,12 +32,16 @@ Both exist because without them the check reports live portals as dead:
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
+import re
 import ssl
 from typing import Any, Iterable, Sequence
+from urllib.parse import urlsplit
 
 import aiohttp
+from bs4 import BeautifulSoup
 
 from agent import proxy as _proxy
 
@@ -54,6 +58,31 @@ USER_AGENT = os.getenv(
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
 )
 
+# A portal result must lead a student to a browser login surface, not a PDF,
+# a network appliance, or an informational page that merely happens to answer
+# HTTP.  Keep this check here (rather than in the model prompt) because it is
+# an objective property of the final response.
+_DOCUMENT_PATH_RE = re.compile(
+    r"\.(?:pdf|docx?|xlsx?|pptx?|od[stp]|rtf)(?:$|[?#])", re.I)
+_LOGIN_WORD_RE = re.compile(
+    r"\b(?:log\s*in|login|sign\s*in|signin|authenticate|authori[sz]e|"
+    r"student\s+access|access\s+account)\b", re.I)
+_IDENTIFIER_RE = re.compile(
+    r"(?:user(?:name)?|student|email|login|roll|enrol|enroll|registration|"
+    r"account|candidate|id(?:entifier)?|number)", re.I)
+_STUDENT_AUDIENCE_RE = re.compile(
+    r"\b(?:student|students|learner|learners|scholar|scholars|roll\s*(?:no|number)|"
+    r"enrol(?:ment|ment\s+number)?|registration\s*(?:no|number)?|academic|"
+    r"course(?:work)?|class(?:room)?|campus|library|catalog(?:ue)?|opac|borrower)\b", re.I)
+_NON_STUDENT_AUDIENCE_RE = re.compile(
+    r"\b(?:admission(?:s)?|applicant(?:s)?|application\s+portal|prospective\s+student|"
+    r"staff|faculty|employee(?:s)?|human\s+resources|payroll|administrator|admin\s+login|"
+    r"alumni|parent(?:s)?|vendor|partner)\b", re.I)
+_ACADEMIC_PLATFORM_RE = re.compile(
+    r"(?:moodle|canvas(?:lms)?|blackboard|brightspace|d2l|chamilo|sakailms|"
+    r"koha|ezproxy|library\s+catalog|opac)", re.I)
+_MAX_LOGIN_PAGE_BYTES = 512 * 1024
+
 #: aiohttp validates certificates by default; university TLS often fails that
 #: check while the site itself is fine. We are testing reachability, not trust.
 _INSECURE_SSL = ssl.create_default_context()
@@ -68,6 +97,174 @@ def _as_url(url_path: str) -> str:
     if "://" not in raw:
         raw = "https://" + raw.lstrip("/")
     return raw
+
+
+def _host_is_ip_literal(url: str) -> bool:
+    """Whether ``url`` has an IPv4/IPv6 literal hostname.
+
+    Student portals are public web applications with DNS names.  A literal IP
+    can be an appliance, an internal panel, or a model hallucination; it also
+    should never be fetched by this public discovery workflow.
+    """
+    try:
+        host = urlsplit(_as_url(url)).hostname
+        if not host:
+            return False
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _normalised_host(url: str) -> str:
+    """Hostname comparison that treats the www alias as the same site."""
+    host = (urlsplit(_as_url(url)).hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def portal_url_allowed(url: str) -> tuple[bool, str]:
+    """Cheap, no-network rejection for non-web portal candidates."""
+    try:
+        normalised = _as_url(url)
+        parsed = urlsplit(normalised)
+    except ValueError:
+        return False, "bad url"
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return False, "not an http(s) URL"
+    if _host_is_ip_literal(normalised):
+        return False, "literal IP host"
+    if _DOCUMENT_PATH_RE.search(parsed.path or ""):
+        return False, "document URL"
+    return True, "ok"
+
+
+def _login_form_evidence(html: str) -> tuple[bool, str]:
+    """Return whether an HTML document exposes a usable sign-in affordance.
+
+    We deliberately require a password field *and* an identifier/control.  A
+    bare word such as "login" on a university homepage is not enough to call
+    that page a student portal.  This is conservative by design: a page that
+    cannot demonstrate a sign-in surface should not be emitted as a verified
+    login URL.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    password = soup.find("input", attrs={"type": re.compile(r"^password$", re.I)})
+    if password is None:
+        return False, "no password input"
+
+    identifier = False
+    for field in soup.find_all(["input", "textarea"]):
+        field_type = (field.get("type") or "text").lower()
+        if field_type in {"hidden", "password", "submit", "button", "reset", "checkbox", "radio"}:
+            continue
+        descriptor = " ".join(str(field.get(k) or "") for k in
+                              ("name", "id", "placeholder", "autocomplete", "aria-label"))
+        if field_type in {"email", "text", "number", "tel"} or _IDENTIFIER_RE.search(descriptor):
+            identifier = True
+            break
+    if not identifier:
+        return False, "no username/student identifier input"
+
+    controls = soup.find_all(["button", "input", "a"])
+    for control in controls:
+        text = " ".join([
+            control.get_text(" ", strip=True),
+            str(control.get("value") or ""),
+            str(control.get("aria-label") or ""),
+            str(control.get("title") or ""),
+        ])
+        kind = (control.get("type") or "").lower()
+        if _LOGIN_WORD_RE.search(text) or kind == "submit":
+            return True, "password, identifier, and sign-in control"
+    return False, "no sign-in/authorise control"
+
+
+def _student_audience_evidence(html: str, url: str) -> tuple[bool, str]:
+    """Require evidence that a login belongs to students/academic services.
+
+    The form check answers "can somebody sign in here?"; this check answers
+    "is that somebody plausibly a student?"  Shared student/staff sign-in pages
+    remain valid because they explicitly name students.  A staff-only or
+    admissions-only page is rejected even when it has a perfectly real form.
+    Known LMS and academic-library products are accepted as student services
+    when their sparse login screen has no audience copy.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    page_text = soup.get_text(" ", strip=True)
+    form_descriptors = " ".join(
+        " ".join(str(field.get(k) or "") for k in
+                 ("name", "id", "placeholder", "autocomplete", "aria-label"))
+        for field in soup.find_all(["input", "textarea", "button"])
+    )
+    evidence = f"{url}\n{page_text}\n{form_descriptors}"
+    has_student_signal = bool(_STUDENT_AUDIENCE_RE.search(evidence))
+    has_non_student_signal = bool(_NON_STUDENT_AUDIENCE_RE.search(evidence))
+    if has_non_student_signal and not has_student_signal:
+        return False, "non-student audience only"
+    if has_student_signal:
+        return True, "student/academic audience evidence"
+    if _ACADEMIC_PLATFORM_RE.search(evidence):
+        return True, "known LMS or academic-library platform"
+    return False, "no student or academic audience evidence"
+
+
+async def verify_student_login_surface(
+    url_path: str,
+    timeout_seconds: int = 10,
+    *,
+    use_proxy: bool = True,
+    country_hint: str = "",
+) -> tuple[bool, str, str]:
+    """Verify that a reachable URL is an HTML student-login surface.
+
+    Returns ``(accepted, note, final_url)``.  Unlike the cheaper reachability
+    guard, this GET reads a bounded HTML response and requires password +
+    identifier + sign-in/authorise evidence.  PDFs, IP-literal hosts, external
+    identity-provider redirects, and non-HTML responses are rejected.
+    """
+    allowed, reason = portal_url_allowed(url_path)
+    if not allowed:
+        return False, reason, url_path
+
+    url = _as_url(url_path)
+    proxy = _proxy_url(url, country_hint) if use_proxy else None
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    headers = {"User-Agent": USER_AGENT}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            async with sess.get(url, allow_redirects=True, headers=headers,
+                                proxy=proxy, ssl=_INSECURE_SSL) as resp:
+                final_url = str(resp.url)
+                final_allowed, final_reason = portal_url_allowed(final_url)
+                if not final_allowed:
+                    return False, f"final URL: {final_reason}", final_url
+                if _normalised_host(final_url) != _normalised_host(url):
+                    return False, "redirected to another host", final_url
+                content_type = (resp.headers.get("Content-Type") or "").lower()
+                if "pdf" in content_type:
+                    return False, "PDF response", final_url
+                if not (200 <= resp.status < 400):
+                    return False, f"HTTP {resp.status}; login form unavailable", final_url
+                body = await resp.content.read(_MAX_LOGIN_PAGE_BYTES)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - failure should only reject this candidate
+        return False, type(exc).__name__, url
+
+    if body.lstrip().startswith(b"%PDF"):
+        return False, "PDF response", final_url
+    # Some old portals omit Content-Type, so accept HTML-looking content rather
+    # than rejecting it solely for a broken header.
+    text = body.decode("utf-8", errors="ignore")
+    if "html" not in content_type and "<html" not in text.lower() and "<form" not in text.lower():
+        return False, "not an HTML login page", final_url
+    accepted, evidence = _login_form_evidence(text)
+    if not accepted:
+        return False, evidence, final_url
+    audience_ok, audience_reason = _student_audience_evidence(text, final_url)
+    if not audience_ok:
+        return False, audience_reason, final_url
+    return True, f"{evidence}; {audience_reason}", final_url
 
 
 def _proxy_url(url: str, country_hint: str = "") -> str | None:

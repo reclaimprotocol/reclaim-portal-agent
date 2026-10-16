@@ -72,6 +72,25 @@ result = await find_portals("buet.ac.bd", portals_only=True)
 
 Exits non-zero when nothing is found, so it composes in shell scripts.
 
+#### What GenieV3 will return as a portal
+
+GenieV3 now applies a final browser-login gate after discovery. By default, a
+result is kept only when its final same-site HTTPS page is HTML and exposes all
+of:
+
+- a password input;
+- a student/username/email/registration identifier input; and
+- a sign-in, log-in, or authorise control.
+
+It rejects PDFs and other document URLs, literal IP-address hosts, dead URLs,
+non-HTTPS final pages, informational pages with only a “login” link, and URLs
+that redirect to an external identity-provider host. It also rejects
+staff-only, admissions-only, alumni, HR, administrator, vendor, and parent
+logins unless the page explicitly identifies student access too. Recognised LMS
+and academic-library platforms remain eligible when their login screen is
+minimal. This intentionally favours verified, directly usable student-login
+pages over recall.
+
 Results land in `output/`:
 
 ```
