@@ -470,7 +470,7 @@ MANDATORY_CAPABILITIES: dict[str, str] = {
 CAPABILITY_EXPANSION = os.getenv("GENIE_CAPABILITY_EXPANSION", "1").strip().lower() \
     in ("1", "true", "yes", "on")
 
-#: Serper is metered: every search is a billable credit and bursts draw 429s.
+#: OpenRouter web search is metered and bursts can draw rate-limit responses.
 #: 20 row workers each firing up to three category searches would spend quota in
 #: a spike and get a share of it rejected. This turnstile is GLOBAL — shared by
 #: rescue and expansion — because the quota is per account, not per code path.
@@ -521,7 +521,7 @@ def detect_missing_capabilities(portals: Sequence[Any]) -> list[str]:
 async def expand_search_for_categories(
     row: "UniversityRow", lkm: LocalKnowledgeMatrixFilter, missing: Sequence[str],
 ) -> list[dict[str, Any]]:
-    """One targeted Google (Serper) scavenge per missing capability, concurrently.
+    """One targeted OpenRouter web-search scavenge per missing capability.
 
     This is ADDITIVE, not a fallback: it runs on rows that already succeeded,
     to catch the second and third student system that lives on a domain the
@@ -799,7 +799,7 @@ async def process_university(
             candidates = lkm.filter_and_rank_links(links) if links else []
             if not candidates:
                 logger.info("[FALLBACK TRIGGER] org %s (%s) — no crawl candidates, "
-                            "entering Google search rescue", row.org_id, row.domain)
+                            "entering OpenRouter web-search rescue", row.org_id, row.domain)
                 candidates = await search_rescue(row, lkm)
                 used_search = bool(candidates)
                 if not candidates:
@@ -878,7 +878,7 @@ async def process_university(
 
             if not live_portals:
                 logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
-                               "verification, routing to Google search rescue",
+                               "verification, routing to OpenRouter web-search rescue",
                                row.org_id, dead)
                 hits = await search_rescue(row, lkm)
                 if hits:

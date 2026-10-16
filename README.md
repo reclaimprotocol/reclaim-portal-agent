@@ -184,7 +184,7 @@ flowchart TD
 
     L2A --> L2B
     subgraph L2B["🔎 L2 · Knowledge-Matrix filter"]
-      FI["agent_knowledge_base.json — 307 vendors · 278 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · Google/Serper rescue + capability expansion<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
+      FI["agent_knowledge_base.json — 307 vendors · 278 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · OpenRouter web-search rescue + capability expansion<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
     end
 
     L2B --> L1
@@ -242,7 +242,8 @@ blacklist, 173 portal, 23 legal terms, 307 vendor roots. No network, no model.
 Cuts 55–300 anchors to 40. When *no* keyword matches (a non-English site), a
 heuristic fallback ranks links on subdomain depth, digits and anchor length.
 
-**Search** (`search_fallback.py`) is Google via the **Serper** API. It runs on
+**Search** (`search_fallback.py`) uses OpenRouter's **web-search server tool**
+with an OpenAI model. It runs on
 two distinct triggers:
 
 * **Rescue** — the crawl produced no candidates at all. Broad sweep across the
@@ -254,9 +255,10 @@ two distinct triggers:
   so they are liveness-checked and legal-harvested identically. This is what
   catches the second student system on a domain the homepage never links to.
 
-Queries are **OR-grouped**, not space-separated. Google ANDs bare term lists, so
-the old DuckDuckGo-era string returned nothing; measured across four
-universities, space-separated scored 14 results and OR-grouped scored 24.
+Queries are **OR-grouped**, not space-separated, so the search request describes
+alternatives rather than requiring every platform term on one result. Search
+results are candidates only: GenieV3 still applies the normal filters, model
+classification, live endpoint check, and student-login-form check before output.
 
 Expansion suppresses the heuristic fallback: the row already has portals, so a
 search that surfaces only news articles must contribute nothing rather than
@@ -334,7 +336,8 @@ well as a wide IPv4 range.
 | Variable | Purpose |
 |---|---|
 | `OPENROUTER_API_KEY` | required — all model calls |
-| `SERPER_API_KEY` | required for search — rescue and capability expansion both no-op without it |
+| `OPENROUTER_API_KEY` | required for the model cascade and OpenRouter web-search rescue/capability expansion |
+| `GENIE_OPENROUTER_SEARCH_MODEL` | optional OpenRouter web-search model override; default `openai/gpt-5.6-terra` |
 | `GENIE_MODEL_TIERS` | override the cascade (comma-separated) |
 | `GENIE_BROWSER_CONCURRENCY` | browser semaphore, default 6 |
 | `GENIE_SEARCH_CONCURRENCY` | global search turnstile, default 3 — quota is per account, not per code path |

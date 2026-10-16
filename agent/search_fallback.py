@@ -1,95 +1,51 @@
-"""Genie-V3 · Layer 2 — external web-search fallback (Google via Serper).
+"""Genie-V3 · Layer 2 — external web-search fallback (OpenRouter).
 
-The recovery path for universities the crawler cannot help with: sites behind a
-WAF, homepages that link nothing useful, and portals hosted on a domain the
-institution never links to.
+The normal path is still the university's own rendered website. This module is
+only a recovery path for a crawl that yields no useful links, or a targeted
+capability expansion. OpenAI web search supplies *candidate* URLs from the
+indexed web; it is deliberately not trusted as a portal verdict. Every URL it
+returns goes through the same filter, model classification, live-endpoint and
+student-login-surface checks as a URL found on the university homepage.
 
-WHY THIS IS AN API AND NOT A SCRAPER (2026-09-01)
--------------------------------------------------
-This module used to scrape `html.duckduckgo.com/html/`. That surface is now
-gone: it answers every request — direct and through US, German and Brazilian
-residential exits alike — with **HTTP 202 and a CAPTCHA interstitial**:
-
-    "Unfortunately, bots use DuckDuckGo too. Please complete the following
-     challenge to confirm this search was made by a human."
-
-It parses as valid HTML, so a scraper reads it as "no results" rather than as a
-failure. That is the dangerous shape of the bug: across the first 128 orgs of
-the August4000 run, 47 searches fired, 44 returned zero, and every one of them
-was recorded as a discovery miss rather than a search outage. The alternatives
-were checked and are no better — `lite.duckduckgo.com` serves the same wall,
-Mojeek/Startpage/Brave bot-wall, and Bing returns a JavaScript shell with zero
-extractable hrefs even under headless Chromium.
-
-A keyed API removes the entire failure class: a quota error is an explicit HTTP
-status we can log and act on, not a block page wearing an empty result set as a
-disguise. Serper fronts Google, so recall is also strictly better than the
-DuckDuckGo surface it replaces.
-
-Still best-effort by contract: this is a RECOVERY path, and every failure mode
-(missing key, quota, timeout, malformed body) resolves to `[]` so that a row
-which was fine without search is never taken down by it.
+This uses OpenRouter's ``openrouter:web_search`` server tool, so it shares the
+existing OpenRouter account/key and may use an OpenAI model directly. A
+missing/invalid key, rate limit, timeout, or malformed response always degrades
+to ``[]`` so a search outage cannot fail a long batch run.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
-import ssl
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-import aiohttp
-import certifi
+from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 
 logger = logging.getLogger("genie.search")
 
-#: Serper's Google Search endpoint.
-SERPER_URL = os.getenv("SERPER_SEARCH_URL", "https://google.serper.dev/search")
 MAX_RESULTS = 6
 DEFAULT_TIMEOUT_S = 25
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "openai/gpt-5.6-terra"
 
-#: Read at call time rather than import time so a key added to `.env` after the
-#: module is first imported (or rotated mid-run) is picked up without a restart.
-def _api_key() -> str:
-    return (os.getenv("SERPER_API_KEY") or "").strip()
-
-
-def _ssl_context() -> ssl.SSLContext:
-    """certifi's bundle, not the OS store.
-
-    Python installed from python.org ships no system roots on macOS, so the
-    default context fails TLS against perfectly valid certificates. Search is
-    the one place that failure would be silently absorbed as "no results".
-    """
-    return ssl.create_default_context(cafile=certifi.where())
-
-
-_SSL = _ssl_context()
-
-
-#: Platform vocabulary for the broad sweep, OR-grouped — see `build_query`.
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
 
 
+def _api_key() -> str:
+    """Read at call time so a rotated key is picked up without restart."""
+    return (os.getenv("OPENROUTER_API_KEY") or "").strip()
+
+
+def _model() -> str:
+    return (os.getenv("GENIE_OPENROUTER_SEARCH_MODEL") or DEFAULT_MODEL).strip()
+
+
 def build_query(university_name: str, official_domain: str) -> str:
-    """Naming the common platforms biases results toward third-party SaaS
-    tenants, which is the class of portal a homepage crawl misses because the
-    university never links to it.
+    """Build the broad recovery query for a university.
 
-    OR-GROUPED, NOT SPACE-SEPARATED (measured 2026-09-01)
-    -----------------------------------------------------
-    DuckDuckGo treated a bare term list loosely, so
-    `... student portal login samarth tcsion erp lms moodle` worked. Google ANDs
-    every term, and no page contains all of "samarth", "tcsion", "erp", "lms"
-    and "moodle" at once — so the same string returns NOTHING. Measured across
-    four universities: space-separated 14 results, OR-grouped 24.
-
-        "Kota University" (uok.ac.in) student portal login samarth ...  -> 0
-        "Kota University" uok.ac.in (student portal OR login OR ...)    -> 6
-
-    The domain stays outside the group: it is a corroborating signal we want
-    weighted, not one alternative among many.
+    ``official_domain`` is supporting evidence, not a restriction: legitimate
+    Moodle, ERP and library systems commonly use a vendor-owned hostname.
     """
     terms = " OR ".join(_PLATFORM_TERMS)
     return f'"{university_name}" {official_domain} ({terms})'
@@ -97,41 +53,72 @@ def build_query(university_name: str, official_domain: str) -> str:
 
 def build_category_query(university_name: str, official_domain: str,
                          category_keyword_target: str) -> str:
-    """A scavenging query aimed at ONE missing capability.
-
-    The broad `build_query` names every platform family at once, which is right
-    when we have nothing and want any portal. It is wrong when we already hold
-    an ERP and are hunting the LMS: the ERP terms dominate the result set and
-    return what we already have. Narrowing to the missing capability's own
-    vocabulary is what surfaces the detached second system.
-
-    `category_keyword_target` must already be OR-grouped by the caller for the
-    same reason `build_query` is — see above.
-    """
+    """Build a narrow query for one missing portal capability."""
     return f'"{university_name}" {official_domain} {category_keyword_target} login'
 
 
-def parse_results(payload: dict[str, Any],
-                  max_results: int = MAX_RESULTS) -> list[dict[str, str]]:
-    """Serper's `organic` array -> our universal candidate shape.
+def _as_mapping(value: Any) -> Mapping[str, Any] | None:
+    """Support SDK objects and dicts (the latter keeps tests simple)."""
+    if isinstance(value, Mapping):
+        return value
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        return dumped if isinstance(dumped, Mapping) else None
+    if hasattr(value, "__dict__"):
+        return vars(value)
+    return None
 
-    Rows missing a `link` are skipped rather than emitted with an empty URL: a
-    blank candidate survives the filter and reaches the model as a wasted slot.
+
+def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[str, str]]:
+    """Extract cited web-search sources from a Responses API result.
+
+    The Responses API returns sources beneath web-search call actions. We
+    recursively locate ``sources`` to remain compatible with SDK shape changes,
+    dedupe URLs, and convert them to the crawler's universal candidate shape.
+    Generated prose is never parsed as a URL.
     """
-    organic = payload.get("organic")
-    if not isinstance(organic, list):
-        return []
-    out: list[dict[str, str]] = []
-    for item in organic:
-        if not isinstance(item, dict):
-            continue
-        url = str(item.get("link") or "").strip()
-        if not url:
-            continue
-        out.append({"url": url, "text": str(item.get("title") or "").strip()})
-        if len(out) >= max_results:
-            break
-    return out
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(source: Any) -> None:
+        item = _as_mapping(source)
+        if not item:
+            return
+        url = str(item.get("url") or "").strip()
+        if not url or url in seen:
+            return
+        seen.add(url)
+        found.append({"url": url, "text": str(item.get("title") or "").strip()})
+
+    def walk(value: Any, *, in_sources: bool = False) -> None:
+        if len(found) >= max_results:
+            return
+        item = _as_mapping(value)
+        if item is not None:
+            if in_sources:
+                add(item)
+                return
+            for key, child in item.items():
+                walk(child, in_sources=(key == "sources"))
+            return
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for child in value:
+                walk(child, in_sources=in_sources)
+                if len(found) >= max_results:
+                    return
+
+    walk(response)
+    return found
+
+
+def _search_instruction(query: str, max_results: int) -> str:
+    return (
+        "Use web search to find up to " + str(max_results) +
+        " direct URLs for real student-facing login portals for this institution. "
+        "Prioritise student ERP/SIS, LMS (such as Moodle or Canvas), and library "
+        "authentication pages. Do not search for admissions, staff/HR, alumni, PDFs, "
+        "or generic homepages. Search query: " + query
+    )
 
 
 async def execute_search_fallback(
@@ -140,85 +127,60 @@ async def execute_search_fallback(
     *,
     max_results: int = MAX_RESULTS,
     timeout_seconds: int = DEFAULT_TIMEOUT_S,
-    session: aiohttp.ClientSession | None = None,
+    session: Any | None = None,
     query: str | None = None,
+    client: AsyncOpenAI | None = None,
 ) -> list[dict[str, str]]:
-    """Search Google (via Serper) for this university's portals.
+    """Use OpenRouter web search to return untrusted portal candidates.
 
-    Returns `[{'url': ..., 'text': ...}]` — the same shape
-    `crawler.extract_raw_university_links` produces, so the result drops
-    straight into `LocalKnowledgeMatrixFilter` with no adapter.
-
-    Always returns a list. Quota exhaustion, auth failures, timeouts and network
-    errors all resolve to `[]`, because search is a RECOVERY path and must never
-    take down rows that were fine without it.
+    ``session`` remains accepted for call compatibility with the old Serper
+    adapter; it is intentionally unused because the OpenAI SDK owns its HTTP
+    client. ``client`` is an injection point for tests.
     """
+    del session
     key = _api_key()
     if not key:
-        # Logged once per call rather than raised: a missing key must degrade to
-        # "search unavailable", not abort a 4,000-row run at hour three.
-        logger.warning("search: SERPER_API_KEY not set — search fallback disabled")
+        logger.warning("search: OPENROUTER_API_KEY not set — web-search fallback disabled")
         return []
 
-    # `query` lets a caller aim the scavenge at one missing capability
-    # (`build_category_query`); unset keeps the broad all-platforms sweep.
     q = query or build_query(university_name, official_domain)
-    payload = {"q": q, "num": max_results}
-    headers = {"X-API-KEY": key, "Content-Type": "application/json"}
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-
-    async def _fetch(sess: aiohttp.ClientSession) -> list[dict[str, str]]:
-        try:
-            async with sess.post(SERPER_URL, json=payload, headers=headers,
-                                 timeout=timeout, ssl=_SSL) as resp:
-                status = resp.status
-                body = await resp.text()
-        except asyncio.TimeoutError:
-            logger.warning("search: serper timed out after %ss for %r",
-                           timeout_seconds, university_name)
-            return []
-        except aiohttp.ClientError as exc:
-            logger.warning("search: serper unreachable (%s) for %r",
-                           type(exc).__name__, university_name)
-            return []
-
-        if status == 401 or status == 403:
-            logger.error("search: serper rejected the API key (HTTP %s) — "
-                         "search fallback is disabled until it is fixed", status)
-            return []
-        if status == 429:
-            logger.error("search: serper quota/rate limit hit (HTTP 429) for %r",
-                         university_name)
-            return []
-        if status != 200:
-            logger.warning("search: serper HTTP %s for %r: %s",
-                           status, university_name, body[:180])
-            return []
-
-        try:
-            data = json.loads(body)
-        except ValueError:
-            logger.warning("search: serper returned non-JSON for %r: %s",
-                           university_name, body[:180])
-            return []
-        hits = parse_results(data, max_results)
-        if not hits:
-            logger.info("search: serper returned 0 organic results for %r "
-                        "(genuinely no hits)", university_name)
-        return hits
-
-    own = session is None
-    sess = session or aiohttp.ClientSession()
+    own_client = client is None
+    api = client or AsyncOpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=key,
+        timeout=timeout_seconds,
+        default_headers={
+            "HTTP-Referer": "https://github.com/reclaimprotocol",
+            "X-Title": "Genie-V3 portal discovery",
+        },
+    )
     try:
-        results = await _fetch(sess)
-        logger.info("search: %r (%s) -> %d result(s)",
-                    university_name, official_domain, len(results))
-        return results
+        response = await api.responses.create(
+            model=_model(),
+            tools=[{"type": "openrouter:web_search", "parameters": {
+                "engine": "native", "max_results": max_results,
+                "max_total_results": max_results,
+            }}],
+            tool_choice="required",
+            include=["web_search_call.action.sources"],
+            input=_search_instruction(q, max_results),
+        )
+        hits = parse_results(response, max_results)
+        if not hits:
+            logger.info("search: OpenRouter web search returned 0 cited sources for %r", university_name)
+        logger.info("search: %r (%s) -> %d result(s)", university_name, official_domain, len(hits))
+        return hits
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 — never break the caller's loop
+    except APITimeoutError:
+        logger.warning("search: OpenRouter timed out after %ss for %r", timeout_seconds, university_name)
+    except RateLimitError:
+        logger.error("search: OpenRouter web-search rate limit hit for %r", university_name)
+    except APIError as exc:
+        logger.warning("search: OpenRouter API error for %r: %s", university_name, str(exc)[:160])
+    except Exception as exc:  # noqa: BLE001 — a rescue path must never abort a run
         logger.warning("search: unexpected %s: %s", type(exc).__name__, str(exc)[:160])
-        return []
     finally:
-        if own:
-            await sess.close()
+        if own_client:
+            await api.close()
+    return []
