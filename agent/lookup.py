@@ -49,6 +49,7 @@ from agent.filters import LocalKnowledgeMatrixFilter            # noqa: E402
 from agent.graph_matcher import (GraphComplianceMatcher, host_of,  # noqa: E402
                                  DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
 from agent.guardrails import (verify_portal_endpoint_final,     # noqa: E402
+                              verify_student_login_surface, portal_url_allowed,
                               transport_ok, REQUIRE_HTTPS)
 from agent.memory_cache import MemoryCache, signature           # noqa: E402
 from agent.openrouter_cascade import execute_model_cascade      # noqa: E402
@@ -108,7 +109,11 @@ async def find_portals(
                     if e.get("root")},
         learned_keywords=lkm.kb.get("learned_legal_keywords") or [])
     stats: dict[str, Any] = {"crawled_links": 0, "candidates": 0,
-                             "used_search": False, "dead_portals": 0}
+                             "used_search": False, "dead_portals": 0,
+                             "rejected_non_web_urls": 0,
+                             "rejected_non_login_pages": 0,
+                             "rejected_non_student_portals": 0,
+                             "rejected_external_redirects": 0}
 
     # 1. crawl -----------------------------------------------------------
     links = await extract_raw_university_links(
@@ -135,13 +140,29 @@ async def find_portals(
                 "stats": stats, "error": "no portals identified"}
 
     # 4. verify ----------------------------------------------------------
+    # Never send document URLs or literal IPs to the network guard.  Apart from
+    # being useless as a student portal, those are often model/search noise and
+    # IP literals can point at infrastructure that this workflow must not probe.
+    allowed_portals = []
+    for portal in result.discovered_portals:
+        allowed, reason = portal_url_allowed(portal.exact_url)
+        if allowed:
+            allowed_portals.append(portal)
+        else:
+            stats["rejected_non_web_urls"] += 1
+            logger.info("lookup: %s — dropped %s (%s)",
+                        domain, portal.exact_url, reason)
+    if not allowed_portals:
+        return {"domain": domain, "name": result.university_name, "portals": [],
+                "stats": stats, "error": "no web portal candidates"}
+
     checks = await asyncio.gather(*(
         verify_portal_endpoint_final(p.exact_url, GUARDRAIL_TIMEOUT_S,
                                      country_hint=country,
                                      retry_timeout_seconds=GUARDRAIL_RETRY_S)
-        for p in result.discovered_portals))
-    reachable = [(p, c) for p, c in zip(result.discovered_portals, checks) if c[0]]
-    stats["dead_portals"] = len(result.discovered_portals) - len(reachable)
+        for p in allowed_portals))
+    reachable = [(p, c) for p, c in zip(allowed_portals, checks) if c[0]]
+    stats["dead_portals"] = len(allowed_portals) - len(reachable)
 
     # --- transport policy ------------------------------------------------
     # Applied to where the request LANDED, not to the published link: many
@@ -156,8 +177,15 @@ async def find_portals(
     insecure: list[str] = []
     for p, c in reachable:
         landed = (c[3] or p.exact_url)
-        if host_of(landed) == host_of(p.exact_url):
-            p.exact_url = landed          # free https upgrade where it applies
+        if host_of(landed) != host_of(p.exact_url):
+            # We cannot verify that the originally-published URL itself is a
+            # student login if it bounces to a generic IdP or another host.
+            # Do not report the original link as a verified portal.
+            stats["rejected_external_redirects"] += 1
+            logger.info("lookup: %s — dropped %s (redirected to %s)",
+                        domain, p.exact_url, landed)
+            continue
+        p.exact_url = landed              # same-host http -> https upgrade
         if transport_ok(landed):
             live.append((p, c))
         else:
@@ -167,6 +195,25 @@ async def find_portals(
                     domain, len(insecure), ", ".join(insecure[:3]))
     stats["dropped_insecure_http"] = len(insecure)
     stats["require_https"] = REQUIRE_HTTPS
+
+    # Reachable is not the same as usable.  Require an HTML page containing a
+    # password field, identifier field, and sign-in/authorise control before a
+    # URL can be returned to a user as a student login portal.
+    auth_checks = await asyncio.gather(*(
+        verify_student_login_surface(p.exact_url, country_hint=country)
+        for p, _ in live))
+    verified_live = []
+    for (portal, check), (accepted, note, final_url) in zip(live, auth_checks):
+        if accepted:
+            portal.exact_url = final_url
+            verified_live.append((portal, check))
+        else:
+            stats["rejected_non_login_pages"] += 1
+            if note in {"non-student audience only", "no student or academic audience evidence"}:
+                stats["rejected_non_student_portals"] += 1
+            logger.info("lookup: %s — dropped %s (not a verified login page: %s)",
+                        domain, portal.exact_url, note)
+    live = verified_live
 
     if portals_only:
         return {
