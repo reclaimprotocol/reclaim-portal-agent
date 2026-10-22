@@ -4,21 +4,10 @@ Takes the filtered candidate list from `agent/filters.py` and asks a model to do
 two things in ONE pass: identify the student portals, and map each one to the
 legal documents that govern it.
 
-TWO SPEC VALUES CORRECTED HERE — both verified against the live API, and both
-would have failed in ways that are easy to misread:
-
-1.  `base_url="https://openrouter.ai"` does not work. That host serves the
-    marketing site; `GET /models` returns 200 so it *looks* alive, but the SDK
-    appends `/chat/completions` and gets HTML back, surfacing as a baffling
-    `AttributeError: 'str' object has no attribute 'choices'`. The API lives at
-    `https://openrouter.ai/api/v1`, which returns a clean completion.
-
-2.  `anthropic/claude-3-5-sonnet-latest` is not served by OpenRouter (nor is
-    `anthropic/claude-3.5-sonnet`). Tier 3 would have thrown on every single
-    call — and because the cascade swallows tier failures, the symptom would be
-    a quiet drop in quality, not an error. Tier 3 is `anthropic/claude-sonnet-5`,
-    which measured 76.5% against human ground truth in our 200-org benchmark,
-    second only to the tier-1 model. Override with GENIE_MODEL_TIERS.
+The cascade uses the official OpenAI API. It intentionally has two OpenAI
+models rather than cross-provider fallbacks: direct API billing and availability
+are simpler to operate than an aggregation service. Override with
+``GENIE_MODEL_TIERS`` if the project has access to a different approved model.
 
 Relationship to `agent/llm_router.py`: that module is the generic, schema-
 agnostic cascade. This one is the portal-discovery-specific orchestrator with
@@ -43,34 +32,22 @@ logger = logging.getLogger("genie.cascade")
 # --------------------------------------------------------------------------- #
 #  Client                                                                      #
 # --------------------------------------------------------------------------- #
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"   # NOT bare openrouter.ai
-
 client = instructor.from_openai(
     OpenAI(
-        base_url=OPENROUTER_BASE_URL,
-        api_key=os.getenv("OPENROUTER_API_KEY"),
+        api_key=os.getenv("OPENAI_API_KEY"),
         timeout=float(os.getenv("GENIE_LLM_TIMEOUT", "90")),
         max_retries=0,          # the cascade owns retrying, not the SDK
-        default_headers={
-            "HTTP-Referer": "https://github.com/reclaimprotocol",
-            "X-Title": "Genie-V3 portal discovery",
-        },
     ),
-    # MD_JSON, not JSON. Verified 2026-08-31 across all three tiers: Claude
-    # returns its object wrapped in a ```json ... ``` markdown fence, which
-    # Mode.JSON cannot parse — so tier 3, our strongest fallback, failed on
-    # EVERY call. Because the cascade swallows tier failures, that surfaced as
-    # "all 3 tiers exhausted" rather than an error, and the row was written off
-    # as having no portals. MD_JSON strips the fence and all three tiers pass.
+    # MD_JSON accepts ordinary JSON inside a Markdown fence and makes the
+    # extractor resilient to harmless formatting variation.
     mode=instructor.Mode.MD_JSON,
 )
 
-#: Ordered failover path. Each tier is a DIFFERENT vendor, so a provider-wide
-#: outage or a systematic refusal cannot take out the whole cascade.
+#: Ordered direct-OpenAI failover path. The second tier is cheaper and protects
+#: a large batch from a single model-specific schema failure.
 MODEL_CASCADE: list[str] = [
-    "google/gemini-3.7-flash",     # 78.0% GT-hit in the 200-org benchmark
-    "openai/gpt-4o-mini",          # different vendor, fast, inexpensive
-    "anthropic/claude-sonnet-5",   # 76.5% — strongest fallback, see module docs
+    "gpt-5.5",
+    "gpt-4.1-mini",
 ]
 if os.getenv("GENIE_MODEL_TIERS", "").strip():
     MODEL_CASCADE = [m.strip() for m in os.environ["GENIE_MODEL_TIERS"].split(",") if m.strip()]

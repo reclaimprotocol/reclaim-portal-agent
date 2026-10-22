@@ -29,7 +29,7 @@ Output ships to SheerID as `orgId, portal url, tnc url`.
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
-cp .env.example .env          # fill OPENROUTER_API_KEY + Google creds
+cp .env.example .env          # fill OPENAI_API_KEY + Google creds
 
 # V3 — run 200 organisations from a sheet tab
 .venv/bin/python -m agent.v3_orchestrator \
@@ -184,12 +184,12 @@ flowchart TD
 
     L2A --> L2B
     subgraph L2B["🔎 L2 · Knowledge-Matrix filter"]
-      FI["agent_knowledge_base.json — 307 vendors · 278 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · OpenRouter web-search rescue + capability expansion<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
+      FI["agent_knowledge_base.json — 307 vendors · 278 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · OpenAI web-search rescue + capability expansion<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
     end
 
     L2B --> L1
     subgraph L1["🧠 L1 · Model cascade"]
-      MO["gemini-3.7-flash → gpt-4o-mini → claude-sonnet-5<br/>OpenRouter · instructor · Pydantic · MD_JSON<br/><i>extraction only — two flat sets, no associations</i>"]
+      MO["gpt-5.5 → gpt-4.1-mini<br/>OpenAI API · instructor · Pydantic · MD_JSON<br/><i>extraction only — two flat sets, no associations</i>"]
     end
 
     L1 --> L3
@@ -242,7 +242,7 @@ blacklist, 173 portal, 23 legal terms, 307 vendor roots. No network, no model.
 Cuts 55–300 anchors to 40. When *no* keyword matches (a non-English site), a
 heuristic fallback ranks links on subdomain depth, digits and anchor length.
 
-**Search** (`search_fallback.py`) uses OpenRouter's **web-search server tool**
+**Search** (`search_fallback.py`) uses OpenAI's hosted **web_search** tool
 with an OpenAI model. It runs on
 two distinct triggers:
 
@@ -335,9 +335,8 @@ well as a wide IPv4 range.
 
 | Variable | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | required — all model calls |
-| `OPENROUTER_API_KEY` | required for the model cascade and OpenRouter web-search rescue/capability expansion |
-| `GENIE_OPENROUTER_SEARCH_MODEL` | optional OpenRouter web-search model override; default `openai/gpt-5.6-terra` |
+| `OPENAI_API_KEY` | required for the V3 model cascade and hosted web-search rescue/capability expansion |
+| `GENIE_OPENAI_SEARCH_MODEL` | optional OpenAI web-search model override; default `gpt-5.5` |
 | `GENIE_MODEL_TIERS` | override the cascade (comma-separated) |
 | `GENIE_BROWSER_CONCURRENCY` | browser semaphore, default 6 |
 | `GENIE_SEARCH_CONCURRENCY` | global search turnstile, default 3 — quota is per account, not per code path |
@@ -460,6 +459,6 @@ Fields: `state`, `exact_shortnames`, `extra_effective_domains`, `seed_urls`,
 | `invalid_grant: Token has been expired` | 7-day OAuth token; re-auth interactively |
 | A pass hangs at high CPU, no Chromium alive | Wedged renderer; watchdog SIGKILLs it, pre-mark skips the row |
 | Verdicts written to the wrong column | Script hardcodes column letters — use a header-driven one |
-| `AttributeError: 'str' object has no attribute 'choices'` | OpenRouter base URL missing `/api/v1` |
+| `401 authentication error` | check `OPENAI_API_KEY` and API-project billing/permissions |
 | Run dies overnight | `caffeinate` must be started separately from the daemon |
 | Cache never hits | Check the memory file path — a second empty file elsewhere reads as a permanent miss |
