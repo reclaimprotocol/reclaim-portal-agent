@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -24,6 +25,7 @@ from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 logger = logging.getLogger("genie.search")
 
 MAX_RESULTS = 6
+_HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\[\"')]+", re.I)
 # Search is the recovery path for browser-rendering failures.  A short timeout
 # turns a temporary slow search into a false "no portal" result, so give the
 # hosted tool enough time to obtain and cite live sources.
@@ -84,7 +86,13 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
     The Responses API returns sources beneath web-search call actions. We
     recursively locate ``sources`` to remain compatible with SDK shape changes,
     dedupe URLs, and convert them to the crawler's universal candidate shape.
-    Generated prose is never parsed as a URL.
+    Search citations often point to an official help page which *mentions* the
+    direct portal URL (for example, a university guide that says ``Log in at
+    https://portal.example.edu``).  Those direct URLs are useful candidates
+    when they originate in a web-search response, but remain untrusted: the
+    lookup pipeline still applies its live endpoint, form and student-audience
+    checks before returning one.  We therefore retain both cited pages and
+    explicit HTTP URLs from the tool's generated search answer.
     """
     found: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -117,6 +125,18 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
                     return
 
     walk(response)
+
+    # SDK objects expose the generated answer as ``output_text``.  Test
+    # doubles and older response serialisations may hold it in a mapping.
+    output_text = getattr(response, "output_text", "")
+    if not output_text:
+        mapped = _as_mapping(response) or {}
+        output_text = str(mapped.get("output_text") or "")
+    for url in _HTTP_URL_RE.findall(str(output_text)):
+        clean = url.rstrip(".,;:!?")
+        if clean and clean not in seen and len(found) < max_results:
+            seen.add(clean)
+            found.append({"url": clean, "text": "OpenAI web-search direct URL"})
     return found
 
 
@@ -128,7 +148,8 @@ def _search_instruction(query: str, max_results: int) -> str:
         "authentication pages. Do not search for admissions, staff/HR, alumni, PDFs, "
         "or generic homepages. Include university-owned subdomains when they "
         "host the service. Prefer the direct login endpoint over an article "
-        "which merely describes it. Search query: " + query
+        "which merely describes it. In your answer, explicitly write each "
+        "direct URL you found. Search query: " + query
     )
 
 
