@@ -32,6 +32,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,20 @@ from agent.v3_orchestrator import (harvest_portal_legal_links,  # noqa: E402
                                    GUARDRAIL_RETRY_S)
 
 logger = logging.getLogger("genie.lookup")
+
+# Independent lookups may run in parallel, but each one starts a heavyweight
+# Crawl4AI/Chromium session.  Serialising this one fragile stage avoids browser
+# collisions while model calls, web search, and endpoint verification continue
+# concurrently after a crawl completes.
+_browser_sem: asyncio.Semaphore | None = None
+
+
+def _get_browser_sem() -> asyncio.Semaphore:
+    global _browser_sem
+    if _browser_sem is None:
+        limit = max(1, int(os.getenv("GENIE_LOOKUP_BROWSER_CONCURRENCY", "1")))
+        _browser_sem = asyncio.Semaphore(limit)
+    return _browser_sem
 
 
 def _clean_domain(raw: str) -> str:
@@ -109,23 +124,31 @@ async def find_portals(
                     if e.get("root")},
         learned_keywords=lkm.kb.get("learned_legal_keywords") or [])
     stats: dict[str, Any] = {"crawled_links": 0, "candidates": 0,
-                             "used_search": False, "dead_portals": 0,
+                             "used_search": False, "search_reason": "",
+                             "dead_portals": 0,
                              "rejected_non_web_urls": 0,
                              "rejected_non_login_pages": 0,
                              "rejected_non_student_portals": 0,
                              "rejected_external_redirects": 0}
 
     # 1. crawl -----------------------------------------------------------
-    links = await extract_raw_university_links(
-        domain, page_timeout_ms=page_timeout_ms, country_hint=country)
+    async with _get_browser_sem():
+        links = await extract_raw_university_links(
+            domain, page_timeout_ms=page_timeout_ms, country_hint=country)
     stats["crawled_links"] = len(links or [])
     candidates = lkm.filter_and_rank_links(links) if links else []
 
     # 2. search rescue ---------------------------------------------------
+    # Crawl4AI deliberately returns [] on an unrenderable/blocked page so one
+    # site cannot abort a batch.  Treat that outcome as a reason to search the
+    # live web, not as evidence that the university has no portal.
     if not candidates and use_search_fallback:
+        stats["search_reason"] = "crawl yielded no usable portal candidates"
+        logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
+                    domain, stats["search_reason"])
         hits = await execute_search_fallback(row.name, domain)
+        stats["used_search"] = True
         if hits:
-            stats["used_search"] = True
             candidates = lkm.filter_and_rank_links(hits) or hits
     stats["candidates"] = len(candidates)
     if not candidates:
@@ -135,6 +158,23 @@ async def find_portals(
     # 3. extract ---------------------------------------------------------
     result: IntegratedDiscoveryOutput = await asyncio.to_thread(
         execute_model_cascade, "lookup", row.name, domain, candidates)
+    # A homepage can contain links but none that identify a student portal.
+    # Give web search one independent chance in this case too.  Search results
+    # are still only candidates: they go through the same classifier and the
+    # strict endpoint/login-surface checks below.
+    if (not result.discovered_portals and use_search_fallback
+            and not stats["used_search"]):
+        stats["search_reason"] = "website candidates identified no portal"
+        logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
+                    domain, stats["search_reason"])
+        hits = await execute_search_fallback(row.name, domain)
+        stats["used_search"] = True
+        if hits:
+            search_candidates = lkm.filter_and_rank_links(hits) or hits
+            stats["candidates"] += len(search_candidates)
+            result = await asyncio.to_thread(
+                execute_model_cascade, "lookup", row.name, domain,
+                search_candidates)
     if not result.discovered_portals:
         return {"domain": domain, "name": row.name, "portals": [],
                 "stats": stats, "error": "no portals identified"}

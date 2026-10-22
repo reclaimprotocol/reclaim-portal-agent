@@ -83,7 +83,7 @@ async def _process_one(row: dict, sheets: SheetsClient, *, portals_only: bool) -
 @click.option("--all", "all_rows", is_flag=True,
               help="Process every source row instead of using --limit.")
 @click.option("--concurrency", type=int, default=2, show_default=True,
-              help="Maximum GenieV3 lookups in flight.")
+              help="Maximum GenieV3 lookups in flight. Browser rendering is separately capped.")
 @click.option("--portals-only", is_flag=True,
               help="Skip legal-page discovery and write only portal URLs.")
 def main(limit: int, all_rows: bool, concurrency: int, portals_only: bool) -> None:

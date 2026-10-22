@@ -24,7 +24,10 @@ from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 logger = logging.getLogger("genie.search")
 
 MAX_RESULTS = 6
-DEFAULT_TIMEOUT_S = 25
+# Search is the recovery path for browser-rendering failures.  A short timeout
+# turns a temporary slow search into a false "no portal" result, so give the
+# hosted tool enough time to obtain and cite live sources.
+DEFAULT_TIMEOUT_S = int(os.getenv("GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS", "60"))
 DEFAULT_MODEL = "gpt-5.5"
 
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
