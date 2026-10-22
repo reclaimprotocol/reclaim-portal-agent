@@ -1,4 +1,4 @@
-"""Tests for the OpenRouter web-search candidate adapter (no network/API key)."""
+"""Tests for the OpenAI web-search candidate adapter (no network/API key)."""
 
 import asyncio
 
@@ -23,7 +23,7 @@ def test_parse_results_extracts_and_deduplicates_web_search_sources() -> None:
 
 
 def test_search_uses_web_search_and_returns_cited_sources(monkeypatch) -> None:
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     calls: list[dict] = []
 
     class Responses:
@@ -40,6 +40,6 @@ def test_search_uses_web_search_and_returns_cited_sources(monkeypatch) -> None:
         "Example University", "example.edu", client=Client(),
     ))
     assert results == [{"url": "https://lms.example.edu/login", "text": "LMS"}]
-    assert calls[0]["tools"][0]["type"] == "openrouter:web_search"
+    assert calls[0]["tools"][0]["type"] == "web_search"
     assert calls[0]["tool_choice"] == "required"
     assert "student-facing login portals" in calls[0]["input"]

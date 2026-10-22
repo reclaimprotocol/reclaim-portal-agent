@@ -1,4 +1,4 @@
-"""Genie-V3 · Layer 2 — external web-search fallback (OpenRouter).
+"""Genie-V3 · Layer 2 — external web-search fallback (OpenAI).
 
 The normal path is still the university's own rendered website. This module is
 only a recovery path for a crawl that yields no useful links, or a targeted
@@ -7,8 +7,7 @@ indexed web; it is deliberately not trusted as a portal verdict. Every URL it
 returns goes through the same filter, model classification, live-endpoint and
 student-login-surface checks as a URL found on the university homepage.
 
-This uses OpenRouter's ``openrouter:web_search`` server tool, so it shares the
-existing OpenRouter account/key and may use an OpenAI model directly. A
+This uses OpenAI's hosted ``web_search`` tool through the Responses API. A
 missing/invalid key, rate limit, timeout, or malformed response always degrades
 to ``[]`` so a search outage cannot fail a long batch run.
 """
@@ -26,19 +25,18 @@ logger = logging.getLogger("genie.search")
 
 MAX_RESULTS = 6
 DEFAULT_TIMEOUT_S = 25
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "openai/gpt-5.6-terra"
+DEFAULT_MODEL = "gpt-5.5"
 
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
 
 
 def _api_key() -> str:
     """Read at call time so a rotated key is picked up without restart."""
-    return (os.getenv("OPENROUTER_API_KEY") or "").strip()
+    return (os.getenv("OPENAI_API_KEY") or "").strip()
 
 
 def _model() -> str:
-    return (os.getenv("GENIE_OPENROUTER_SEARCH_MODEL") or DEFAULT_MODEL).strip()
+    return (os.getenv("GENIE_OPENAI_SEARCH_MODEL") or DEFAULT_MODEL).strip()
 
 
 def build_query(university_name: str, official_domain: str) -> str:
@@ -131,53 +129,45 @@ async def execute_search_fallback(
     query: str | None = None,
     client: AsyncOpenAI | None = None,
 ) -> list[dict[str, str]]:
-    """Use OpenRouter web search to return untrusted portal candidates.
+    """Use OpenAI web search to return untrusted portal candidates.
 
-    ``session`` remains accepted for call compatibility with the old Serper
+    ``session`` remains accepted for call compatibility with the old search
     adapter; it is intentionally unused because the OpenAI SDK owns its HTTP
     client. ``client`` is an injection point for tests.
     """
     del session
     key = _api_key()
     if not key:
-        logger.warning("search: OPENROUTER_API_KEY not set — web-search fallback disabled")
+        logger.warning("search: OPENAI_API_KEY not set — web-search fallback disabled")
         return []
 
     q = query or build_query(university_name, official_domain)
     own_client = client is None
     api = client or AsyncOpenAI(
-        base_url=OPENROUTER_BASE_URL,
         api_key=key,
         timeout=timeout_seconds,
-        default_headers={
-            "HTTP-Referer": "https://github.com/reclaimprotocol",
-            "X-Title": "Genie-V3 portal discovery",
-        },
     )
     try:
         response = await api.responses.create(
             model=_model(),
-            tools=[{"type": "openrouter:web_search", "parameters": {
-                "engine": "native", "max_results": max_results,
-                "max_total_results": max_results,
-            }}],
+            tools=[{"type": "web_search", "search_context_size": "medium"}],
             tool_choice="required",
             include=["web_search_call.action.sources"],
             input=_search_instruction(q, max_results),
         )
         hits = parse_results(response, max_results)
         if not hits:
-            logger.info("search: OpenRouter web search returned 0 cited sources for %r", university_name)
+            logger.info("search: OpenAI web search returned 0 cited sources for %r", university_name)
         logger.info("search: %r (%s) -> %d result(s)", university_name, official_domain, len(hits))
         return hits
     except asyncio.CancelledError:
         raise
     except APITimeoutError:
-        logger.warning("search: OpenRouter timed out after %ss for %r", timeout_seconds, university_name)
+        logger.warning("search: OpenAI timed out after %ss for %r", timeout_seconds, university_name)
     except RateLimitError:
-        logger.error("search: OpenRouter web-search rate limit hit for %r", university_name)
+        logger.error("search: OpenAI web-search rate limit hit for %r", university_name)
     except APIError as exc:
-        logger.warning("search: OpenRouter API error for %r: %s", university_name, str(exc)[:160])
+        logger.warning("search: OpenAI API error for %r: %s", university_name, str(exc)[:160])
     except Exception as exc:  # noqa: BLE001 — a rescue path must never abort a run
         logger.warning("search: unexpected %s: %s", type(exc).__name__, str(exc)[:160])
     finally:
