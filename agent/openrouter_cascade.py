@@ -218,7 +218,6 @@ def execute_model_cascade(
                 response_model=IntegratedDiscoveryOutput,
                 messages=messages,
                 max_retries=int(os.getenv("GENIE_LLM_RETRIES", "1")),
-                temperature=0.0,
             )
 
             if not result.discovered_portals:
