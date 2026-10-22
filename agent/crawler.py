@@ -321,7 +321,12 @@ async def _crawl_once(
     crawler: AsyncWebCrawler, url: str, run_cfg: CrawlerRunConfig
 ) -> tuple[list[dict[str, str]], str]:
     """(links, error). Empty links + '' means the page genuinely had none."""
-    result = await crawler.arun(url=url, config=run_cfg)
+    try:
+        result = await crawler.arun(url=url, config=run_cfg)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # Crawl4AI can raise before it creates a result.
+        return [], f"{type(exc).__name__}: {str(exc)[:180]}"
     if not getattr(result, "success", False):
         return [], str(getattr(result, "error_message", "") or "unsuccessful")[:200]
     base = getattr(result, "url", None) or url
@@ -391,6 +396,26 @@ async def extract_raw_university_links(
             return links
 
         logger.warning("crawler: %s via %s -> %s", url, cc or "direct", err)
+        # Chromium/Crawl4AI can occasionally abort a navigation before it
+        # returns a CrawlResult (notably under a long-running local batch).
+        # That is an infrastructure failure, not evidence that a university
+        # has no portal. Retry the identical request once before search rescue
+        # is considered.  This keeps a bounded cost while preventing a flaky
+        # browser process from becoming a false negative.
+        logger.info("crawler: %s -> retrying once after transient crawl error", url)
+        if crawler is not None:
+            retry_links, retry_err = await _crawl_once(crawler, url, run_cfg)
+        else:
+            async with AsyncWebCrawler(config=_browser_config(pcfg)) as retry_crawler:
+                retry_links, retry_err = await _crawl_once(retry_crawler, url, run_cfg)
+        if not retry_err:
+            logger.info("crawler: %s -> %d links on retry via %s",
+                        url, len(retry_links), cc or "direct")
+            if is_blocked(url):
+                await clear_block(url, f"{cc or 'direct'}")
+            return retry_links
+        logger.warning("crawler: %s -> retry also failed: %s", url, retry_err)
+        err = retry_err
         kind = classify_block(err)
         if kind:
             await record_block(url, kind, err, cc, stealth_tried=True)
