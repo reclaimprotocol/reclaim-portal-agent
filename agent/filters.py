@@ -35,6 +35,8 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
+from agent.languages import profile_for_country
+
 logger = logging.getLogger("genie.filters")
 
 DEFAULT_KB_PATH = Path(__file__).resolve().parents[1] / "agent_knowledge_base.json"
@@ -65,19 +67,6 @@ _SPEC_BLACKLIST = (
 _SPEC_PORTAL = (
     "portal", "login", "signin", "sign-in", "sso", "erp", "lms", "moodle",
     "canvas", "ums", "mis", "student", "webmail",
-    # Japanese
-    "ログイン", "サインイン", "認証", "学生", "学務", "履修", "授業", "学習管理", "教務", "ポータル",
-    # Traditional Chinese (Taiwan / Hong Kong)
-    "登入", "登錄", "學生", "學習管理", "教務", "校務", "選課", "學生入口",
-    # Arabic (UAE / Iraq / Jordan)
-    "تسجيل الدخول", "بوابة الطالب", "الطلاب", "نظام إدارة التعلم", "نظام التعليم",
-    # Turkish, Russian and Nepali
-    "giriş", "öğrenci", "öğrenci bilgi sistemi", "uzaktan eğitim",
-    "вход", "студент", "личный кабинет", "электронное обучение",
-    "लगइन", "विद्यार्थी", "छात्र", "विद्यार्थी पोर्टल", "सिकाइ",
-    # French and Indian-language/common local labels
-    "connexion", "se connecter", "étudiant", "espace étudiant", "portail étudiant",
-    "लॉगिन", "छात्र पोर्टल", "शिक्षा",
 )
 _SPEC_LEGAL = (
     "privacy", "terms", "legal", "tnc", "t-and-c", "disclaimer", "policy",
@@ -269,6 +258,7 @@ class LocalKnowledgeMatrixFilter:
         self.blacklist_re = _compile(bl_terms)
         self.soft_re = _compile(soft_terms)
         self.portal_re = _compile(portal_terms)
+        self._country_portal_re: dict[str, re.Pattern[str] | None] = {}
         self.legal_re = _compile(legal_terms)
 
         # Known third-party SaaS roots — the strongest single signal we hold.
@@ -309,7 +299,7 @@ class LocalKnowledgeMatrixFilter:
     # ------------------------------------------------------------------ #
     def filter_and_rank_links(
         self, links: list[dict[str, str]], *, max_candidates: int | None = None,
-        allow_heuristic_fallback: bool = True,
+        allow_heuristic_fallback: bool = True, country: str = "",
     ) -> list[dict[str, Any]]:
         """Drop noise, dedupe, tag, rank, and cap.
 
@@ -326,6 +316,11 @@ class LocalKnowledgeMatrixFilter:
         nothing rather than dilute a working result.
         """
         cap = max_candidates if max_candidates is not None else self.max_candidates
+        country_key = (country or "").strip().lower()
+        if country_key not in self._country_portal_re:
+            self._country_portal_re[country_key] = _compile(
+                profile_for_country(country).portal_terms)
+        country_portal_re = self._country_portal_re[country_key]
         stats = {"in": len(links), "blacklisted": 0, "duplicate": 0,
                  "no_signal": 0, "portal": 0, "legal": 0, "fallback": 0,
                  "filler": 0}
@@ -361,7 +356,9 @@ class LocalKnowledgeMatrixFilter:
 
             host = (urlsplit(url).netloc or "").lower()
             vendor = self._vendor_hit(host)
-            is_portal = bool(self.portal_re and self.portal_re.search(blob)) or bool(vendor)
+            portal_match = bool(self.portal_re and self.portal_re.search(blob)) or bool(
+                country_portal_re and country_portal_re.search(blob))
+            is_portal = portal_match or bool(vendor)
             is_legal = bool(self.legal_re and self.legal_re.search(blob))
 
             if not (is_portal or is_legal):
@@ -387,7 +384,7 @@ class LocalKnowledgeMatrixFilter:
                 score += 5.0
                 matched.append(f"vendor:{vendor['root']}")
             if is_portal:
-                score += 3.0 if self.portal_re and self.portal_re.search(url) else 1.5
+                score += 3.0 if portal_match else 1.5
                 matched.append("portal-kw")
             if is_legal:
                 matched.append("legal-kw")

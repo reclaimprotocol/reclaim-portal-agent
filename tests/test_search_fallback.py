@@ -57,3 +57,21 @@ def test_search_uses_web_search_and_returns_cited_sources(monkeypatch) -> None:
     assert calls[0]["tools"][0]["type"] == "web_search"
     assert calls[0]["tool_choice"] == "required"
     assert "student-facing login portals" in calls[0]["input"]
+
+
+def test_search_includes_country_language_context(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    calls: list[dict] = []
+
+    class Responses:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+            return {"output": [{"action": {"sources": []}}]}
+
+    class Client:
+        responses = Responses()
+
+    asyncio.run(execute_search_fallback(
+        "Example University", "example.jp", country="Japan", client=Client(),
+    ))
+    assert "Japanese" in calls[0]["input"]

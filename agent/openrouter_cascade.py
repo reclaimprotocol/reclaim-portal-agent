@@ -26,6 +26,7 @@ import instructor
 from openai import OpenAI
 
 from agent.schemas import IntegratedDiscoveryOutput
+from agent.languages import profile_for_country
 
 logger = logging.getLogger("genie.cascade")
 
@@ -144,6 +145,7 @@ def _build_user_payload(
     university_name: str,
     official_domain: str,
     filtered_candidates_list: Sequence[dict[str, Any]],
+    country: str = "",
 ) -> str:
     """Render the user turn. Built ONCE and reused verbatim across every tier,
     so an escalation changes the model and nothing else."""
@@ -157,6 +159,8 @@ def _build_user_payload(
         f"ORG_ID: {org_id}\n"
         f"UNIVERSITY_NAME: {university_name}\n"
         f"OFFICIAL_DOMAIN: {official_domain}\n\n"
+        f"COUNTRY: {country or 'unknown'}\n"
+        f"PORTAL_LANGUAGE_CONTEXT: {profile_for_country(country).languages}\n\n"
         f"CANDIDATE_LINKS ({len(slim)}):\n"
         f"{json.dumps(slim, ensure_ascii=False, indent=1)}"
     )
@@ -184,6 +188,7 @@ def execute_model_cascade(
     *,
     models: Sequence[str] | None = None,
     trace: dict[str, Any] | None = None,
+    country: str = "",
 ) -> IntegratedDiscoveryOutput:
     """Run the waterfall prompt down the model cascade; first good answer wins.
 
@@ -204,7 +209,7 @@ def execute_model_cascade(
     if trace is not None:
         trace.update({"tier": 0, "model": "", "escalated": False, "failures": []})
     user_payload = _build_user_payload(
-        org_id, university_name, official_domain, filtered_candidates_list
+        org_id, university_name, official_domain, filtered_candidates_list, country
     )
     messages = [
         {"role": "system", "content": WATERFALL_SYSTEM_PROMPT},

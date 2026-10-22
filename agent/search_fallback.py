@@ -22,6 +22,8 @@ from typing import Any
 
 from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 
+from agent.languages import profile_for_country
+
 logger = logging.getLogger("genie.search")
 
 MAX_RESULTS = 6
@@ -44,13 +46,13 @@ def _model() -> str:
     return (os.getenv("GENIE_OPENAI_SEARCH_MODEL") or DEFAULT_MODEL).strip()
 
 
-def build_query(university_name: str, official_domain: str) -> str:
+def build_query(university_name: str, official_domain: str, country: str = "") -> str:
     """Build the broad recovery query for a university.
 
     ``official_domain`` is supporting evidence, not a restriction: legitimate
     Moodle, ERP and library systems commonly use a vendor-owned hostname.
     """
-    terms = " OR ".join(_PLATFORM_TERMS)
+    terms = " OR ".join((*_PLATFORM_TERMS, *profile_for_country(country).search_terms))
     return f'"{university_name}" {official_domain} ({terms})'
 
 
@@ -60,11 +62,13 @@ def build_category_query(university_name: str, official_domain: str,
     return f'"{university_name}" {official_domain} {category_keyword_target} login'
 
 
-def build_login_endpoint_query(university_name: str, official_domain: str) -> str:
+def build_login_endpoint_query(university_name: str, official_domain: str,
+                               country: str = "") -> str:
     """A subdomain-aware rescue query for a direct sign-in endpoint."""
+    native_terms = " OR ".join(profile_for_country(country).search_terms)
     return (
         f'"{university_name}" site:{official_domain} '
-        '(login OR sign-in OR SSO OR authentication OR Moodle OR LMS OR portal)'
+        f'(login OR sign-in OR SSO OR authentication OR Moodle OR LMS OR portal OR {native_terms})'
     )
 
 
@@ -140,7 +144,8 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
     return found
 
 
-def _search_instruction(query: str, max_results: int) -> str:
+def _search_instruction(query: str, max_results: int, country: str = "") -> str:
+    profile = profile_for_country(country)
     return (
         "Use web search to find up to " + str(max_results) +
         " direct URLs for real student-facing login portals for this institution. "
@@ -149,7 +154,8 @@ def _search_instruction(query: str, max_results: int) -> str:
         "or generic homepages. Include university-owned subdomains when they "
         "host the service. Prefer the direct login endpoint over an article "
         "which merely describes it. In your answer, explicitly write each "
-        "direct URL you found. Search query: " + query
+        "direct URL you found. Search in " + profile.languages +
+        " as well as English when relevant. Search query: " + query
     )
 
 
@@ -162,6 +168,7 @@ async def execute_search_fallback(
     session: Any | None = None,
     query: str | None = None,
     client: AsyncOpenAI | None = None,
+    country: str = "",
 ) -> list[dict[str, str]]:
     """Use OpenAI web search to return untrusted portal candidates.
 
@@ -175,7 +182,7 @@ async def execute_search_fallback(
         logger.warning("search: OPENAI_API_KEY not set — web-search fallback disabled")
         return []
 
-    q = query or build_query(university_name, official_domain)
+    q = query or build_query(university_name, official_domain, country)
     own_client = client is None
     api = client or AsyncOpenAI(
         api_key=key,
@@ -187,7 +194,7 @@ async def execute_search_fallback(
             tools=[{"type": "web_search", "search_context_size": "medium"}],
             tool_choice="required",
             include=["web_search_call.action.sources"],
-            input=_search_instruction(q, max_results),
+            input=_search_instruction(q, max_results, country),
         )
         hits = parse_results(response, max_results)
         if not hits:

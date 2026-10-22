@@ -399,7 +399,7 @@ async def cascade_with_pacing(
         trace = {}
         result = await asyncio.to_thread(
             lambda: execute_model_cascade(row.org_id, row.name, row.domain,
-                                          candidates, trace=trace))
+                                          candidates, trace=trace, country=row.country))
         if result.discovered_portals or not _rate_limited(trace):
             break
         if attempt < CASCADE_MAX_ATTEMPTS - 1:
@@ -432,10 +432,10 @@ async def search_rescue(row: "UniversityRow",
     list: a rescue path that silently cancels itself is worse than a noisy one,
     and the model still applies its own judgement downstream.
     """
-    hits = await paced_search(row.name, row.domain)
+    hits = await paced_search(row.name, row.domain, country=row.country)
     if not hits:
         return []
-    filtered = lkm.filter_and_rank_links(hits)
+    filtered = lkm.filter_and_rank_links(hits, country=row.country)
     if filtered:
         logger.info("v3: org %s — search %d hit(s) -> %d after filter",
                     row.org_id, len(hits), len(filtered))
@@ -536,7 +536,8 @@ async def expand_search_for_categories(
             hits = await paced_search(
                 row.name, row.domain,
                 query=build_category_query(row.name, row.domain,
-                                           MANDATORY_CAPABILITIES[cat]))
+                                           MANDATORY_CAPABILITIES[cat]),
+                country=row.country)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[CAPABILITY EXPANSION] org %s — %s search failed (%s)",
                            row.org_id, cat, type(exc).__name__)
@@ -552,7 +553,7 @@ async def expand_search_for_categories(
         # rollout must contribute nothing, not its three most plausible-looking
         # links.
         return lkm.filter_and_rank_links(
-            hits, allow_heuristic_fallback=False) or []
+            hits, allow_heuristic_fallback=False, country=row.country) or []
 
     batches = await asyncio.gather(*(_one(c) for c in missing))
     merged: list[dict[str, Any]] = []
@@ -706,7 +707,7 @@ async def harvest_portal_legal_links(
             continue
         # Route through the SAME local matrix the homepage links go through, so
         # blacklist rules apply identically and no new noise path opens up.
-        kept = lkm.filter_and_rank_links(links)
+        kept = lkm.filter_and_rank_links(links, country=row.country)
         n = 0
         for cand in kept:
             blob = f"{cand.get('url','')} {cand.get('text','')}"
@@ -796,7 +797,7 @@ async def process_university(
                     else "crawler returned 0 links")
 
             # -- 3. FILTER + cascade -------------------------------------
-            candidates = lkm.filter_and_rank_links(links) if links else []
+            candidates = lkm.filter_and_rank_links(links, country=row.country) if links else []
             if not candidates:
                 logger.info("[FALLBACK TRIGGER] org %s (%s) — no crawl candidates, "
                             "entering OpenRouter web-search rescue", row.org_id, row.domain)

@@ -189,10 +189,10 @@ async def find_portals(
         stats["search_reason"] = "all initial portal candidates failed verification"
         hits = await execute_search_fallback(
             row.name, domain,
-            query=build_login_endpoint_query(row.name, domain),
+            query=build_login_endpoint_query(row.name, domain, country), country=country,
         )
         stats["used_search"] = True
-        candidates = lkm.filter_and_rank_links(hits) if hits else []
+        candidates = lkm.filter_and_rank_links(hits, country=country) if hits else []
         if not candidates and hits:
             candidates = hits
     else:
@@ -200,7 +200,7 @@ async def find_portals(
             links = await extract_raw_university_links(
                 domain, page_timeout_ms=page_timeout_ms, country_hint=country)
         stats["crawled_links"] = len(links or [])
-        candidates = lkm.filter_and_rank_links(links) if links else []
+        candidates = lkm.filter_and_rank_links(links, country=country) if links else []
 
     # 2. broad search rescue --------------------------------------------
     # Crawl4AI deliberately returns [] on an unrenderable/blocked page so one
@@ -210,10 +210,10 @@ async def find_portals(
         stats["search_reason"] = "crawl yielded no usable portal candidates"
         logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
                     domain, stats["search_reason"])
-        hits = await execute_search_fallback(row.name, domain)
+        hits = await execute_search_fallback(row.name, domain, country=country)
         stats["used_search"] = True
         if hits:
-            candidates = lkm.filter_and_rank_links(hits) or hits
+            candidates = lkm.filter_and_rank_links(hits, country=country) or hits
     stats["candidates"] = len(candidates)
     if not candidates:
         return {"domain": domain, "name": row.name, "portals": [],
@@ -221,7 +221,7 @@ async def find_portals(
 
     # 3. extract ---------------------------------------------------------
     result: IntegratedDiscoveryOutput = await asyncio.to_thread(
-        execute_model_cascade, "lookup", row.name, domain, candidates)
+        execute_model_cascade, "lookup", row.name, domain, candidates, country=country)
     # A homepage can contain links but none that identify a student portal.
     # Give web search one independent chance in this case too.  Search results
     # are still only candidates: they go through the same classifier and the
@@ -231,15 +231,15 @@ async def find_portals(
         stats["search_reason"] = "website candidates identified no portal"
         logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
                     domain, stats["search_reason"])
-        hits = await execute_search_fallback(row.name, domain)
+        hits = await execute_search_fallback(row.name, domain, country=country)
         stats["used_search"] = True
         if hits:
-            search_candidates = lkm.filter_and_rank_links(hits) or hits
+            search_candidates = lkm.filter_and_rank_links(hits, country=country) or hits
             stats["candidates"] += len(search_candidates)
             candidates += search_candidates
             result = await asyncio.to_thread(
                 execute_model_cascade, "lookup", row.name, domain,
-                search_candidates)
+                search_candidates, country=country)
 
     # A model may be appropriately conservative about unfamiliar languages,
     # but it must not erase a direct, university-owned login endpoint already

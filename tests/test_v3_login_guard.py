@@ -84,5 +84,5 @@ def test_ranks_native_language_portal_labels() -> None:
         {"url": "https://lms.example.ae/", "text": "بوابة الطالب"},
         {"url": "https://e.example.ru/", "text": "Личный кабинет студента"},
     ]
-    ranked = LocalKnowledgeMatrixFilter().filter_and_rank_links(links)
+    ranked = LocalKnowledgeMatrixFilter().filter_and_rank_links(links, country="Japan")
     assert {item["url"] for item in ranked} == {item["url"] for item in links}
