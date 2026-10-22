@@ -275,6 +275,22 @@ def _as_url(domain_or_url: str) -> str:
     return raw
 
 
+def _www_variant(url: str) -> str | None:
+    """Return the conventional ``www`` hostname, if this URL has one.
+
+    A few university edge configurations serve their public site only at the
+    ``www`` host.  Chromium can report a generic navigation error for the bare
+    hostname even when a normal browser would reach the ``www`` variant.  This
+    is deliberately a retry URL, never a substituted reported portal URL.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if not host or host.startswith("www."):
+        return None
+    port = f":{parts.port}" if parts.port else ""
+    return parts._replace(netloc=f"www.{host}{port}").geturl()
+
+
 def _clean_text(node: Any) -> str:
     """Anchor label, whitespace-collapsed. Falls back to title/aria-label/img alt
     so icon-only links (a very common way to link a portal) are not blank."""
@@ -416,6 +432,27 @@ async def extract_raw_university_links(
             return retry_links
         logger.warning("crawler: %s -> retry also failed: %s", url, retry_err)
         err = retry_err
+
+        # A university can publish its web presence only on ``www.example``.
+        # Try that conventional alias once when the bare host could not be
+        # rendered.  Do this before OpenAI search so the primary source stays
+        # the institution's own DOM whenever it is available.
+        www_url = _www_variant(url)
+        if www_url:
+            logger.info("crawler: %s -> retrying conventional www hostname", url)
+            if crawler is not None:
+                www_links, www_err = await _crawl_once(crawler, www_url, run_cfg)
+            else:
+                async with AsyncWebCrawler(config=_browser_config(pcfg)) as www_crawler:
+                    www_links, www_err = await _crawl_once(www_crawler, www_url, run_cfg)
+            if not www_err:
+                logger.info("crawler: %s -> %d links through %s",
+                            www_url, len(www_links), cc or "direct")
+                if is_blocked(url):
+                    await clear_block(url, f"{cc or 'direct'} via www")
+                return www_links
+            logger.warning("crawler: %s -> www retry also failed: %s", url, www_err)
+            err = www_err
         kind = classify_block(err)
         if kind:
             await record_block(url, kind, err, cc, stealth_tried=True)
