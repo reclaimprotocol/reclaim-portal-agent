@@ -33,6 +33,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -54,13 +55,18 @@ from agent.guardrails import (verify_portal_endpoint_final,     # noqa: E402
                               transport_ok, REQUIRE_HTTPS)
 from agent.memory_cache import MemoryCache, signature           # noqa: E402
 from agent.openrouter_cascade import execute_model_cascade      # noqa: E402
-from agent.schemas import IntegratedDiscoveryOutput             # noqa: E402
-from agent.search_fallback import execute_search_fallback       # noqa: E402
+from agent.schemas import DiscoveredPortal, IntegratedDiscoveryOutput  # noqa: E402
+from agent.search_fallback import (build_login_endpoint_query,  # noqa: E402
+                                   execute_search_fallback)
 from agent.v3_orchestrator import (harvest_portal_legal_links,  # noqa: E402
                                    UniversityRow, GUARDRAIL_TIMEOUT_S,
                                    GUARDRAIL_RETRY_S)
 
 logger = logging.getLogger("genie.lookup")
+
+_DIRECT_LOGIN_HINT_RE = re.compile(
+    r"(?:login|logon|sign[\s_-]?in|auth(?:enticate|entication)?|sso|"
+    r"moodle|canvas|blackboard|brightspace|lms|manaba|portal)", re.I)
 
 # Independent lookups may run in parallel, but each one starts a heavyweight
 # Crawl4AI/Chromium session.  Serialising this one fragile stage avoids browser
@@ -86,6 +92,52 @@ def _clean_domain(raw: str) -> str:
     return d[4:] if d.startswith("www.") else d
 
 
+def _is_university_host(url: str, official_domain: str) -> bool:
+    """True for the official host or one of its institutional subdomains."""
+    host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+    root = _clean_domain(official_domain).lower()
+    return bool(host and root and (host == root or host.endswith("." + root)))
+
+
+def _direct_login_candidates(
+    candidates: list[dict[str, Any]], official_domain: str,
+) -> list[DiscoveredPortal]:
+    """Preserve explicit university login endpoints before verification.
+
+    This does not bypass validation: the URL still needs a live same-host HTTPS
+    endpoint, credentials UI and student/academic evidence below.
+    """
+    found: list[DiscoveredPortal] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        url = str(candidate.get("url") or "").strip()
+        text = str(candidate.get("text") or "")
+        if not url or url in seen or not _is_university_host(url, official_domain):
+            continue
+        parts = urlsplit(url)
+        if not _DIRECT_LOGIN_HINT_RE.search(f"{parts.path}?{parts.query} {text}"):
+            continue
+        seen.add(url)
+        found.append(DiscoveredPortal(
+            category="General Student Login",
+            exact_url=url,
+            portal_system_name=text[:120] or "University login",
+        ))
+    return found
+
+
+def _merge_portals(*groups: list[DiscoveredPortal]) -> list[DiscoveredPortal]:
+    merged: list[DiscoveredPortal] = []
+    seen: set[str] = set()
+    for group in groups:
+        for portal in group:
+            key = portal.exact_url.rstrip("/").lower()
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(portal)
+    return merged
+
+
 async def find_portals(
     domain: str,
     *,
@@ -94,6 +146,7 @@ async def find_portals(
     portals_only: bool = False,
     page_timeout_ms: int = 30_000,
     use_search_fallback: bool = True,
+    _targeted_endpoint_rescue: bool = False,
 ) -> dict[str, Any]:
     """Discover portals for one university domain.
 
@@ -131,18 +184,29 @@ async def find_portals(
                              "rejected_non_student_portals": 0,
                              "rejected_external_redirects": 0}
 
-    # 1. crawl -----------------------------------------------------------
-    async with _get_browser_sem():
-        links = await extract_raw_university_links(
-            domain, page_timeout_ms=page_timeout_ms, country_hint=country)
-    stats["crawled_links"] = len(links or [])
-    candidates = lkm.filter_and_rank_links(links) if links else []
+    # 1. crawl / targeted search ----------------------------------------
+    if _targeted_endpoint_rescue:
+        stats["search_reason"] = "all initial portal candidates failed verification"
+        hits = await execute_search_fallback(
+            row.name, domain,
+            query=build_login_endpoint_query(row.name, domain),
+        )
+        stats["used_search"] = True
+        candidates = lkm.filter_and_rank_links(hits) if hits else []
+        if not candidates and hits:
+            candidates = hits
+    else:
+        async with _get_browser_sem():
+            links = await extract_raw_university_links(
+                domain, page_timeout_ms=page_timeout_ms, country_hint=country)
+        stats["crawled_links"] = len(links or [])
+        candidates = lkm.filter_and_rank_links(links) if links else []
 
-    # 2. search rescue ---------------------------------------------------
+    # 2. broad search rescue --------------------------------------------
     # Crawl4AI deliberately returns [] on an unrenderable/blocked page so one
     # site cannot abort a batch.  Treat that outcome as a reason to search the
     # live web, not as evidence that the university has no portal.
-    if not candidates and use_search_fallback:
+    if not candidates and use_search_fallback and not _targeted_endpoint_rescue:
         stats["search_reason"] = "crawl yielded no usable portal candidates"
         logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
                     domain, stats["search_reason"])
@@ -172,9 +236,20 @@ async def find_portals(
         if hits:
             search_candidates = lkm.filter_and_rank_links(hits) or hits
             stats["candidates"] += len(search_candidates)
+            candidates += search_candidates
             result = await asyncio.to_thread(
                 execute_model_cascade, "lookup", row.name, domain,
                 search_candidates)
+
+    # A model may be appropriately conservative about unfamiliar languages,
+    # but it must not erase a direct, university-owned login endpoint already
+    # observed in the crawl/search candidates.  The endpoint still passes the
+    # same network, form and student-audience checks below.
+    deterministic = _direct_login_candidates(candidates, domain)
+    result.discovered_portals = _merge_portals(
+        list(result.discovered_portals), deterministic,
+    )
+
     if not result.discovered_portals:
         return {"domain": domain, "name": row.name, "portals": [],
                 "stats": stats, "error": "no portals identified"}
@@ -254,6 +329,19 @@ async def find_portals(
             logger.info("lookup: %s — dropped %s (not a verified login page: %s)",
                         domain, portal.exact_url, note)
     live = verified_live
+
+    # Only now do we know that every homepage/model candidate was unsuitable:
+    # dead, external-IdP-only, not a login form, or not student-facing.  Make
+    # one independent, subdomain-aware search attempt rather than calling a
+    # generic web search for every successful university.
+    if not live and use_search_fallback and not _targeted_endpoint_rescue:
+        logger.info("lookup: %s — all candidates failed verification; "
+                    "invoking targeted login endpoint rescue", domain)
+        return await find_portals(
+            domain, name=name, country=country, portals_only=portals_only,
+            page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
+            _targeted_endpoint_rescue=True,
+        )
 
     if portals_only:
         return {

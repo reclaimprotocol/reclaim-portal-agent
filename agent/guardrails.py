@@ -66,14 +66,16 @@ _DOCUMENT_PATH_RE = re.compile(
     r"\.(?:pdf|docx?|xlsx?|pptx?|od[stp]|rtf)(?:$|[?#])", re.I)
 _LOGIN_WORD_RE = re.compile(
     r"\b(?:log\s*in|login|sign\s*in|signin|authenticate|authori[sz]e|"
-    r"student\s+access|access\s+account)\b", re.I)
+    r"student\s+access|access\s+account)\b|"
+    r"(?:ログイン|サインイン|認証|ログオン)", re.I)
 _IDENTIFIER_RE = re.compile(
     r"(?:user(?:name)?|student|email|login|roll|enrol|enroll|registration|"
     r"account|candidate|id(?:entifier)?|number)", re.I)
 _STUDENT_AUDIENCE_RE = re.compile(
     r"\b(?:student|students|learner|learners|scholar|scholars|roll\s*(?:no|number)|"
     r"enrol(?:ment|ment\s+number)?|registration\s*(?:no|number)?|academic|"
-    r"course(?:work)?|class(?:room)?|campus|library|catalog(?:ue)?|opac|borrower)\b", re.I)
+    r"course(?:work)?|class(?:room)?|campus|library|catalog(?:ue)?|opac|borrower)\b|"
+    r"(?:学生|学習管理システム|学習|授業|履修|教育|講義|科目|図書館)", re.I)
 _NON_STUDENT_AUDIENCE_RE = re.compile(
     r"\b(?:admission(?:s)?|applicant(?:s)?|application\s+portal|prospective\s+student|"
     r"staff|faculty|employee(?:s)?|human\s+resources|payroll|administrator|admin\s+login|"
@@ -176,6 +178,14 @@ def _login_form_evidence(html: str) -> tuple[bool, str]:
         kind = (control.get("type") or "").lower()
         if _LOGIN_WORD_RE.search(text) or kind == "submit":
             return True, "password, identifier, and sign-in control"
+        # Some institutional LMS pages use an icon-only <a> or <div> whose
+        # click handler submits the surrounding form.  It is still a genuine
+        # authorisation control, just not a semantic <button>.  Require both
+        # the password and identifier checks above before accepting it, so an
+        # unrelated JavaScript click target cannot qualify a normal page.
+        onclick = str(control.get("onclick") or "")
+        if re.search(r"(?:\.submit\s*\(|requestSubmit\s*\()", onclick, re.I):
+            return True, "password, identifier, and JavaScript submit control"
     return False, "no sign-in/authorise control"
 
 

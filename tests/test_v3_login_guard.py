@@ -5,6 +5,7 @@ from agent.guardrails import (
     _student_audience_evidence,
     portal_url_allowed,
 )
+from agent.filters import LocalKnowledgeMatrixFilter
 
 
 def test_rejects_documents_and_literal_ip_hosts() -> None:
@@ -59,3 +60,29 @@ def test_accepts_student_and_lms_evidence() -> None:
     """, "https://moodle.example.edu/login/index.php")
     assert student_ok is True
     assert moodle_ok is True
+
+
+def test_accepts_javascript_submit_and_japanese_lms_evidence() -> None:
+    accepted, _ = _login_form_evidence("""
+        <form id="loginForm" action="/login" method="post">
+          <input id="username" name="username" type="text">
+          <input id="password" name="password" type="password">
+          <a onclick="document.getElementById('loginForm').submit();"></a>
+        </form>
+    """)
+    audience_ok, _ = _student_audience_evidence("""
+        UTOL（UTokyo LMS）は、本学の教職員及び学生に対して提供する
+        学習管理システムです。
+    """, "https://utol.ecc.u-tokyo.ac.jp/login")
+    assert accepted is True
+    assert audience_ok is True
+
+
+def test_ranks_native_language_portal_labels() -> None:
+    links = [
+        {"url": "https://portal.example.jp/login", "text": "学生ログイン"},
+        {"url": "https://lms.example.ae/", "text": "بوابة الطالب"},
+        {"url": "https://e.example.ru/", "text": "Личный кабинет студента"},
+    ]
+    ranked = LocalKnowledgeMatrixFilter().filter_and_rank_links(links)
+    assert {item["url"] for item in ranked} == {item["url"] for item in links}

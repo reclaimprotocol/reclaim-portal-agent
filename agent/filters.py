@@ -65,6 +65,19 @@ _SPEC_BLACKLIST = (
 _SPEC_PORTAL = (
     "portal", "login", "signin", "sign-in", "sso", "erp", "lms", "moodle",
     "canvas", "ums", "mis", "student", "webmail",
+    # Japanese
+    "ログイン", "サインイン", "認証", "学生", "学務", "履修", "授業", "学習管理", "教務", "ポータル",
+    # Traditional Chinese (Taiwan / Hong Kong)
+    "登入", "登錄", "學生", "學習管理", "教務", "校務", "選課", "學生入口",
+    # Arabic (UAE / Iraq / Jordan)
+    "تسجيل الدخول", "بوابة الطالب", "الطلاب", "نظام إدارة التعلم", "نظام التعليم",
+    # Turkish, Russian and Nepali
+    "giriş", "öğrenci", "öğrenci bilgi sistemi", "uzaktan eğitim",
+    "вход", "студент", "личный кабинет", "электронное обучение",
+    "लगइन", "विद्यार्थी", "छात्र", "विद्यार्थी पोर्टल", "सिकाइ",
+    # French and Indian-language/common local labels
+    "connexion", "se connecter", "étudiant", "espace étudiant", "portail étudiant",
+    "लॉगिन", "छात्र पोर्टल", "शिक्षा",
 )
 _SPEC_LEGAL = (
     "privacy", "terms", "legal", "tnc", "t-and-c", "disclaimer", "policy",

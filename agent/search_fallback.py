@@ -58,6 +58,14 @@ def build_category_query(university_name: str, official_domain: str,
     return f'"{university_name}" {official_domain} {category_keyword_target} login'
 
 
+def build_login_endpoint_query(university_name: str, official_domain: str) -> str:
+    """A subdomain-aware rescue query for a direct sign-in endpoint."""
+    return (
+        f'"{university_name}" site:{official_domain} '
+        '(login OR sign-in OR SSO OR authentication OR Moodle OR LMS OR portal)'
+    )
+
+
 def _as_mapping(value: Any) -> Mapping[str, Any] | None:
     """Support SDK objects and dicts (the latter keeps tests simple)."""
     if isinstance(value, Mapping):
@@ -118,7 +126,9 @@ def _search_instruction(query: str, max_results: int) -> str:
         " direct URLs for real student-facing login portals for this institution. "
         "Prioritise student ERP/SIS, LMS (such as Moodle or Canvas), and library "
         "authentication pages. Do not search for admissions, staff/HR, alumni, PDFs, "
-        "or generic homepages. Search query: " + query
+        "or generic homepages. Include university-owned subdomains when they "
+        "host the service. Prefer the direct login endpoint over an article "
+        "which merely describes it. Search query: " + query
     )
 
 
