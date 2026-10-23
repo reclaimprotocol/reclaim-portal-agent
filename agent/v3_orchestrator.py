@@ -5,7 +5,7 @@ Joins the V3 components end to end, one coroutine per university:
     Sheets (bulk read)
         -> crawler.extract_raw_university_links   rendered Chromium, proxy-aware
         -> filters.LocalKnowledgeMatrixFilter     KB-driven token shield
-        -> openrouter_cascade.execute_model_cascade   waterfall prompt + failover
+        -> openai_cascade.execute_model_cascade       waterfall prompt + failover
         -> guardrails.verify_portal_endpoint       Layer 3: is the endpoint live?
         -> verified_compliance.csv | missing_tnc_portals.csv   (asyncio.Lock)
         -> tnc_memory.json                         Layer 5: vendor -> legal URLs
@@ -19,7 +19,7 @@ Two of our dependencies are synchronous and would stall the whole event loop if
 awaited naively:
 
   * `sheets_client` is googleapiclient (sync sockets);
-  * `openrouter_cascade.execute_model_cascade` uses the sync OpenAI client.
+  * `openai_cascade.execute_model_cascade` uses the sync OpenAI client.
 
 Both are dispatched with `asyncio.to_thread`, so a slow Sheets call or a 90 s
 model timeout parks one worker instead of freezing all twenty.
@@ -71,7 +71,7 @@ from agent.graph_matcher import (GraphComplianceMatcher,            # noqa: E402
 from agent.guardrails import (verify_portal_endpoint_final,          # noqa: E402
                               verify_portal_endpoint_detailed, transport_ok)
 from agent.memory_cache import MemoryCache, signature               # noqa: E402
-from agent.openrouter_cascade import execute_model_cascade          # noqa: E402
+from agent.openai_cascade import execute_model_cascade              # noqa: E402
 from agent.schemas import IntegratedDiscoveryOutput                 # noqa: E402
 from agent.search_fallback import (build_category_query,           # noqa: E402
                                    execute_search_fallback)
@@ -387,7 +387,7 @@ async def cascade_with_pacing(
     """Run the cascade with TPM pacing and exponential backoff on 429s.
 
     The pacing sleep is applied BEFORE every attempt, including retries: with 20
-    workers hitting OpenRouter the instant their crawls finish, requests arrive
+    workers hitting OpenAI the instant their crawls finish, requests arrive
     in bursts that trip per-minute limits even when the average rate is fine.
     Jittering each worker smooths the burst without lowering throughput
     meaningfully.
@@ -404,7 +404,7 @@ async def cascade_with_pacing(
             break
         if attempt < CASCADE_MAX_ATTEMPTS - 1:
             delay = (2 ** attempt) + random.uniform(0.1, 0.5)
-            logger.warning("[RATE LIMIT PACING] org %s — OpenRouter throttled on "
+            logger.warning("[RATE LIMIT PACING] org %s — OpenAI throttled on "
                            "attempt %d/%d; backing off %.2fs",
                            row.org_id, attempt + 1, CASCADE_MAX_ATTEMPTS, delay)
             await asyncio.sleep(delay)
@@ -470,7 +470,7 @@ MANDATORY_CAPABILITIES: dict[str, str] = {
 CAPABILITY_EXPANSION = os.getenv("GENIE_CAPABILITY_EXPANSION", "1").strip().lower() \
     in ("1", "true", "yes", "on")
 
-#: OpenRouter web search is metered and bursts can draw rate-limit responses.
+#: OpenAI web search is metered and bursts can draw rate-limit responses.
 #: 20 row workers each firing up to three category searches would spend quota in
 #: a spike and get a share of it rejected. This turnstile is GLOBAL — shared by
 #: rescue and expansion — because the quota is per account, not per code path.
@@ -521,7 +521,7 @@ def detect_missing_capabilities(portals: Sequence[Any]) -> list[str]:
 async def expand_search_for_categories(
     row: "UniversityRow", lkm: LocalKnowledgeMatrixFilter, missing: Sequence[str],
 ) -> list[dict[str, Any]]:
-    """One targeted OpenRouter web-search scavenge per missing capability.
+    """One targeted OpenAI web-search scavenge per missing capability.
 
     This is ADDITIVE, not a fallback: it runs on rows that already succeeded,
     to catch the second and third student system that lives on a domain the
@@ -800,7 +800,7 @@ async def process_university(
             candidates = lkm.filter_and_rank_links(links, country=row.country) if links else []
             if not candidates:
                 logger.info("[FALLBACK TRIGGER] org %s (%s) — no crawl candidates, "
-                            "entering OpenRouter web-search rescue", row.org_id, row.domain)
+                            "entering OpenAI web-search rescue", row.org_id, row.domain)
                 candidates = await search_rescue(row, lkm)
                 used_search = bool(candidates)
                 if not candidates:
@@ -879,7 +879,7 @@ async def process_university(
 
             if not live_portals:
                 logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
-                               "verification, routing to OpenRouter web-search rescue",
+                               "verification, routing to OpenAI web-search rescue",
                                row.org_id, dead)
                 hits = await search_rescue(row, lkm)
                 if hits:

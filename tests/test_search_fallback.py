@@ -31,8 +31,22 @@ def test_parse_results_keeps_direct_portal_url_written_in_search_answer() -> Non
         ]}}],
     }
     assert parse_results(response) == [
-        {"url": "https://www.example.edu/student-guide", "text": "Student guide"},
         {"url": "https://portal.example.edu/login", "text": "OpenAI web-search direct URL"},
+        {"url": "https://www.example.edu/student-guide", "text": "Student guide"},
+    ]
+
+
+def test_parse_results_prioritises_direct_urls_and_drops_documents_before_cap() -> None:
+    response = {
+        "output_text": "Direct portal: https://portal.example.edu/login",
+        "output": [{"action": {"sources": [
+            {"url": "https://example.edu/guide.pdf", "title": "Guide"},
+            {"url": "https://example.edu/help", "title": "Help"},
+        ]}}],
+    }
+    assert parse_results(response, max_results=2) == [
+        {"url": "https://portal.example.edu/login", "text": "OpenAI web-search direct URL"},
+        {"url": "https://example.edu/help", "text": "Help"},
     ]
 
 

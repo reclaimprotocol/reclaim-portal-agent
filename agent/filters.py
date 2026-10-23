@@ -2,7 +2,7 @@
 
 The crawler returns EVERY anchor on a rendered page — 55 links for BUET, 146 for
 Uva Wellassa, and university homepages routinely exceed 300. Sending those raw
-to OpenRouter is both expensive and counter-productive: the signal drowns.
+to a model is both expensive and counter-productive: the signal drowns.
 
 This filter sits between them. It is pure regex and set lookups, no network and
 no model, so it costs microseconds and strips the obvious noise before anything
@@ -36,6 +36,7 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit
 
 from agent.languages import profile_for_country
+from agent.guardrails import portal_url_allowed
 
 logger = logging.getLogger("genie.filters")
 
@@ -215,7 +216,7 @@ def normalize_url(url: str) -> str:
 
 
 class LocalKnowledgeMatrixFilter:
-    """Regex/set gate between the crawler and the OpenRouter inference phase."""
+    """Regex/set gate between the crawler and the OpenAI inference phase."""
 
     def __init__(
         self,
@@ -321,7 +322,7 @@ class LocalKnowledgeMatrixFilter:
             self._country_portal_re[country_key] = _compile(
                 profile_for_country(country).portal_terms)
         country_portal_re = self._country_portal_re[country_key]
-        stats = {"in": len(links), "blacklisted": 0, "duplicate": 0,
+        stats = {"in": len(links), "blacklisted": 0, "invalid_url": 0, "duplicate": 0,
                  "no_signal": 0, "portal": 0, "legal": 0, "fallback": 0,
                  "filler": 0}
 
@@ -340,6 +341,10 @@ class LocalKnowledgeMatrixFilter:
             url = (item.get("url") or "").strip()
             text = (item.get("text") or "").strip()
             if not url:
+                continue
+            allowed, _reason = portal_url_allowed(url)
+            if not allowed:
+                stats["invalid_url"] += 1
                 continue
             blob = f"{url} {text}"
 

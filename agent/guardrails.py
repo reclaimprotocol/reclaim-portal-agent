@@ -38,7 +38,7 @@ import os
 import re
 import ssl
 from typing import Any, Iterable, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -64,6 +64,27 @@ USER_AGENT = os.getenv(
 # an objective property of the final response.
 _DOCUMENT_PATH_RE = re.compile(
     r"\.(?:pdf|docx?|xlsx?|pptx?|od[stp]|rtf)(?:$|[?#])", re.I)
+_NON_PORTAL_UTILITY_HOST_RE = re.compile(
+    r"(?:^|[.-])(?:directory|staff-directory|employee-directory)(?:[.-]|$)", re.I)
+# Pages in these route families may contain a site-wide Login link, but they
+# are documentation/content *about* a portal rather than a portal entry point.
+# Reject them before rendering so a header/footer control cannot promote them
+# into the final spreadsheet.
+_NON_PORTAL_CONTENT_PATH_RE = re.compile(
+    r"(?:^|/)(?:faqs?|help|guides?|manuals?|docs?|documentation|news|"
+    r"articles?|blogs?)(?:/|$)|"
+    r"/admin/tool/(?:policy|dataprivacy)(?:/|$)|"
+    r"/(?:course/view|enrol/index|mod/(?:page|book)/view)\.php(?:/|$)|"
+    r"/(?:courses?|classes?)/\d+(?:/|$)|"
+    r"/portal/site/!(?:error|gateway)(?:/|$)|"
+    r"/online_guide(?:/|$)|"
+    r"/services?/portal/(?:faq|student|member)(?:/|$)|"
+    r"/(?:okomariguide|mfatype(?:-en)?)\.html(?:/|$)|"
+    r"/(?:first|1st)[_-]?login(?:\.[a-z0-9]+)?(?:/|$)|"
+    r"(?:^|/)(?:privacy|privacy-policy|policy|policies|terms|terms-of-use)"
+    r"(?:\.[a-z0-9]+)?(?:/|$)",
+    re.I,
+)
 _LOGIN_WORD_RE = re.compile(
     r"\b(?:log\s*in|login|sign\s*in|signin|authenticate|authori[sz]e|"
     r"student\s+access|access\s+account)\b|"
@@ -82,8 +103,24 @@ _NON_STUDENT_AUDIENCE_RE = re.compile(
     r"alumni|parent(?:s)?|vendor|partner)\b", re.I)
 _ACADEMIC_PLATFORM_RE = re.compile(
     r"(?:moodle|canvas(?:lms)?|blackboard|brightspace|d2l|chamilo|sakailms|"
-    r"koha|ezproxy|library\s+catalog|opac)", re.I)
+    r"(?:^|[./_-])lms(?:[./_-]|$)|koha|ezproxy|library\s+catalog|opac)", re.I)
+_OFFICIAL_STUDENT_SERVICE_URL_RE = re.compile(
+    r"(?:^|[./_-])(?:student|campus|portal|lms|moodle|canvas|library|"
+    r"my)(?:[./_-]|$)", re.I)
 _MAX_LOGIN_PAGE_BYTES = 512 * 1024
+_VOLATILE_AUTH_PARAMS = frozenset({
+    "sessid", "session", "sessionid", "samlrequest", "samlresponse",
+    "relaystate", "signature", "sigalg", "state", "nonce", "code",
+})
+_render_sem: asyncio.Semaphore | None = None
+
+
+def _get_render_sem() -> asyncio.Semaphore:
+    global _render_sem
+    if _render_sem is None:
+        _render_sem = asyncio.Semaphore(max(
+            1, int(os.getenv("GENIE_VERIFY_BROWSER_CONCURRENCY", "2"))))
+    return _render_sem
 
 #: aiohttp validates certificates by default; university TLS often fails that
 #: check while the site itself is fine. We are testing reachability, not trust.
@@ -93,7 +130,11 @@ _INSECURE_SSL.verify_mode = ssl.CERT_NONE
 
 
 def _as_url(url_path: str) -> str:
-    raw = (url_path or "").strip()
+    # Search/model output occasionally includes a Markdown code delimiter as a
+    # literal URL suffix (or its encoded form, %60).  It is never part of a
+    # portal address and previously produced broken rows such as login.php%60.
+    raw = (url_path or "").strip().strip("`\"'")
+    raw = re.sub(r"(?:%60|`)+$", "", raw, flags=re.I)
     if not raw:
         raise ValueError("verify_portal_endpoint() needs a URL")
     if "://" not in raw:
@@ -135,9 +176,35 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
         return False, "not an http(s) URL"
     if _host_is_ip_literal(normalised):
         return False, "literal IP host"
+    if _NON_PORTAL_UTILITY_HOST_RE.search(parsed.hostname or ""):
+        return False, "non-portal directory utility host"
     if _DOCUMENT_PATH_RE.search(parsed.path or ""):
         return False, "document URL"
+    if _NON_PORTAL_CONTENT_PATH_RE.search(parsed.path or ""):
+        return False, "informational/content route"
     return True, "ok"
+
+
+def canonical_portal_url(url: str) -> str:
+    """Return a reusable output URL, removing presentation-only variants."""
+    cleaned = _as_url(url)
+    parsed = urlsplit(cleaned)
+    query = []
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        lower = key.lower()
+        if lower.startswith("utm_") or lower in {"lang", "changelangcd"}:
+            continue
+        query.append((key, value))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+                       urlencode(query, doseq=True), ""))
+
+
+def portal_dedupe_key(url: str) -> str:
+    """Canonical key used immediately before writing verified portal rows."""
+    parsed = urlsplit(canonical_portal_url(url))
+    path = (parsed.path or "/").rstrip("/") or "/"
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path,
+                       parsed.query, ""))
 
 
 def _login_form_evidence(html: str) -> tuple[bool, str]:
@@ -216,6 +283,191 @@ def _student_audience_evidence(html: str, url: str) -> tuple[bool, str]:
     if _ACADEMIC_PLATFORM_RE.search(evidence):
         return True, "known LMS or academic-library platform"
     return False, "no student or academic audience evidence"
+
+
+def _official_host(url: str, official_domain: str) -> bool:
+    host = _normalised_host(url)
+    root = _normalised_host(official_domain)
+    return bool(host and root and (host == root or host.endswith("." + root)))
+
+
+def _has_volatile_auth_state(url: str) -> bool:
+    try:
+        return any(k.lower() in _VOLATILE_AUTH_PARAMS
+                   for k, _v in parse_qsl(urlsplit(url).query, keep_blank_values=True))
+    except ValueError:
+        return False
+
+
+def _rendered_auth_control_target(
+    html: str, base_url: str = "",
+) -> tuple[bool, str, str]:
+    """Find a real login/SSO action when credentials are entered downstream.
+
+    Modern university portals often expose only a Login/SSO button and then
+    redirect to Okta, Shibboleth or another IdP.  Require an actionable control
+    rather than accepting a page merely because its prose mentions "login".
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    for control in soup.find_all(["button", "input", "a"]):
+        text = " ".join([
+            control.get_text(" ", strip=True),
+            str(control.get("value") or ""),
+            str(control.get("aria-label") or ""),
+            str(control.get("title") or ""),
+        ]).strip()
+        href = str(control.get("href") or "").strip()
+        onclick = str(control.get("onclick") or "").strip()
+        kind = (control.get("type") or "").lower()
+        descriptor = f"{text} {href} {onclick}"
+        if not _LOGIN_WORD_RE.search(descriptor):
+            continue
+        if (control.name in {"button", "input"} or kind in {"submit", "button"}
+                or href.lower().startswith(("http://", "https://", "/"))
+                or onclick):
+            target = ""
+            if control.name == "a" and href:
+                target = urljoin(base_url, href) if base_url else href
+            return True, "rendered login/SSO authorisation control", target
+    return False, "no actionable rendered login/SSO control", ""
+
+
+def _rendered_auth_control(html: str) -> tuple[bool, str]:
+    """Compatibility wrapper used by focused unit tests."""
+    accepted, reason, _target = _rendered_auth_control_target(html)
+    return accepted, reason
+
+
+def _stable_verified_url(published_url: str, rendered_final_url: str) -> str:
+    """Prefer a reusable entry point over an ephemeral IdP transaction URL."""
+    published_url = canonical_portal_url(published_url)
+    rendered_final_url = canonical_portal_url(rendered_final_url)
+    # Search engines sometimes publish a currently active SSO transaction
+    # rather than its stable entry point.  Recover a reusable `back`/
+    # `returnUrl` destination when present; otherwise at least remove volatile
+    # transaction parameters before the row reaches Sheets.
+    if _has_volatile_auth_state(published_url):
+        parsed = urlsplit(published_url)
+        pairs = parse_qsl(parsed.query, keep_blank_values=True)
+        for key, value in pairs:
+            if key.lower() in {"back", "returnurl", "redirect", "redirect_uri"}:
+                if value.lower().startswith(("http://", "https://")):
+                    target_allowed, _reason = portal_url_allowed(value)
+                    if target_allowed and not _has_volatile_auth_state(value):
+                        published_url = canonical_portal_url(value)
+                        break
+        else:
+            stable_pairs = [
+                (key, value) for key, value in pairs
+                if key.lower() not in _VOLATILE_AUTH_PARAMS
+            ]
+            published_url = urlunsplit((
+                parsed.scheme, parsed.netloc, parsed.path,
+                urlencode(stable_pairs, doseq=True), "",
+            ))
+    if (_normalised_host(published_url) != _normalised_host(rendered_final_url)
+            or _has_volatile_auth_state(rendered_final_url)):
+        return published_url
+    return rendered_final_url
+
+
+async def verify_student_login_surface_rendered(
+    url_path: str,
+    timeout_seconds: int = 25,
+    *,
+    country_hint: str = "",
+    official_domain: str = "",
+) -> tuple[bool, str, str]:
+    """Render a candidate and verify form or SSO evidence in the final DOM.
+
+    This is deliberately the second-line verifier: Chromium is expensive, so
+    callers should use the static verifier first.  Unlike that fast path it can
+    see JavaScript-created forms and accepts an institutional SSO hand-off while
+    returning the stable published URL rather than its temporary transaction.
+    """
+    allowed, reason = portal_url_allowed(url_path)
+    if not allowed:
+        return False, reason, url_path
+    published = _as_url(url_path)
+    try:
+        from crawl4ai import AsyncWebCrawler
+        from agent.crawler import (_browser_config, _run_config, WAIT_FOR_JS,
+                                   proxy_for)
+        proxy_cfg = proxy_for(published, country_hint)
+        async with _get_render_sem():
+            async with AsyncWebCrawler(config=_browser_config(proxy_cfg)) as crawler:
+                result = await crawler.arun(
+                    url=published,
+                    config=_run_config(timeout_seconds * 1000, WAIT_FOR_JS),
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return False, f"render {type(exc).__name__}", published
+
+    html = getattr(result, "html", "") or ""
+    final_url = (getattr(result, "redirected_url", None)
+                 or getattr(result, "url", None) or published)
+    if not html:
+        error = str(getattr(result, "error_message", "") or "render returned no HTML")
+        return False, error[:180], final_url
+
+    form_ok, form_reason = _login_form_evidence(html)
+    control_ok, control_reason, control_target = _rendered_auth_control_target(
+        html, final_url)
+    if not form_ok and not control_ok:
+        return False, f"{form_reason}; {control_reason}", final_url
+
+    # Keep the published entry point in the evidence.  A real campus/LMS URL
+    # may redirect to a generic IdP whose transaction URL no longer contains
+    # the student-service signal visible in the original address.
+    audience_ok, audience_reason = _student_audience_evidence(
+        html, f"{published} {final_url}")
+    # Being university-owned proves ownership, not audience.  An official host
+    # can still be an employee directory, administrator console, admissions
+    # form, or certificate utility.  Require positive student/academic/LMS
+    # evidence even on the institution's own domain.
+    official_student_entry = (
+        _official_host(published, official_domain)
+        and bool(_OFFICIAL_STUDENT_SERVICE_URL_RE.search(published))
+    )
+    if not audience_ok and not official_student_entry:
+        return False, audience_reason, final_url
+
+    evidence = form_reason if form_ok else control_reason
+    binding = (audience_reason if audience_ok
+               else "official student-service entry URL")
+    # A documentation/landing page may legitimately point to the real login.
+    # When there is no credential form on the candidate itself, emit that
+    # actionable target rather than the page containing the link.  Volatile
+    # SAML/OIDC transactions are deliberately not published.
+    stable = _stable_verified_url(published, final_url)
+    if not form_ok and control_target:
+        target_allowed, _target_reason = portal_url_allowed(control_target)
+        if target_allowed and not _has_volatile_auth_state(control_target):
+            stable = canonical_portal_url(control_target)
+    return True, f"{evidence}; {binding}; Chromium-rendered", stable
+
+
+async def verify_student_login_surface_hybrid(
+    url_path: str,
+    timeout_seconds: int = 10,
+    *,
+    country_hint: str = "",
+    official_domain: str = "",
+    render_timeout_seconds: int = 25,
+) -> tuple[bool, str, str]:
+    """Fast static verification followed by Chromium on any ambiguity."""
+    static = await verify_student_login_surface(
+        url_path, timeout_seconds, country_hint=country_hint)
+    if static[0]:
+        return static[0], static[1], _stable_verified_url(_as_url(url_path), static[2])
+    rendered = await verify_student_login_surface_rendered(
+        url_path, render_timeout_seconds, country_hint=country_hint,
+        official_domain=official_domain)
+    if rendered[0]:
+        return rendered
+    return False, f"static: {static[1]}; rendered: {rendered[1]}", rendered[2]
 
 
 async def verify_student_login_surface(

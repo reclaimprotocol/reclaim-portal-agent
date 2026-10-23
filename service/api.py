@@ -238,8 +238,7 @@ def health() -> dict:
             "runs_dir": str(runs.RUNS_DIR),
             "concurrency": CONCURRENCY,
             "queued": _queue.qsize() if _queue is not None else 0,
-            "openrouter_key": bool(os.getenv("OPENROUTER_API_KEY", "").strip()),
-            "serper_key": bool(os.getenv("SERPER_API_KEY", "").strip()),
+            "openai_key": bool(os.getenv("OPENAI_API_KEY", "").strip()),
             # Booleans and a country code only — never the gateway or credentials.
             #
             # Added after a deploy spent an hour looking like a model failure and

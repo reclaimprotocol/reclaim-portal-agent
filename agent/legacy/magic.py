@@ -69,7 +69,9 @@ def _env(*names, default=""):
 
 # --- config (read directly; no rule-module dependency) ---------------------
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+# Retired provider: keep the legacy implementation importable, but never read
+# or spend an OPENROUTER_API_KEY even if one remains in a developer's shell.
+OPENROUTER_API_KEY = ""
 # The magic judge is a cheap, fast, strongly-multilingual model. Swap without
 # code changes via MAGIC_MODEL. Default to Gemini 2.5 Flash.
 _DEFAULT_MODEL = "google/gemini-2.5-flash"

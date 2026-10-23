@@ -252,8 +252,7 @@ def health() -> dict:
     # Discovery config visibility (booleans only — never the key value) so we can
     # confirm live-discovery is wired without shelling into the server.
     return {"ok": True, "backend": "postgres" if genie_core.db.is_postgres() else "sqlite",
-            "gemini_search": os.getenv("GEMINI_SEARCH_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on"),
-            "openrouter_key": bool(os.getenv("OPENROUTER_API_KEY", "").strip()),
+            "openai_key": bool(os.getenv("OPENAI_API_KEY", "").strip()),
             **genie_core.db.stats()}
 
 

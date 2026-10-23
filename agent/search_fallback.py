@@ -28,10 +28,12 @@ logger = logging.getLogger("genie.search")
 
 MAX_RESULTS = 6
 _HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\[\"')]+", re.I)
+_DOCUMENT_URL_RE = re.compile(
+    r"\.(?:pdf|docx?|xlsx?|pptx?|od[stp]|rtf)(?:$|[?#])", re.I)
 # Search is the recovery path for browser-rendering failures.  A short timeout
 # turns a temporary slow search into a false "no portal" result, so give the
 # hosted tool enough time to obtain and cite live sources.
-DEFAULT_TIMEOUT_S = int(os.getenv("GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS", "60"))
+DEFAULT_TIMEOUT_S = int(os.getenv("GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS", "90"))
 DEFAULT_MODEL = "gpt-5.5"
 
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
@@ -64,11 +66,17 @@ def build_category_query(university_name: str, official_domain: str,
 
 def build_login_endpoint_query(university_name: str, official_domain: str,
                                country: str = "") -> str:
-    """A subdomain-aware rescue query for a direct sign-in endpoint."""
+    """A direct-login query that also permits institution-bound vendor SSO.
+
+    A hard ``site:official_domain`` restriction hid legitimate Okta, SECIOSS,
+    Salesforce, hosted LMS and library portals.  The official domain remains a
+    strong identity term, but is no longer a search-engine exclusion rule.
+    """
     native_terms = " OR ".join(profile_for_country(country).search_terms)
     return (
-        f'"{university_name}" site:{official_domain} '
-        f'(login OR sign-in OR SSO OR authentication OR Moodle OR LMS OR portal OR {native_terms})'
+        f'"{university_name}" "{official_domain}" '
+        f'(login OR sign-in OR SSO OR authentication OR Moodle OR LMS OR portal OR {native_terms}) '
+        f'direct student login'
     )
 
 
@@ -98,22 +106,20 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
     checks before returning one.  We therefore retain both cited pages and
     explicit HTTP URLs from the tool's generated search answer.
     """
-    found: list[dict[str, str]] = []
-    seen: set[str] = set()
+    cited: list[dict[str, str]] = []
+    cited_seen: set[str] = set()
 
     def add(source: Any) -> None:
         item = _as_mapping(source)
         if not item:
             return
         url = str(item.get("url") or "").strip()
-        if not url or url in seen:
+        if not url or url in cited_seen or _DOCUMENT_URL_RE.search(url):
             return
-        seen.add(url)
-        found.append({"url": url, "text": str(item.get("title") or "").strip()})
+        cited_seen.add(url)
+        cited.append({"url": url, "text": str(item.get("title") or "").strip()})
 
     def walk(value: Any, *, in_sources: bool = False) -> None:
-        if len(found) >= max_results:
-            return
         item = _as_mapping(value)
         if item is not None:
             if in_sources:
@@ -125,8 +131,6 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             for child in value:
                 walk(child, in_sources=in_sources)
-                if len(found) >= max_results:
-                    return
 
     walk(response)
 
@@ -136,12 +140,29 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
     if not output_text:
         mapped = _as_mapping(response) or {}
         output_text = str(mapped.get("output_text") or "")
+    direct: list[dict[str, str]] = []
+    direct_seen: set[str] = set()
     for url in _HTTP_URL_RE.findall(str(output_text)):
         clean = url.rstrip(".,;:!?")
-        if clean and clean not in seen and len(found) < max_results:
-            seen.add(clean)
-            found.append({"url": clean, "text": "OpenAI web-search direct URL"})
-    return found
+        if (clean and clean not in direct_seen
+                and not _DOCUMENT_URL_RE.search(clean)):
+            direct_seen.add(clean)
+            direct.append({"url": clean, "text": "OpenAI web-search direct URL"})
+
+    # The answer's explicitly written direct endpoints are more valuable than
+    # background citation pages. Previously six citations filled the cap first
+    # and silently discarded a correct portal named in output_text.
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in direct + cited:
+        url = item["url"]
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(item)
+        if len(out) >= max_results:
+            break
+    return out
 
 
 def _search_instruction(query: str, max_results: int, country: str = "") -> str:
@@ -187,6 +208,7 @@ async def execute_search_fallback(
     api = client or AsyncOpenAI(
         api_key=key,
         timeout=timeout_seconds,
+        max_retries=0,  # this rescue path owns retries at the orchestration layer
     )
     try:
         response = await api.responses.create(

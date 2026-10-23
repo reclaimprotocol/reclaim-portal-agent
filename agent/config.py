@@ -53,33 +53,16 @@ JS_RENDER_BUDGET_SECONDS: int = int(
 )
 
 
-# --- Stage A search engine selection (Gemini Pro via OpenRouter) ---------
+# --- Retired OpenRouter compatibility surface ---------------------------
 #
-# When `GEMINI_SEARCH_ENABLED=true` AND `OPENROUTER_API_KEY` is set, the
-# discovery search phase asks Gemini for the university's portal URLs
-# first; DDG only runs when Gemini returns zero candidates (or is
-# disabled, or the OpenRouter call errors). Gemini's index covers the
-# long tail of smaller Indian universities (St. Xavier's Ranchi,
-# Patliputra, …) that DDG misses.
-#
-# Read from env directly (rather than threaded through `Config`) because
-# `gemini_search` in `discovery_rules` reads them at call time — same
-# pattern as the budget / timeout constants above. Disabling is a
-# zero-cost no-op: when the key is missing the function returns []
-# immediately and the orchestrator falls through to DDG.
-OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL: str = os.getenv(
-    # The `~`-prefixed alias auto-redirects to the newest Gemini Flash on
-    # OpenRouter, so this default won't go dead when a specific dated id is
-    # retired (as `gemini-2.0-flash-001` did — HTTP 404 "No endpoints found").
-    # NOTE: the bare `google/gemini-flash-latest` (no `~`) is NOT a valid
-    # OpenRouter id (400). For a pinned stable alternative use
-    # `google/gemini-2.5-flash`. See `assert_openrouter_model_live()`.
-    "OPENROUTER_MODEL", "~google/gemini-flash-latest"
-)
-GEMINI_SEARCH_ENABLED: bool = os.getenv(
-    "GEMINI_SEARCH_ENABLED", "true"
-).lower() == "true"
+# Genie now uses the direct OpenAI API for both structured inference and web
+# search.  Keep these names temporarily so old scripts still import cleanly,
+# but force the provider OFF even if a stale deployment environment still has
+# OPENROUTER_API_KEY/GEMINI_SEARCH_ENABLED configured.  This prevents legacy
+# discovery helpers from silently spending against the retired subscription.
+OPENROUTER_API_KEY: str = ""
+OPENROUTER_MODEL: str = ""
+GEMINI_SEARCH_ENABLED: bool = False
 
 # Dynamic affiliating-university portal discovery. When enabled, every
 # college whose parent university is NOT in the curated
@@ -95,75 +78,13 @@ AFFILIATION_DISCOVERY_ENABLED: bool = os.getenv(
 
 
 def assert_openrouter_model_live(timeout: float = 15.0) -> None:
-    """Startup guard: verify OPENROUTER_MODEL still resolves on OpenRouter.
+    """Deprecated no-op retained for old runner imports.
 
-    Gemini model ids on OpenRouter get retired without notice (e.g.
-    ``google/gemini-2.0-flash-001`` began returning HTTP 404 "No endpoints
-    found"), which silently degraded every discovery/T&C run to the DDG
-    fallback. Make one tiny "ping" call at init; if the model is dead, log
-    loudly and exit rather than limping along with a broken primary LLM.
-
-    No-op when Gemini search is disabled or no API key is set. Transient
-    network errors are warned-but-ignored (a flaky link shouldn't block a
-    run) — only a clear dead-model signal (404 / "no endpoints") exits.
+    OpenRouter is intentionally disabled. New code must use OPENAI_API_KEY via
+    ``agent.search_fallback`` and the direct-OpenAI model cascade.
     """
-    if not GEMINI_SEARCH_ENABLED or not OPENROUTER_API_KEY:
-        return
-    import requests
-
-    try:
-        resp = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/reclaimprotocol",
-            },
-            json={
-                "model": OPENROUTER_MODEL,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            },
-            timeout=timeout,
-        )
-    except Exception as err:
-        logger.warning(
-            "OpenRouter health check could not reach the API (%s) — "
-            "skipping model liveness check, continuing.", err,
-        )
-        return
-
-    try:
-        data = resp.json()
-    except ValueError:
-        data = {}
-    # A retired model 404s ("no endpoints found"); a bad/unknown id 400s
-    # ("is not a valid model ID"). Both mean the configured model is unusable
-    # for real calls, so treat either as dead — but the tiny ping itself can
-    # 400 for benign reasons (param validation), so only flag 400 when the
-    # message actually names the model id as invalid.
-    err = data.get("error") if isinstance(data, dict) else None
-    msg = str(err.get("message", "")).lower() if isinstance(err, dict) else ""
-    code = err.get("code") if isinstance(err, dict) else None
-    is_dead = (
-        resp.status_code == 404
-        or code == 404
-        or "no endpoints found" in msg
-        or "not a valid model" in msg
-    )
-    if is_dead:
-        import sys
-        logger.error(
-            "OPENROUTER_MODEL %s is dead/invalid on OpenRouter (%s) — update "
-            "it (try '~google/gemini-flash-latest' or 'google/gemini-2.5-flash').",
-            OPENROUTER_MODEL, err or f"HTTP {resp.status_code}",
-        )
-        sys.exit(1)
-
-    logger.info(
-        "OpenRouter model %s is live (health check HTTP %s).",
-        OPENROUTER_MODEL, resp.status_code,
-    )
+    del timeout
+    return
 
 
 # --- Known shared-platform short-circuit ---------------------------------

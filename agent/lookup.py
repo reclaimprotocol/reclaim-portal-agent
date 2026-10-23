@@ -46,15 +46,17 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-from agent.crawler import extract_raw_university_links          # noqa: E402
+from agent.crawler import (extract_targeted_university_links,   # noqa: E402
+                           extract_links_from_evidence_pages)
 from agent.filters import LocalKnowledgeMatrixFilter            # noqa: E402
-from agent.graph_matcher import (GraphComplianceMatcher, host_of,  # noqa: E402
+from agent.graph_matcher import (GraphComplianceMatcher,           # noqa: E402
                                  DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
 from agent.guardrails import (verify_portal_endpoint_final,     # noqa: E402
-                              verify_student_login_surface, portal_url_allowed,
+                              verify_student_login_surface_hybrid, portal_url_allowed,
+                              portal_dedupe_key, canonical_portal_url,
                               transport_ok, REQUIRE_HTTPS)
 from agent.memory_cache import MemoryCache, signature           # noqa: E402
-from agent.openrouter_cascade import execute_model_cascade      # noqa: E402
+from agent.openai_cascade import execute_model_cascade          # noqa: E402
 from agent.schemas import DiscoveredPortal, IntegratedDiscoveryOutput  # noqa: E402
 from agent.search_fallback import (build_login_endpoint_query,  # noqa: E402
                                    execute_search_fallback)
@@ -66,7 +68,8 @@ logger = logging.getLogger("genie.lookup")
 
 _DIRECT_LOGIN_HINT_RE = re.compile(
     r"(?:login|logon|sign[\s_-]?in|auth(?:enticate|entication)?|sso|"
-    r"moodle|canvas|blackboard|brightspace|lms|manaba|portal)", re.I)
+    r"moodle|canvas|blackboard|brightspace|lms|manaba|portal|"
+    r"(?:^|[./_-])my(?:[./_-]|$))", re.I)
 
 # Independent lookups may run in parallel, but each one starts a heavyweight
 # Crawl4AI/Chromium session.  Serialising this one fragile stage avoids browser
@@ -92,6 +95,21 @@ def _clean_domain(raw: str) -> str:
     return d[4:] if d.startswith("www.") else d
 
 
+def _crawl_target(raw: str) -> str:
+    """Preserve the operator-supplied hostname for the first crawl.
+
+    Many Japanese university bare domains have no DNS record while their
+    published ``www`` host works.  Domain normalisation is still useful for
+    ownership comparisons and search, but it must not rewrite the fetch URL.
+    """
+    value = (raw or "").strip()
+    if not value:
+        return value
+    if "://" in value:
+        return value
+    return "https://" + value.lstrip("/")
+
+
 def _is_university_host(url: str, official_domain: str) -> bool:
     """True for the official host or one of its institutional subdomains."""
     host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
@@ -115,7 +133,8 @@ def _direct_login_candidates(
         if not url or url in seen or not _is_university_host(url, official_domain):
             continue
         parts = urlsplit(url)
-        if not _DIRECT_LOGIN_HINT_RE.search(f"{parts.path}?{parts.query} {text}"):
+        if not _DIRECT_LOGIN_HINT_RE.search(
+                f"{parts.netloc}{parts.path}?{parts.query} {text}"):
             continue
         seen.add(url)
         found.append(DiscoveredPortal(
@@ -136,6 +155,34 @@ def _merge_portals(*groups: list[DiscoveredPortal]) -> list[DiscoveredPortal]:
                 seen.add(key)
                 merged.append(portal)
     return merged
+
+
+def _portal_application_key(url: str) -> str:
+    """Treat one hostname as one deployed portal application.
+
+    A single LMS commonly advertises `/login`, `/saml/login`, `/xlogin`, and
+    language-specific OAuth routes.  They are authentication mechanisms for
+    the same application, not separate portals, and should occupy one sheet
+    row.  Third-party multi-tenant hosts are processed per university lookup,
+    so this consolidation cannot merge different institutions.
+    """
+    return (urlsplit(url).hostname or "").lower()
+
+
+def _portal_entry_rank(url: str) -> tuple[int, int]:
+    """Prefer the simplest reusable entry URL for one portal application."""
+    parsed = urlsplit(url)
+    path = (parsed.path or "/").lower().rstrip("/")
+    score = 0
+    if re.search(r"/(?:account/)?login(?:\.[a-z0-9]+)?$", path):
+        score += 80
+    if path.endswith("/portal/login"):
+        score += 30
+    if any(part in path for part in ("/saml/", "/oauth/", "/cas/", "/xlogin")):
+        score -= 25
+    if parsed.query:
+        score -= 15
+    return score, -len(url)
 
 
 async def find_portals(
@@ -164,7 +211,9 @@ async def find_portals(
     Returns a dict with `domain`, `portals` (each with `tnc_url` unless
     `portals_only`), and a `stats` block explaining what happened.
     """
-    domain = _clean_domain(domain)
+    supplied_domain = domain
+    crawl_target = _crawl_target(supplied_domain)
+    domain = _clean_domain(supplied_domain)
     if not domain:
         return {"domain": "", "portals": [], "error": "no domain given"}
 
@@ -196,17 +245,61 @@ async def find_portals(
         if not candidates and hits:
             candidates = hits
     else:
-        async with _get_browser_sem():
-            links = await extract_raw_university_links(
-                domain, page_timeout_ms=page_timeout_ms, country_hint=country)
+        async def _crawl() -> list[dict[str, str]]:
+            async with _get_browser_sem():
+                return await extract_targeted_university_links(
+                    crawl_target, page_timeout_ms=page_timeout_ms,
+                    country_hint=country)
+
+        # Crawl4AI and OpenAI search are independent evidence sources. Running
+        # them together prevents a slow/dead homepage from serially delaying
+        # the rescue path and makes vendor-hosted SSO discoverable even when it
+        # is not linked from the public homepage.
+        crawl_task = asyncio.create_task(_crawl())
+        # Ask for direct authentication endpoints from the start.  The broad
+        # query often spent its six-result budget on rankings and IT guides;
+        # the endpoint query is both more deterministic and better at finding
+        # multiple systems (SIS + LMS + library) for one university.
+        search_task = (asyncio.create_task(execute_search_fallback(
+            row.name, domain,
+            query=build_login_endpoint_query(row.name, domain, country),
+            max_results=8, country=country)) if use_search_fallback else None)
+        if search_task is not None:
+            links, hits = await asyncio.gather(crawl_task, search_task)
+            stats["used_search"] = True
+            stats["search_reason"] = "parallel independent discovery"
+            # Search commonly returns an official IT guide rather than the
+            # portal linked by that guide. Follow only a few university-owned
+            # evidence pages and merge the destinations as candidates.
+            official_evidence_pages = [
+                str(hit.get("url") or "") for hit in hits
+                if _is_university_host(str(hit.get("url") or ""), domain)
+            ]
+            if official_evidence_pages:
+                evidence_links = await extract_links_from_evidence_pages(
+                    official_evidence_pages, country_hint=country)
+                hits = list(hits) + evidence_links
+        else:
+            links, hits = await crawl_task, []
         stats["crawled_links"] = len(links or [])
-        candidates = lkm.filter_and_rank_links(links, country=country) if links else []
+        crawl_candidates = lkm.filter_and_rank_links(
+            links, country=country) if links else []
+        search_candidates = lkm.filter_and_rank_links(
+            hits, country=country) if hits else []
+        candidates = []
+        seen_candidates: set[str] = set()
+        for candidate in crawl_candidates + search_candidates:
+            key = str(candidate.get("url") or "").rstrip("/").lower()
+            if key and key not in seen_candidates:
+                seen_candidates.add(key)
+                candidates.append(candidate)
 
     # 2. broad search rescue --------------------------------------------
     # Crawl4AI deliberately returns [] on an unrenderable/blocked page so one
     # site cannot abort a batch.  Treat that outcome as a reason to search the
     # live web, not as evidence that the university has no portal.
-    if not candidates and use_search_fallback and not _targeted_endpoint_rescue:
+    if (not candidates and use_search_fallback and not _targeted_endpoint_rescue
+            and not stats["used_search"]):
         stats["search_reason"] = "crawl yielded no usable portal candidates"
         logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
                     domain, stats["search_reason"])
@@ -276,59 +369,72 @@ async def find_portals(
                                      country_hint=country,
                                      retry_timeout_seconds=GUARDRAIL_RETRY_S)
         for p in allowed_portals))
-    reachable = [(p, c) for p, c in zip(allowed_portals, checks) if c[0]]
-    stats["dead_portals"] = len(allowed_portals) - len(reachable)
+    stats["endpoint_probe_failures"] = sum(1 for c in checks if not c[0])
 
-    # --- transport policy ------------------------------------------------
-    # Applied to where the request LANDED, not to the published link: many
-    # institutions advertise http and redirect to https, and judging those on
-    # the input would discard perfectly secure portals.
-    #
-    # The landing URL is adopted only when it is the SAME HOST. A portal that
-    # redirects to an identity provider lands on accounts.google.com or
-    # login.microsoftonline.com, and recording THAT as the student portal
-    # would be worse than recording nothing.
+    # --- transport + rendered evidence -----------------------------------
+    # A failed HEAD/GET is no longer a final verdict. Some real portals return
+    # an anomalous 403/404 to aiohttp but render a student login in Chromium.
+    # Likewise, an official university entry point may legitimately redirect
+    # to a tenant-bound IdP. The hybrid verifier inspects that rendered DOM and
+    # returns the stable published URL rather than a SAML/session transaction.
     live: list[Any] = []
     insecure: list[str] = []
-    for p, c in reachable:
-        landed = (c[3] or p.exact_url)
-        if host_of(landed) != host_of(p.exact_url):
-            # We cannot verify that the originally-published URL itself is a
-            # student login if it bounces to a generic IdP or another host.
-            # Do not report the original link as a verified portal.
-            stats["rejected_external_redirects"] += 1
-            logger.info("lookup: %s — dropped %s (redirected to %s)",
-                        domain, p.exact_url, landed)
-            continue
-        p.exact_url = landed              # same-host http -> https upgrade
-        if transport_ok(landed):
-            live.append((p, c))
+    eligible: list[tuple[Any, Any]] = []
+    for p, c in zip(allowed_portals, checks):
+        if transport_ok(p.exact_url):
+            eligible.append((p, c))
         else:
-            insecure.append(landed)
+            insecure.append(p.exact_url)
     if insecure:
         logger.info("lookup: %s — %d portal(s) dropped, final URL not https: %s",
                     domain, len(insecure), ", ".join(insecure[:3]))
     stats["dropped_insecure_http"] = len(insecure)
     stats["require_https"] = REQUIRE_HTTPS
 
-    # Reachable is not the same as usable.  Require an HTML page containing a
-    # password field, identifier field, and sign-in/authorise control before a
-    # URL can be returned to a user as a student login portal.
+    # Accept a real credential form OR an actionable rendered Login/SSO control.
+    # URL vocabulary is not an acceptance/rejection rule here.
     auth_checks = await asyncio.gather(*(
-        verify_student_login_surface(p.exact_url, country_hint=country)
-        for p, _ in live))
-    verified_live = []
-    for (portal, check), (accepted, note, final_url) in zip(live, auth_checks):
+        verify_student_login_surface_hybrid(
+            p.exact_url, country_hint=country, official_domain=domain)
+        for p, _ in eligible))
+    verified_keys: set[str] = set()
+    verified_apps: dict[str, tuple[Any, Any]] = {}
+    for (portal, check), (accepted, note, stable_url) in zip(eligible, auth_checks):
         if accepted:
-            portal.exact_url = final_url
-            verified_live.append((portal, check))
+            portal.exact_url = canonical_portal_url(stable_url)
+            output_allowed, output_reason = portal_url_allowed(portal.exact_url)
+            if not output_allowed:
+                stats["rejected_non_login_pages"] += 1
+                logger.info("lookup: %s — dropped final %s (%s)",
+                            domain, portal.exact_url, output_reason)
+                continue
+            key = portal_dedupe_key(portal.exact_url)
+            if key in verified_keys:
+                stats["duplicate_verified_portals"] = (
+                    stats.get("duplicate_verified_portals", 0) + 1)
+                continue
+            verified_keys.add(key)
+            app_key = _portal_application_key(portal.exact_url)
+            previous = verified_apps.get(app_key)
+            if previous is None:
+                verified_apps[app_key] = (portal, check)
+            elif _portal_entry_rank(portal.exact_url) > _portal_entry_rank(
+                    previous[0].exact_url):
+                verified_apps[app_key] = (portal, check)
+                stats["duplicate_verified_portals"] = (
+                    stats.get("duplicate_verified_portals", 0) + 1)
+            else:
+                stats["duplicate_verified_portals"] = (
+                    stats.get("duplicate_verified_portals", 0) + 1)
         else:
             stats["rejected_non_login_pages"] += 1
-            if note in {"non-student audience only", "no student or academic audience evidence"}:
+            if ("non-student audience only" in note
+                    or "no student or academic audience evidence" in note):
                 stats["rejected_non_student_portals"] += 1
             logger.info("lookup: %s — dropped %s (not a verified login page: %s)",
                         domain, portal.exact_url, note)
-    live = verified_live
+    live = list(verified_apps.values())
+    stats["dead_portals"] = len(allowed_portals) - len(live)
 
     # Only now do we know that every homepage/model candidate was unsuitable:
     # dead, external-IdP-only, not a login form, or not student-facing.  Make
