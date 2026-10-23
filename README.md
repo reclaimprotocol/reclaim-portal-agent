@@ -74,22 +74,26 @@ Exits non-zero when nothing is found, so it composes in shell scripts.
 
 #### What GenieV3 will return as a portal
 
-GenieV3 now applies a final browser-login gate after discovery. By default, a
-result is kept only when its final same-site HTTPS page is HTML and exposes all
-of:
+GenieV3 applies a hybrid static-HTML and Chromium login gate after discovery.
+A result is kept only when the final page proves that it is a usable student,
+academic, LMS, or library authentication surface. Strong proof is either:
 
-- a password input;
-- a student/username/email/registration identifier input; and
-- a sign-in, log-in, or authorise control.
+- an identifier input, password input, and submit/login control; or
+- a rendered, actionable login/SSO control on an official academic service.
 
-It rejects PDFs and other document URLs, literal IP-address hosts, dead URLs,
-non-HTTPS final pages, informational pages with only a “login” link, and URLs
-that redirect to an external identity-provider host. It also rejects
-staff-only, admissions-only, alumni, HR, administrator, vendor, and parent
-logins unless the page explicitly identifies student access too. Recognised LMS
-and academic-library platforms remain eligible when their login screen is
-minimal. This intentionally favours verified, directly usable student-login
-pages over recall.
+When an informational page contains the real login control, Genie follows that
+control and emits the destination rather than the surrounding help page. It
+rejects PDFs and other documents, literal IP-address hosts, dead URLs,
+non-HTTPS final pages, FAQ/help/policy/course/error routes, and staff-only,
+admissions-only, alumni, HR, administrator, vendor, or parent logins unless the
+page also proves student access. Recognised LMS and academic-library platforms
+remain eligible when their login UI is intentionally minimal.
+
+Before output, URLs are canonicalised: tracking and language-switch parameters
+are removed, volatile SAML/OAuth session values are discarded, stable return
+URLs are recovered where possible, and duplicate entry paths for the same
+portal application are consolidated. This intentionally favours directly
+usable, repeatable student-login URLs over raw recall.
 
 Results land in `output/`:
 
@@ -155,80 +159,65 @@ content-verdict classifier.
 
 | | Layer | Job | Module |
 |---|---|---|---|
-| **L1** | Model | Which direct OpenAI model, and what happens when it fails | `openai_cascade.py` |
-| **L2** | Wrapping | Crawl · filter · search · graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
-| **L3** | Guardrails | Is the answer actually live? | `guardrails.py` |
-| **L4** | Production | Concurrency, pacing, observability | `v3_orchestrator.py` |
+| **L1** | Model | Direct OpenAI extraction and tier fallback | `openai_cascade.py` |
+| **L2** | Discovery | Parallel crawl/search · multilingual filtering · evidence expansion · legal graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
+| **L3** | Verification | Reachability · rendered authentication proof · student audience · canonical URL | `guardrails.py` |
+| **L4** | Production | Per-event-loop browser limits, search pacing, retries, observability | `lookup.py` · `v3_orchestrator.py` |
 | **L5** | Optimisation | Memory, caching, co-learning | `memory_cache.py` |
 
-**Architecture**
+### Current adaptive-discovery architecture
 
-![Genie-V3 architecture](docs/architecture.gif)
-
-<details>
-<summary>Same diagram as text (Mermaid — renders inline on GitHub)</summary>
+The important change is that web search is no longer only an emergency step
+after a failed homepage crawl. Crawl4AI and OpenAI hosted web search run as
+independent discovery paths, then their evidence is merged before inference.
+Neither path is trusted by itself: every proposed URL passes the same objective
+browser and audience checks before it reaches the output.
 
 ```mermaid
 flowchart TD
-    IN["📥 Google Sheets bulk read<br/><i>or</i> agent.lookup — one domain, no auth"]
+    IN["📥 Google Sheet row or agent.lookup<br/>name · official domain · country"] --> SHIELD
+    SHIELD["🛡️ Pre-crawl shield<br/>history · infrastructure blocks · vendor memory"]
 
-    IN --> L5A
-    subgraph L5A["🛡️ L5 · Pre-Crawl Shield"]
-      SH["domain_history · infrastructure_block · tnc_memory<br/><i>already resolved or firewalled → skip, 0.0s</i>"]
-    end
+    SHIELD --> CRAWL["🌐 Crawl4AI + Chromium<br/>homepage · deep links · sibling hosts"]
+    SHIELD --> SEARCH["🔍 OpenAI hosted web search<br/>country/language-aware portal queries"]
 
-    L5A --> L2A
-    subgraph L2A["🌐 L2 · Crawl"]
-      CR["crawl4ai + Chromium · images off · cache bypassed<br/>Bright Data exit by ccTLD · direct retry · meta-refresh follow<br/><i>55–300 anchors, parsed from the DOM</i>"]
-    end
+    SEARCH --> EVIDENCE["🔗 Follow official evidence pages<br/>bounded one-hop extraction"]
+    CRAWL --> MERGE["🧩 Merge, rank, and filter candidates"]
+    EVIDENCE --> MERGE
 
-    L2A --> L2B
-    subgraph L2B["🔎 L2 · Knowledge-Matrix filter"]
-      FI["agent_knowledge_base.json — 307 vendors · 278 blacklist · 173 portal · 23 legal<br/>heuristic fallback when 0 keywords match · OpenAI web-search rescue + capability expansion<br/><i>→ 40 candidates, ~90% fewer tokens</i>"]
-    end
+    MERGE --> MODEL["🧠 Direct OpenAI cascade<br/>gpt-5.5 → gpt-4.1-mini"]
+    MERGE --> DIRECT["📌 Preserve explicit official login endpoints"]
+    MODEL --> PROPOSED["Candidate portal set"]
+    DIRECT --> PROPOSED
 
-    L2B --> L1
-    subgraph L1["🧠 L1 · Model cascade"]
-      MO["gpt-5.5 → gpt-4.1-mini<br/>OpenAI API · instructor · Pydantic · MD_JSON<br/><i>extraction only — two flat sets, no associations</i>"]
-    end
+    PROPOSED --> PREFILTER["🚫 Deterministic pre-filter<br/>documents · IPs · help/policy/course routes"]
+    PREFILTER --> LIVE["📡 Endpoint reachability<br/>HEAD/GET · WAF-aware · timeout retry"]
+    LIVE --> STATIC["🧾 Static HTML login and audience signals"]
+    STATIC -->|ambiguous or JS-driven| RENDER["🖥️ Chromium render<br/>forms and actionable login/SSO controls"]
+    STATIC --> VERIFY["🎓 Student/LMS/library audience gate"]
+    RENDER --> VERIFY
 
-    L1 --> L3
-    subgraph L3["✅ L3 · Liveness guardrail"]
-      GU["aiohttp HEAD → GET on 405 · 401/403/429 = alive<br/><i>5s, then 20s retry on timeout only</i>"]
-    end
+    VERIFY --> CANON["🧹 Canonicalise and deduplicate<br/>stable SSO URL · one entry per application"]
+    CANON --> LEGAL["🕸️ Portal legal-page crawl + graph match"]
+    LEGAL --> OUT["📤 Portals sheet / verified CSV"]
 
-    L3 --> L2C
-    subgraph L2C["🕸️ L2 · Two-step crawl + graph match"]
-      GM["Moodle probe / render the portal itself<br/>networkx weighted bipartite matching<br/><b>W = 0.40·domain + 0.40·semantic + 0.20·distance × ownership</b><br/><i>gate 0.40 · zero-domain veto · vendor terms capped 0.35</i>"]
-    end
-
-    L2C --> OUT["📤 verified_compliance.csv · missing_tnc_portals.csv<br/>🔁 L5 co-learning — native legal phrase → knowledge base, live"]
-
-    L4["⚙️ L4 · Ops — 20 rows / 6 browsers · token pacing · 429 backoff · 5 tagged log events"]
-    L4 -.spans every stage.-> L2A
-    L4 -.-> L1
-    L4 -.-> L2C
+    OPS["⚙️ Per-event-loop browser semaphores<br/>search pacing · retries · structured logs"]
+    OPS -.-> CRAWL
+    OPS -.-> SEARCH
+    OPS -.-> RENDER
 ```
-
-</details>
 
 ### L1 — model cascade
 
-Three tiers across three vendors, via `instructor` against a Pydantic schema:
-`google/gemini-3.7-flash` → `openai/gpt-4o-mini` → `anthropic/claude-sonnet-5`.
+GenieV3 calls OpenAI directly; OpenRouter is retired from the V3 execution
+path. The default cascade is `gpt-5.5` → `gpt-4.1-mini`, configurable with
+`GENIE_MODEL_TIERS`. A compatibility module remains only so older imports fail
+gracefully during migration—it does not create an OpenRouter client.
 
-Tier order is measured, not chosen. Benchmarked over 200 orgs with human-confirmed
-ground truth: 3.7-flash **78.0%**, sonnet-5 76.5%, gpt-5-mini 72.0%, qwen3.7 72.0%,
-and the old default 2.5-flash **69.5%** — the worst of the five.
-
-Escalates on validation error, rate limit, transport failure **and an empty
-result**. A model that shrugged and a university with no portal produce identical
-output; escalating costs one call, being wrong costs a delivered org.
-
-> Uses `instructor.Mode.MD_JSON`, not `Mode.JSON`. Claude wraps its object in a
-> ```` ```json ```` fence that JSON mode cannot parse, so tier 3 failed on *every*
-> call — and because the cascade absorbs tier failures, it surfaced as
-> "all tiers exhausted" rather than an error.
+The cascade escalates on validation errors, rate limits, transport failures,
+and empty results. Model output is a proposal, not proof: explicit URLs found
+by deterministic discovery are merged with it, and all candidates proceed to
+the same Layer-3 verification.
 
 ### L2 — crawler, filter, graph
 
@@ -237,28 +226,26 @@ bypassed, proxy exit country per-URL from the ccTLD, with a direct retry because
 the proxy fails closed. It parses the rendered HTML itself — crawl4ai's
 `result.links` is a filtered view that returned 3 links where the DOM held 50.
 
-**Filter** (`filters.py`) is pure regex over `agent_knowledge_base.json` — 278
-blacklist, 173 portal, 23 legal terms, 307 vendor roots. No network, no model.
-Cuts 55–300 anchors to 40. When *no* keyword matches (a non-English site), a
-heuristic fallback ranks links on subdomain depth, digits and anchor length.
+**Filter** (`filters.py`) is local matching over `agent_knowledge_base.json`.
+It cuts a large rendered link set to a bounded candidate list. Country language
+profiles contribute native portal/login vocabulary to crawling, filtering,
+search queries, model context, and audience verification, so a previously
+unknown URL naming convention is not rejected merely for being non-English.
+When no keyword matches, a structural heuristic ranks plausible institutional
+hosts and entry points rather than returning an empty set.
 
 **Search** (`search_fallback.py`) uses OpenAI's hosted **web_search** tool
-with an OpenAI model. It runs on
-two distinct triggers:
-
-* **Rescue** — the crawl produced no candidates at all. Broad sweep across the
-  platform vocabulary.
-* **Capability expansion** — the crawl succeeded but is *incomplete*. Three
-  pillars are mandatory (`ERP`, `LMS (Moodle/Canvas)`, `Fee Payment`); if the
-  cascade returned an ERP and no LMS, one targeted search per missing pillar
-  fires and its results merge into the same portal array *before* the guardrail,
-  so they are liveness-checked and legal-harvested identically. This is what
-  catches the second student system on a domain the homepage never links to.
+with an OpenAI model. For single-domain V3 lookup, primary Crawl4AI discovery
+and web search run concurrently. Search results that point at an official
+university evidence page receive a bounded one-hop crawl so the actual login
+target can be recovered. In batch orchestration, search also supports rescue
+and category expansion for missing ERP, LMS, and fee-payment capabilities.
 
 Queries are **OR-grouped**, not space-separated, so the search request describes
 alternatives rather than requiring every platform term on one result. Search
-results are candidates only: GenieV3 still applies the normal filters, model
-classification, live endpoint check, and student-login-form check before output.
+results are candidates only: they receive the same filtering, model
+classification, reachability, rendered-login, student-audience, and URL
+canonicalisation checks as crawl results.
 
 Expansion suppresses the heuristic fallback: the row already has portals, so a
 search that surfaces only news articles must contribute nothing rather than
@@ -277,17 +264,32 @@ gate — that is the ownership contamination V2 shipped 41 times.
 
 ### L3 — guardrails
 
-`2xx/3xx` alive · **`401/403/429` alive** (a WAF refusing us still proves a
-server is there) · `405` retried with GET · `404/5xx/timeout` dead. A timeout —
-and only a timeout — is retried once at 20s, because slow is not dead.
+Layer 3 has three separate responsibilities:
+
+1. **Pre-network safety:** reject document URLs, literal IP hosts, known utility
+   hosts, and content-only routes such as FAQ, help, policy, course, enrolment,
+   documentation, and error pages.
+2. **Reachability:** `2xx/3xx` are alive; `401/403/429` also prove that a server
+   exists; `405` is retried with GET; timeouts receive one longer retry. This is
+   availability evidence only, never sufficient evidence that a URL is a portal.
+3. **Authentication and audience proof:** inspect static HTML, then render with
+   Chromium when needed. Require a login form or actionable login/SSO control
+   plus student, academic, LMS, or library context. If a container page links to
+   the real login, return the actionable destination.
+
+Accepted URLs are then normalised and deduplicated. Tracking/language parameters
+and volatile session tokens are removed, stable SSO return targets are retained,
+and multiple authentication routes for one application collapse to its best
+reusable entry URL.
 
 ### L4 — operations
 
-`Semaphore(20)` on rows, **`Semaphore(6)` on browsers** — this hardware swaps
-past ~10 Chromium instances, and swap presents as network timeouts. Sync
-dependencies (Sheets, OpenAI SDK) run via `asyncio.to_thread`. Token pacing
-jitters each call 0.5–1.5s; 429s are detected from the cascade trace and retried
-with exponential backoff.
+Batch rows can run concurrently, while heavyweight browser work is deliberately
+bounded. Primary single-domain crawls default to one active browser and login
+verification defaults to two. These semaphores are created per asyncio event
+loop, which keeps CLI, tests, and sheet workers from sharing a loop-bound
+primitive and eliminates cross-loop `RuntimeError` failures. OpenAI web search
+has its own global turnstile and stagger; rate limits use exponential backoff.
 
 ### L5 — memory
 
@@ -335,10 +337,13 @@ well as a wide IPv4 range.
 
 | Variable | Purpose |
 |---|---|
-| `OPENAI_API_KEY` | required for the V3 model cascade and hosted web-search rescue/capability expansion |
+| `OPENAI_API_KEY` | required for direct V3 inference and hosted web search |
 | `GENIE_OPENAI_SEARCH_MODEL` | optional OpenAI web-search model override; default `gpt-5.5` |
+| `GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS` | hosted web-search timeout, default 90s |
 | `GENIE_MODEL_TIERS` | override the cascade (comma-separated) |
 | `GENIE_BROWSER_CONCURRENCY` | browser semaphore, default 6 |
+| `GENIE_LOOKUP_BROWSER_CONCURRENCY` | concurrent primary Crawl4AI sessions in `agent.lookup`, default 1 |
+| `GENIE_VERIFY_BROWSER_CONCURRENCY` | concurrent rendered login verifications, default 2 |
 | `GENIE_SEARCH_CONCURRENCY` | global search turnstile, default 3 — quota is per account, not per code path |
 | `GENIE_CAPABILITY_EXPANSION` | `0` disables opportunistic expansion, default on |
 | `GENIE_GUARDRAIL_TIMEOUT` / `_RETRY` | liveness budgets, default 5s / 20s |
