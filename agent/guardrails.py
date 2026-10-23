@@ -67,6 +67,9 @@ _DOCUMENT_PATH_RE = re.compile(
     r"\.(?:pdf|docx?|xlsx?|pptx?|od[stp]|rtf)(?:$|[?#])", re.I)
 _NON_PORTAL_UTILITY_HOST_RE = re.compile(
     r"(?:^|[.-])(?:directory|staff-directory|employee-directory)(?:[.-]|$)", re.I)
+_PSEUDO_WEB_HOSTS = frozenset({
+    "javascript", "mailto", "tel", "data", "file", "sms", "void",
+})
 # Pages in these route families may contain a site-wide Login link, but they
 # are documentation/content *about* a portal rather than a portal entry point.
 # Reject them before rendering so a header/footer control cannot promote them
@@ -78,6 +81,7 @@ _NON_PORTAL_CONTENT_PATH_RE = re.compile(
     r"/(?:course/view|enrol/index|mod/(?:page|book)/view)\.php(?:/|$)|"
     r"/(?:courses?|classes?)/\d+(?:/|$)|"
     r"/portal/site/!(?:error|gateway)(?:/|$)|"
+    r"/(?:error|errors?)/(?:[^/?#]+/)*[^/?#]*(?:login|auth)[^/?#]*(?:/|$)|"
     r"/online_guide(?:/|$)|"
     r"/services?/portal/(?:faq|student|member)(?:/|$)|"
     r"/(?:okomariguide|mfatype(?:-en)?)\.html(?:/|$)|"
@@ -113,6 +117,12 @@ _VOLATILE_AUTH_PARAMS = frozenset({
     "sessid", "session", "sessionid", "samlrequest", "samlresponse",
     "relaystate", "signature", "sigalg", "state", "nonce", "code",
 })
+
+
+def _is_volatile_auth_param(key: str) -> bool:
+    """Whether a query key belongs to a one-time authentication transaction."""
+    lower = (key or "").lower()
+    return lower in _VOLATILE_AUTH_PARAMS or lower.startswith("openid.")
 _render_sems: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, asyncio.Semaphore
 ] = weakref.WeakKeyDictionary()
@@ -179,6 +189,18 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
         return False, "bad url"
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         return False, "not an http(s) URL"
+    host = parsed.hostname.lower().rstrip(".")
+    # Search/model output can turn a non-navigation href such as
+    # `javascript:void(0)` into `https://javascript:void(0);`.  urlsplit sees
+    # that as an HTTP URL whose hostname is literally "javascript", so scheme
+    # validation alone is insufficient. Public portal outputs must be DNS
+    # hostnames, never browser pseudo-schemes or single-label placeholders.
+    if host in _PSEUDO_WEB_HOSTS or "." not in host:
+        return False, "not a public DNS hostname"
+    try:
+        _ = parsed.port
+    except ValueError:
+        return False, "invalid network location"
     if _host_is_ip_literal(normalised):
         return False, "literal IP host"
     if _NON_PORTAL_UTILITY_HOST_RE.search(parsed.hostname or ""):
@@ -298,7 +320,7 @@ def _official_host(url: str, official_domain: str) -> bool:
 
 def _has_volatile_auth_state(url: str) -> bool:
     try:
-        return any(k.lower() in _VOLATILE_AUTH_PARAMS
+        return any(_is_volatile_auth_param(k)
                    for k, _v in parse_qsl(urlsplit(url).query, keep_blank_values=True))
     except ValueError:
         return False
@@ -355,7 +377,10 @@ def _stable_verified_url(published_url: str, rendered_final_url: str) -> str:
         parsed = urlsplit(published_url)
         pairs = parse_qsl(parsed.query, keep_blank_values=True)
         for key, value in pairs:
-            if key.lower() in {"back", "returnurl", "redirect", "redirect_uri"}:
+            if key.lower() in {
+                "back", "returnurl", "redirect", "redirect_uri",
+                "openid.return_to",
+            }:
                 if value.lower().startswith(("http://", "https://")):
                     target_allowed, _reason = portal_url_allowed(value)
                     if target_allowed and not _has_volatile_auth_state(value):
@@ -364,7 +389,7 @@ def _stable_verified_url(published_url: str, rendered_final_url: str) -> str:
         else:
             stable_pairs = [
                 (key, value) for key, value in pairs
-                if key.lower() not in _VOLATILE_AUTH_PARAMS
+                if not _is_volatile_auth_param(key)
             ]
             published_url = urlunsplit((
                 parsed.scheme, parsed.netloc, parsed.path,
