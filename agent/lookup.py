@@ -35,6 +35,7 @@ import logging
 import os
 import re
 import sys
+import weakref
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -75,15 +76,19 @@ _DIRECT_LOGIN_HINT_RE = re.compile(
 # Crawl4AI/Chromium session.  Serialising this one fragile stage avoids browser
 # collisions while model calls, web search, and endpoint verification continue
 # concurrently after a crawl completes.
-_browser_sem: asyncio.Semaphore | None = None
+_browser_sems: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, asyncio.Semaphore
+] = weakref.WeakKeyDictionary()
 
 
 def _get_browser_sem() -> asyncio.Semaphore:
-    global _browser_sem
-    if _browser_sem is None:
+    loop = asyncio.get_running_loop()
+    semaphore = _browser_sems.get(loop)
+    if semaphore is None:
         limit = max(1, int(os.getenv("GENIE_LOOKUP_BROWSER_CONCURRENCY", "1")))
-        _browser_sem = asyncio.Semaphore(limit)
-    return _browser_sem
+        semaphore = asyncio.Semaphore(limit)
+        _browser_sems[loop] = semaphore
+    return semaphore
 
 
 def _clean_domain(raw: str) -> str:

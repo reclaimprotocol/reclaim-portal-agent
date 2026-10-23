@@ -1,7 +1,10 @@
 """Focused checks for GenieV3's final student-login acceptance gate."""
 
+import asyncio
+
 from agent.guardrails import (
     _login_form_evidence,
+    _get_render_sem,
     _rendered_auth_control,
     _rendered_auth_control_target,
     _stable_verified_url,
@@ -11,6 +14,7 @@ from agent.guardrails import (
     portal_url_allowed,
 )
 from agent.filters import LocalKnowledgeMatrixFilter
+from agent.lookup import _get_browser_sem
 
 
 def test_rejects_documents_and_literal_ip_hosts() -> None:
@@ -19,6 +23,16 @@ def test_rejects_documents_and_literal_ip_hosts() -> None:
     assert portal_url_allowed("https://[2001:db8::7]/login")[0] is False
     assert portal_url_allowed(
         "https://utelecon-directory.adm.u-tokyo.ac.jp/login")[0] is False
+
+
+def test_browser_limiters_are_scoped_to_each_event_loop() -> None:
+    async def semaphores() -> tuple[asyncio.Semaphore, asyncio.Semaphore]:
+        return _get_browser_sem(), _get_render_sem()
+
+    first_browser, first_render = asyncio.run(semaphores())
+    second_browser, second_render = asyncio.run(semaphores())
+    assert first_browser is not second_browser
+    assert first_render is not second_render
 
 
 def test_rejects_informational_and_internal_lms_content_routes() -> None:

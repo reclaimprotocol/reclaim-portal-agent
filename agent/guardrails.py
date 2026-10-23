@@ -37,6 +37,7 @@ import logging
 import os
 import re
 import ssl
+import weakref
 from typing import Any, Iterable, Sequence
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -112,15 +113,19 @@ _VOLATILE_AUTH_PARAMS = frozenset({
     "sessid", "session", "sessionid", "samlrequest", "samlresponse",
     "relaystate", "signature", "sigalg", "state", "nonce", "code",
 })
-_render_sem: asyncio.Semaphore | None = None
+_render_sems: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, asyncio.Semaphore
+] = weakref.WeakKeyDictionary()
 
 
 def _get_render_sem() -> asyncio.Semaphore:
-    global _render_sem
-    if _render_sem is None:
-        _render_sem = asyncio.Semaphore(max(
+    loop = asyncio.get_running_loop()
+    semaphore = _render_sems.get(loop)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(max(
             1, int(os.getenv("GENIE_VERIFY_BROWSER_CONCURRENCY", "2"))))
-    return _render_sem
+        _render_sems[loop] = semaphore
+    return semaphore
 
 #: aiohttp validates certificates by default; university TLS often fails that
 #: check while the site itself is fine. We are testing reachability, not trust.
