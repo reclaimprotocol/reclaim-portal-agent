@@ -155,7 +155,7 @@ content-verdict classifier.
 
 | | Layer | Job | Module |
 |---|---|---|---|
-| **L1** | Model | Which model, and what happens when it fails | `openrouter_cascade.py` |
+| **L1** | Model | Which direct OpenAI model, and what happens when it fails | `openai_cascade.py` |
 | **L2** | Wrapping | Crawl · filter · search · graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
 | **L3** | Guardrails | Is the answer actually live? | `guardrails.py` |
 | **L4** | Production | Concurrency, pacing, observability | `v3_orchestrator.py` |
@@ -421,7 +421,7 @@ git status --porcelain -uall | grep -iE '\.(csv|log)$|\.env'   # must be empty
 
 ```
 agent/
-  schemas · crawler · filters · openrouter_cascade
+  schemas · crawler · filters · openai_cascade
   guardrails · memory_cache · search_fallback · v3_orchestrator   ← V3
   config · sheets_client · state · proxy · regions                ← shared
   magic · pipeline · orchestrator · stages/                       ← shims

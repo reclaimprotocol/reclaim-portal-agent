@@ -16,15 +16,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from openai import APIError, APITimeoutError, AsyncOpenAI, RateLimitError
 
+from agent.languages import profile_for_country
+
 logger = logging.getLogger("genie.search")
 
 MAX_RESULTS = 6
-DEFAULT_TIMEOUT_S = 25
+_HTTP_URL_RE = re.compile(r"https?://[^\s<>\]\[\"')]+", re.I)
+_DOCUMENT_URL_RE = re.compile(
+    r"\.(?:pdf|docx?|xlsx?|pptx?|od[stp]|rtf)(?:$|[?#])", re.I)
+# Search is the recovery path for browser-rendering failures.  A short timeout
+# turns a temporary slow search into a false "no portal" result, so give the
+# hosted tool enough time to obtain and cite live sources.
+DEFAULT_TIMEOUT_S = int(os.getenv("GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS", "90"))
 DEFAULT_MODEL = "gpt-5.5"
 
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
@@ -39,13 +48,13 @@ def _model() -> str:
     return (os.getenv("GENIE_OPENAI_SEARCH_MODEL") or DEFAULT_MODEL).strip()
 
 
-def build_query(university_name: str, official_domain: str) -> str:
+def build_query(university_name: str, official_domain: str, country: str = "") -> str:
     """Build the broad recovery query for a university.
 
     ``official_domain`` is supporting evidence, not a restriction: legitimate
     Moodle, ERP and library systems commonly use a vendor-owned hostname.
     """
-    terms = " OR ".join(_PLATFORM_TERMS)
+    terms = " OR ".join((*_PLATFORM_TERMS, *profile_for_country(country).search_terms))
     return f'"{university_name}" {official_domain} ({terms})'
 
 
@@ -53,6 +62,22 @@ def build_category_query(university_name: str, official_domain: str,
                          category_keyword_target: str) -> str:
     """Build a narrow query for one missing portal capability."""
     return f'"{university_name}" {official_domain} {category_keyword_target} login'
+
+
+def build_login_endpoint_query(university_name: str, official_domain: str,
+                               country: str = "") -> str:
+    """A direct-login query that also permits institution-bound vendor SSO.
+
+    A hard ``site:official_domain`` restriction hid legitimate Okta, SECIOSS,
+    Salesforce, hosted LMS and library portals.  The official domain remains a
+    strong identity term, but is no longer a search-engine exclusion rule.
+    """
+    native_terms = " OR ".join(profile_for_country(country).search_terms)
+    return (
+        f'"{university_name}" "{official_domain}" '
+        f'(login OR sign-in OR SSO OR authentication OR Moodle OR LMS OR portal OR {native_terms}) '
+        f'direct student login'
+    )
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any] | None:
@@ -73,24 +98,28 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
     The Responses API returns sources beneath web-search call actions. We
     recursively locate ``sources`` to remain compatible with SDK shape changes,
     dedupe URLs, and convert them to the crawler's universal candidate shape.
-    Generated prose is never parsed as a URL.
+    Search citations often point to an official help page which *mentions* the
+    direct portal URL (for example, a university guide that says ``Log in at
+    https://portal.example.edu``).  Those direct URLs are useful candidates
+    when they originate in a web-search response, but remain untrusted: the
+    lookup pipeline still applies its live endpoint, form and student-audience
+    checks before returning one.  We therefore retain both cited pages and
+    explicit HTTP URLs from the tool's generated search answer.
     """
-    found: list[dict[str, str]] = []
-    seen: set[str] = set()
+    cited: list[dict[str, str]] = []
+    cited_seen: set[str] = set()
 
     def add(source: Any) -> None:
         item = _as_mapping(source)
         if not item:
             return
         url = str(item.get("url") or "").strip()
-        if not url or url in seen:
+        if not url or url in cited_seen or _DOCUMENT_URL_RE.search(url):
             return
-        seen.add(url)
-        found.append({"url": url, "text": str(item.get("title") or "").strip()})
+        cited_seen.add(url)
+        cited.append({"url": url, "text": str(item.get("title") or "").strip()})
 
     def walk(value: Any, *, in_sources: bool = False) -> None:
-        if len(found) >= max_results:
-            return
         item = _as_mapping(value)
         if item is not None:
             if in_sources:
@@ -102,20 +131,52 @@ def parse_results(response: Any, max_results: int = MAX_RESULTS) -> list[dict[st
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             for child in value:
                 walk(child, in_sources=in_sources)
-                if len(found) >= max_results:
-                    return
 
     walk(response)
-    return found
+
+    # SDK objects expose the generated answer as ``output_text``.  Test
+    # doubles and older response serialisations may hold it in a mapping.
+    output_text = getattr(response, "output_text", "")
+    if not output_text:
+        mapped = _as_mapping(response) or {}
+        output_text = str(mapped.get("output_text") or "")
+    direct: list[dict[str, str]] = []
+    direct_seen: set[str] = set()
+    for url in _HTTP_URL_RE.findall(str(output_text)):
+        clean = url.rstrip(".,;:!?")
+        if (clean and clean not in direct_seen
+                and not _DOCUMENT_URL_RE.search(clean)):
+            direct_seen.add(clean)
+            direct.append({"url": clean, "text": "OpenAI web-search direct URL"})
+
+    # The answer's explicitly written direct endpoints are more valuable than
+    # background citation pages. Previously six citations filled the cap first
+    # and silently discarded a correct portal named in output_text.
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in direct + cited:
+        url = item["url"]
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(item)
+        if len(out) >= max_results:
+            break
+    return out
 
 
-def _search_instruction(query: str, max_results: int) -> str:
+def _search_instruction(query: str, max_results: int, country: str = "") -> str:
+    profile = profile_for_country(country)
     return (
         "Use web search to find up to " + str(max_results) +
         " direct URLs for real student-facing login portals for this institution. "
         "Prioritise student ERP/SIS, LMS (such as Moodle or Canvas), and library "
         "authentication pages. Do not search for admissions, staff/HR, alumni, PDFs, "
-        "or generic homepages. Search query: " + query
+        "or generic homepages. Include university-owned subdomains when they "
+        "host the service. Prefer the direct login endpoint over an article "
+        "which merely describes it. In your answer, explicitly write each "
+        "direct URL you found. Search in " + profile.languages +
+        " as well as English when relevant. Search query: " + query
     )
 
 
@@ -128,6 +189,7 @@ async def execute_search_fallback(
     session: Any | None = None,
     query: str | None = None,
     client: AsyncOpenAI | None = None,
+    country: str = "",
 ) -> list[dict[str, str]]:
     """Use OpenAI web search to return untrusted portal candidates.
 
@@ -141,11 +203,12 @@ async def execute_search_fallback(
         logger.warning("search: OPENAI_API_KEY not set — web-search fallback disabled")
         return []
 
-    q = query or build_query(university_name, official_domain)
+    q = query or build_query(university_name, official_domain, country)
     own_client = client is None
     api = client or AsyncOpenAI(
         api_key=key,
         timeout=timeout_seconds,
+        max_retries=0,  # this rescue path owns retries at the orchestration layer
     )
     try:
         response = await api.responses.create(
@@ -153,7 +216,7 @@ async def execute_search_fallback(
             tools=[{"type": "web_search", "search_context_size": "medium"}],
             tool_choice="required",
             include=["web_search_call.action.sources"],
-            input=_search_instruction(q, max_results),
+            input=_search_instruction(q, max_results, country),
         )
         hits = parse_results(response, max_results)
         if not hits:

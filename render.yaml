@@ -24,14 +24,14 @@ services:
         sync: false
       - key: GENIE_CORS_ORIGINS  # https://<your-app>.vercel.app
         sync: false
-      - key: OPENROUTER_API_KEY  # LLM for live discovery (the agent's real key)
+      - key: OPENAI_API_KEY      # direct OpenAI inference and web search
         sync: false
       - key: ANTHROPIC_API_KEY   # optional Claude fallback (leave blank)
         sync: false
       - key: OPR_API_KEY         # optional — OpenPageRank metric
         sync: false
-      - key: GEMINI_SEARCH_ENABLED  # Stage-A discovery: Gemini via OpenRouter
-        value: "true"                # needs only OPENROUTER_API_KEY, no Google creds
+      - key: GEMINI_SEARCH_ENABLED  # retired OpenRouter/Gemini path stays disabled
+        value: "false"
       - key: VALIDATE_MAX_WORKERS   # low fan-out so free-tier DNS/sockets don't exhaust
         value: "3"
       - key: ENABLE_JS_RENDERING    # off on free tier — Chromium is too heavy for 512 MB
@@ -80,9 +80,7 @@ services:
         value: app:geniev3:access
       - key: AGENT_API_KEY
         sync: false
-      - key: OPENROUTER_API_KEY    # required — the model cascade
-        sync: false
-      - key: SERPER_API_KEY        # required — rescue + capability expansion
+      - key: OPENAI_API_KEY        # required — direct OpenAI cascade + web search
         sync: false
       - key: AGENT_CONCURRENCY     # browsers in flight. Raise only with the memory graph open.
         value: "4"

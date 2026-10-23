@@ -1,4 +1,4 @@
-"""Genie-V3 · Data contract for OpenRouter / Instructor calls.
+"""Genie-V3 · Data contract for direct OpenAI / Instructor calls.
 
 The model is now a pure EXTRACTION parser. It reports what it sees in the
 crawled payload as two flat, unlinked sets — portals here, legal links there —

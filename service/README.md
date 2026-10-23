@@ -110,7 +110,7 @@ with `AGENT_CHECK_KNOWN_PORTALS=0`.
 
 ```bash
 pip install -r requirements.txt && playwright install chromium
-export AGENT_API_KEY=dev OPENROUTER_API_KEY=... SERPER_API_KEY=...
+export AGENT_API_KEY=dev OPENAI_API_KEY=...
 # or, to run with no auth at all: export AGENT_ALLOW_NO_AUTH=1
 uvicorn service.api:app --port 8800
 ```
@@ -163,7 +163,7 @@ downloadable, but the remaining orgs are not resumed.
 | `AGENT_KNOWN_CHECK_CONCURRENCY` | probes in flight per org, default 8 |
 | `AGENT_KNOWN_CHECK_MAX` | portals checked per org, default 50; excess is reported in `notes` |
 | `AGENT_CORS_ORIGINS` | only if a browser calls this directly |
-| `OPENROUTER_API_KEY`, `SERPER_API_KEY` | required by the engine |
+| `OPENAI_API_KEY` | required for direct OpenAI inference and web search |
 | `USE_PROXY` | `1` enables the residential proxy — see below |
 | `PROXY_HOME_CC` | the country this host egresses from; `us` on Render, default `in` |
 | `RESIDENTIAL_PROXY_GATEWAY` | `host:port`, **no scheme** |

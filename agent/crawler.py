@@ -42,6 +42,7 @@ from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 
 from agent import proxy as _proxy
+from agent.languages import profile_for_country
 
 logger = logging.getLogger("genie.crawler")
 
@@ -53,6 +54,13 @@ DEFAULT_PAGE_TIMEOUT_MS = 30_000
 
 #: Schemes that are anchors in markup but not navigable links.
 _NON_HTTP_PREFIXES = ("mailto:", "tel:", "javascript:", "data:", "file:", "sms:", "#")
+_DISCOVERY_PAGE_RE = re.compile(
+    r"(?:student|current.?student|campus.?life|education|academic|service|"
+    r"information.?technology|\bict\b|library|portal|support|"
+    r"在学生|学生|学務|教育|情報|サービス|図書館|履修)", re.I)
+_DISCOVERY_NOISE_RE = re.compile(
+    r"(?:/news/|/event/|/press/|/research/|/admission|/prospective|"
+    r"\.(?:pdf|docx?|xlsx?|pptx?|zip)(?:$|[?#]))", re.I)
 
 
 def _browser_config(proxy_config: dict[str, str] | None = None, **overrides: Any) -> BrowserConfig:
@@ -275,6 +283,22 @@ def _as_url(domain_or_url: str) -> str:
     return raw
 
 
+def _www_variant(url: str) -> str | None:
+    """Return the conventional ``www`` hostname, if this URL has one.
+
+    A few university edge configurations serve their public site only at the
+    ``www`` host.  Chromium can report a generic navigation error for the bare
+    hostname even when a normal browser would reach the ``www`` variant.  This
+    is deliberately a retry URL, never a substituted reported portal URL.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if not host or host.startswith("www."):
+        return None
+    port = f":{parts.port}" if parts.port else ""
+    return parts._replace(netloc=f"www.{host}{port}").geturl()
+
+
 def _clean_text(node: Any) -> str:
     """Anchor label, whitespace-collapsed. Falls back to title/aria-label/img alt
     so icon-only links (a very common way to link a portal) are not blank."""
@@ -321,7 +345,12 @@ async def _crawl_once(
     crawler: AsyncWebCrawler, url: str, run_cfg: CrawlerRunConfig
 ) -> tuple[list[dict[str, str]], str]:
     """(links, error). Empty links + '' means the page genuinely had none."""
-    result = await crawler.arun(url=url, config=run_cfg)
+    try:
+        result = await crawler.arun(url=url, config=run_cfg)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # Crawl4AI can raise before it creates a result.
+        return [], f"{type(exc).__name__}: {str(exc)[:180]}"
     if not getattr(result, "success", False):
         return [], str(getattr(result, "error_message", "") or "unsuccessful")[:200]
     base = getattr(result, "url", None) or url
@@ -391,6 +420,47 @@ async def extract_raw_university_links(
             return links
 
         logger.warning("crawler: %s via %s -> %s", url, cc or "direct", err)
+        # Chromium/Crawl4AI can occasionally abort a navigation before it
+        # returns a CrawlResult (notably under a long-running local batch).
+        # That is an infrastructure failure, not evidence that a university
+        # has no portal. Retry the identical request once before search rescue
+        # is considered.  This keeps a bounded cost while preventing a flaky
+        # browser process from becoming a false negative.
+        logger.info("crawler: %s -> retrying once after transient crawl error", url)
+        if crawler is not None:
+            retry_links, retry_err = await _crawl_once(crawler, url, run_cfg)
+        else:
+            async with AsyncWebCrawler(config=_browser_config(pcfg)) as retry_crawler:
+                retry_links, retry_err = await _crawl_once(retry_crawler, url, run_cfg)
+        if not retry_err:
+            logger.info("crawler: %s -> %d links on retry via %s",
+                        url, len(retry_links), cc or "direct")
+            if is_blocked(url):
+                await clear_block(url, f"{cc or 'direct'}")
+            return retry_links
+        logger.warning("crawler: %s -> retry also failed: %s", url, retry_err)
+        err = retry_err
+
+        # A university can publish its web presence only on ``www.example``.
+        # Try that conventional alias once when the bare host could not be
+        # rendered.  Do this before OpenAI search so the primary source stays
+        # the institution's own DOM whenever it is available.
+        www_url = _www_variant(url)
+        if www_url:
+            logger.info("crawler: %s -> retrying conventional www hostname", url)
+            if crawler is not None:
+                www_links, www_err = await _crawl_once(crawler, www_url, run_cfg)
+            else:
+                async with AsyncWebCrawler(config=_browser_config(pcfg)) as www_crawler:
+                    www_links, www_err = await _crawl_once(www_crawler, www_url, run_cfg)
+            if not www_err:
+                logger.info("crawler: %s -> %d links through %s",
+                            www_url, len(www_links), cc or "direct")
+                if is_blocked(url):
+                    await clear_block(url, f"{cc or 'direct'} via www")
+                return www_links
+            logger.warning("crawler: %s -> www retry also failed: %s", url, www_err)
+            err = www_err
         kind = classify_block(err)
         if kind:
             await record_block(url, kind, err, cc, stealth_tried=True)
@@ -424,6 +494,124 @@ async def extract_raw_university_links(
     except Exception as exc:  # noqa: BLE001 — network/browser errors must not kill the run
         logger.warning("crawler: %s -> %s: %s", url, type(exc).__name__, str(exc)[:200])
         return []
+
+
+def _targeted_depth_pages(
+    homepage_links: list[dict[str, str]], root_url: str, country_hint: str,
+    limit: int,
+) -> list[str]:
+    """Choose a bounded multilingual frontier for one-level exploration."""
+    root_host = host_of(root_url)
+    native_terms = tuple(profile_for_country(country_hint).portal_terms)
+    scored: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for item in homepage_links:
+        url = str(item.get("url") or "").strip()
+        text = str(item.get("text") or "").strip()
+        if not url or url in seen or host_of(url) != root_host:
+            continue
+        if _DISCOVERY_NOISE_RE.search(url):
+            continue
+        blob = f"{url} {text}"
+        score = 0
+        if _DISCOVERY_PAGE_RE.search(blob):
+            score += 4
+        lowered = blob.lower()
+        if any(term.lower() in lowered for term in native_terms if term):
+            score += 4
+        path = urlsplit(url).path or "/"
+        if path.count("/") <= 3:
+            score += 1
+        if score:
+            seen.add(url)
+            scored.append((score, url))
+    scored.sort(key=lambda row: (-row[0], len(row[1])))
+    return [url for _score, url in scored[:limit]]
+
+
+async def extract_targeted_university_links(
+    domain: str,
+    *,
+    page_timeout_ms: int = DEFAULT_PAGE_TIMEOUT_MS,
+    country_hint: str = "",
+    max_depth_pages: int = 6,
+) -> list[dict[str, str]]:
+    """Homepage plus a small evidence-driven depth-1 crawl.
+
+    Crawling an entire university site is unbounded and mostly returns news.
+    This frontier visits only a few same-host student/IT/library/service pages,
+    which is where universities commonly publish the actual portal or SSO link.
+    """
+    homepage = await extract_raw_university_links(
+        domain, page_timeout_ms=page_timeout_ms, country_hint=country_hint)
+    pages = _targeted_depth_pages(homepage, domain, country_hint, max_depth_pages)
+    if not pages:
+        return homepage
+
+    pcfg = proxy_for(domain, country_hint)
+    run_cfg = _run_config(page_timeout_ms, WAIT_FOR_JS)
+    sem = asyncio.Semaphore(2)
+    discovered: list[dict[str, str]] = []
+    async with AsyncWebCrawler(config=_browser_config(pcfg)) as crawler:
+        async def visit(url: str) -> None:
+            async with sem:
+                links, err = await _crawl_once(crawler, url, run_cfg)
+            if err:
+                logger.info("crawler: depth-1 %s skipped (%s)", url, err[:120])
+                return
+            logger.info("crawler: depth-1 %s -> %d links", url, len(links))
+            discovered.extend(links)
+
+        await asyncio.gather(*(visit(url) for url in pages))
+
+    merged: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for item in homepage + discovered:
+        key = str(item.get("url") or "").rstrip("/")
+        if key and key not in seen_urls:
+            seen_urls.add(key)
+            merged.append(item)
+    return merged
+
+
+async def extract_links_from_evidence_pages(
+    pages: Iterable[str],
+    *,
+    country_hint: str = "",
+    page_timeout_ms: int = 20_000,
+    limit: int = 4,
+) -> list[dict[str, str]]:
+    """Render a few official guide/search pages and return their destinations.
+
+    Search engines often cite an IT guide rather than the portal it links to.
+    This bounded hop turns that official guide into evidence for the actual
+    Moodle/SSO endpoint without recursively crawling the whole site.
+    """
+    chosen = list(dict.fromkeys(str(p).strip() for p in pages if str(p).strip()))[:limit]
+    if not chosen:
+        return []
+    pcfg = proxy_for(chosen[0], country_hint)
+    run_cfg = _run_config(page_timeout_ms, WAIT_FOR_JS)
+    sem = asyncio.Semaphore(2)
+    out: list[dict[str, str]] = []
+    async with AsyncWebCrawler(config=_browser_config(pcfg)) as crawler:
+        async def visit(url: str) -> None:
+            async with sem:
+                links, err = await _crawl_once(crawler, url, run_cfg)
+            if not err:
+                out.extend(links)
+            else:
+                logger.info("crawler: search-evidence %s skipped (%s)", url, err[:120])
+        await asyncio.gather(*(visit(url) for url in chosen))
+
+    merged: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in out:
+        key = str(item.get("url") or "").rstrip("/")
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
 
 
 async def extract_many(
