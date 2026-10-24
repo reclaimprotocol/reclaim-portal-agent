@@ -152,11 +152,14 @@ PORTALS_TAB_NAME="Portals" \
 ```
 
 For large sheets, use the two-pass runner. The fast pass performs a bounded
-static-HTML crawl and low-context web search in parallel, deduplicates work by
-registrable domain, caps candidates and network time, verifies real forms or
-actionable student/LMS SSO controls without Chromium, defers legal-page work,
-and writes Sheets updates on a background lane. Six workers with a 70-second
-row deadline are the tested local defaults:
+static-HTML crawl and medium-context web search in parallel, keeps both sources
+so a homepage portal does not hide a separate LMS or library system, and checks
+up to 24 ranked candidates. It verifies every candidate statically, renders one
+strong JavaScript candidate to look for a second portal when static discovery
+already succeeds, or up to two when static verification finds nothing. Legal-
+page work remains deferred. Three workers with a 120-second row deadline target
+roughly 10-15 organisations per 10 minutes while favouring portal coverage over
+raw speed:
 
 ```bash
 GOOGLE_SHEET_ID="<sheet-id>" \
@@ -166,10 +169,11 @@ PORTALS_TAB_NAME="Portals" \
 ```
 
 Fast mode intentionally leaves JavaScript-only, blocked, and ambiguous rows
-unresolved rather than weakening the login-page guard. Retry only those rows
-in normal mode to enable Chromium, crawl recovery, targeted endpoint rescue,
-and legal/T&C enrichment. `--fast` implies `--portals-only`; it never claims
-that a timed-out row has no portal.
+unresolved when they exceed its bounded rendered fallback rather than weakening
+the login-page guard. Retry only those rows in normal mode to enable a full
+Chromium crawl, crawl recovery, targeted endpoint rescue, and legal/T&C
+enrichment. `--fast` implies `--portals-only`; it never claims that a timed-out
+row has no portal.
 
 The output tab contains portal URLs, matching legal-page URLs, and a
 `GenieV3 status` column. The legacy `Overall T&C Verdict` column remains blank

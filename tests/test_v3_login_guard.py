@@ -1,6 +1,7 @@
 """Focused checks for GenieV3's final student-login acceptance gate."""
 
 import asyncio
+from types import SimpleNamespace
 
 from agent.guardrails import (
     _login_form_evidence,
@@ -15,7 +16,7 @@ from agent.guardrails import (
     verify_student_login_surface,
 )
 from agent.filters import LocalKnowledgeMatrixFilter
-from agent.lookup import _get_browser_sem
+from agent.lookup import _balanced_render_indexes, _get_browser_sem
 
 
 def test_rejects_documents_and_literal_ip_hosts() -> None:
@@ -36,6 +37,20 @@ def test_browser_limiters_are_scoped_to_each_event_loop() -> None:
     second_browser, second_render = asyncio.run(semaphores())
     assert first_browser is not second_browser
     assert first_render is not second_render
+
+
+def test_balanced_fast_render_only_runs_when_static_finds_nothing() -> None:
+    eligible = [
+        (SimpleNamespace(exact_url="https://lms.example.edu/login"), None),
+        (SimpleNamespace(exact_url="https://example.edu/news"), None),
+        (SimpleNamespace(exact_url="https://portal.example.edu/sso"), None),
+    ]
+    failures = [(False, "no form", url.exact_url) for url, _ in eligible]
+    assert _balanced_render_indexes(eligible, failures, limit=2) == [0, 2]
+
+    one_static_success = list(failures)
+    one_static_success[0] = (True, "form", eligible[0][0].exact_url)
+    assert _balanced_render_indexes(eligible, one_static_success, limit=2) == [2]
 
 
 def test_rejects_informational_and_internal_lms_content_routes() -> None:
