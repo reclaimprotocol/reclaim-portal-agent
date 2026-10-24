@@ -57,6 +57,7 @@ from agent.graph_matcher import (GraphComplianceMatcher,           # noqa: E402
                                  registrable_root)
 from agent.guardrails import (verify_portal_endpoint_final,     # noqa: E402
                               verify_student_login_surface,
+                              verify_student_login_surface_rendered,
                               verify_student_login_surface_hybrid, portal_url_allowed,
                               portal_dedupe_key, canonical_portal_url,
                               transport_ok, REQUIRE_HTTPS)
@@ -75,6 +76,19 @@ logger = logging.getLogger("genie.lookup")
 # them avoids repeating browser/search/model work when duplicate domains occur
 # in a sheet. Deep mode deliberately remains uncached for diagnosis/retries.
 _FAST_RESULT_CACHE: dict[tuple[str, str, bool], dict[str, Any]] = {}
+
+# Fast mode is a balanced first pass, not a race to mark rows complete.  These
+# limits keep worst-case throughput near 10-15 organisations per 10 minutes
+# with three sheet workers while preserving enough search and rendered-login
+# coverage for unfamiliar countries and JavaScript-only student portals.
+FAST_STATIC_TIMEOUT_S = max(
+    4, int(os.getenv("GENIE_FAST_STATIC_TIMEOUT_SECONDS", "8")))
+FAST_SEARCH_TIMEOUT_S = max(
+    20, int(os.getenv("GENIE_FAST_SEARCH_TIMEOUT_SECONDS", "75")))
+FAST_CANDIDATE_CAP = max(8, int(os.getenv("GENIE_FAST_CANDIDATE_CAP", "24")))
+FAST_RENDER_LIMIT = max(0, int(os.getenv("GENIE_FAST_RENDER_LIMIT", "2")))
+FAST_RENDER_TIMEOUT_S = max(
+    5, int(os.getenv("GENIE_FAST_RENDER_TIMEOUT_SECONDS", "15")))
 
 _DIRECT_LOGIN_HINT_RE = re.compile(
     r"(?:login|logon|sign[\s_-]?in|auth(?:enticate|entication)?|sso|"
@@ -171,6 +185,37 @@ def _merge_portals(*groups: list[DiscoveredPortal]) -> list[DiscoveredPortal]:
     return merged
 
 
+def _balanced_render_indexes(
+    eligible: list[tuple[Any, Any]],
+    static_checks: list[tuple[bool, str, str]],
+    *, limit: int = FAST_RENDER_LIMIT,
+) -> list[int]:
+    """Choose a few strong static failures for bounded Chromium recovery.
+
+    Fast mode first checks every candidate over HTTP. JavaScript-only LMS/SSO
+    pages would otherwise be lost, including a second system beside an already
+    verified static portal. Render only portal-looking URLs, in model/ranker
+    order, and cap the work per row.
+    """
+    if limit <= 0:
+        return []
+    # Once a static portal is already verified, spend only one render on a
+    # possible second application (for example LMS beside the student ERP).
+    # When static verification found nothing, use the full bounded allowance.
+    budget = 1 if any(check[0] for check in static_checks) else limit
+    selected: list[int] = []
+    for index, ((portal, _endpoint_check), check) in enumerate(
+            zip(eligible, static_checks)):
+        if check[0]:
+            continue
+        if not _DIRECT_LOGIN_HINT_RE.search(str(portal.exact_url)):
+            continue
+        selected.append(index)
+        if len(selected) >= budget:
+            break
+    return selected
+
+
 def _portal_application_key(url: str) -> str:
     """Treat one hostname as one deployed portal application.
 
@@ -241,7 +286,7 @@ async def find_portals(
         # root in the bounded pass; deep mode retains the exact supplied host.
         domain = registrable_root(domain)
         crawl_target = _crawl_target(domain)
-        page_timeout_ms = min(page_timeout_ms, 8_000)
+        page_timeout_ms = min(page_timeout_ms, 10_000)
 
     cache_key = (domain.lower(), country.lower(), portals_only)
     if fast_mode and cache_key in _FAST_RESULT_CACHE:
@@ -272,8 +317,8 @@ async def find_portals(
         hits = await execute_search_fallback(
             row.name, domain,
             query=build_login_endpoint_query(row.name, domain, country), country=country,
-            timeout_seconds=60 if fast_mode else 90,
-            search_context_size="low" if fast_mode else "medium",
+            timeout_seconds=FAST_SEARCH_TIMEOUT_S if fast_mode else 90,
+            search_context_size="medium",
         )
         stats["used_search"] = True
         candidates = lkm.filter_and_rank_links(hits, country=country) if hits else []
@@ -284,9 +329,11 @@ async def find_portals(
             if fast_mode:
                 # Starting many Chromium processes was the largest measured
                 # batch bottleneck. JavaScript-only sites are deliberately
-                # left for deep retry while search runs beside this HTTP GET.
+                # handled by a bounded verification fallback below while search
+                # runs beside this HTTP GET.
                 return await extract_static_university_links(
-                    crawl_target, timeout_seconds=6, country_hint=country)
+                    crawl_target, timeout_seconds=FAST_STATIC_TIMEOUT_S,
+                    country_hint=country)
             async with _get_browser_sem():
                 return await extract_targeted_university_links(
                     crawl_target, page_timeout_ms=page_timeout_ms,
@@ -306,24 +353,16 @@ async def find_portals(
         search_task = (asyncio.create_task(execute_search_fallback(
             row.name, domain,
             query=build_login_endpoint_query(row.name, domain, country),
-            max_results=6 if fast_mode else 8, country=country,
-            timeout_seconds=60 if fast_mode else 90,
-            search_context_size="low" if fast_mode else "medium",
+            max_results=8, country=country,
+            timeout_seconds=FAST_SEARCH_TIMEOUT_S if fast_mode else 90,
+            search_context_size="medium",
         )) if use_search_fallback else None)
         if search_task is not None:
             if fast_mode:
-                links = await crawl_task
-                quick = lkm.filter_and_rank_links(links, country=country) if links else []
-                has_direct_login = any(_DIRECT_LOGIN_HINT_RE.search(
-                    f"{item.get('url', '')} {item.get('text', '')}")
-                    for item in quick)
-                if has_direct_login:
-                    search_task.cancel()
-                    await asyncio.gather(search_task, return_exceptions=True)
-                    hits = []
-                    stats["search_cancelled_after_crawl_hit"] = True
-                else:
-                    hits = await search_task
+                # Keep both independent sources. Cancelling search after the
+                # first homepage login improved latency but routinely missed a
+                # separate LMS, library, or vendor-hosted student system.
+                links, hits = await asyncio.gather(crawl_task, search_task)
             else:
                 links, hits = await asyncio.gather(crawl_task, search_task)
             stats["used_search"] = True
@@ -353,7 +392,7 @@ async def find_portals(
             if key and key not in seen_candidates:
                 seen_candidates.add(key)
                 candidates.append(candidate)
-                if fast_mode and len(candidates) >= 16:
+                if fast_mode and len(candidates) >= FAST_CANDIDATE_CAP:
                     break
 
     # 2. broad search rescue --------------------------------------------
@@ -459,13 +498,30 @@ async def find_portals(
     # Accept a real credential form OR an actionable rendered Login/SSO control.
     # URL vocabulary is not an acceptance/rejection rule here.
     if fast_mode:
-        # Cheap HTTP inspection only. Ambiguous JavaScript/SSO pages are deep-
-        # pass work; browser launch/cancellation stalls were the main cause of
-        # multi-minute outliers in the large-sheet benchmark.
+        # Verify everything cheaply first. Render one additional strong
+        # login/LMS/SSO candidate after a static success, or up to two when all
+        # static checks fail. This recovers modern JavaScript portals without
+        # turning the first pass into a deep crawl.
         auth_checks = list(await asyncio.gather(*(
             verify_student_login_surface(
                 p.exact_url, timeout_seconds=4, country_hint=country)
             for p, _ in eligible)))
+        render_indexes = _balanced_render_indexes(eligible, auth_checks)
+        if render_indexes:
+            rendered = await asyncio.gather(*(
+                verify_student_login_surface_rendered(
+                    eligible[index][0].exact_url,
+                    FAST_RENDER_TIMEOUT_S,
+                    country_hint=country,
+                    official_domain=domain,
+                )
+                for index in render_indexes
+            ))
+            for index, check in zip(render_indexes, rendered):
+                if check[0]:
+                    auth_checks[index] = check
+            stats["fast_rendered_candidates"] = len(render_indexes)
+            stats["fast_rendered_accepted"] = sum(check[0] for check in rendered)
     else:
         auth_checks = list(await asyncio.gather(*(
             verify_student_login_surface_hybrid(

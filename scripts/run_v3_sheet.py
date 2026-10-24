@@ -109,12 +109,12 @@ async def _process_one(
 @click.option("--all", "all_rows", is_flag=True,
               help="Process every source row instead of using --limit.")
 @click.option("--concurrency", type=int, default=None,
-              help="Lookups in flight (default: 6 in --fast mode, otherwise 2).")
+              help="Lookups in flight (default: 3 in --fast mode, otherwise 2).")
 @click.option("--portals-only", is_flag=True,
               help="Skip legal-page discovery and write only portal URLs.")
 @click.option("--fast", is_flag=True,
               help="Bounded first pass; defers legal discovery and deep retries.")
-@click.option("--row-timeout-seconds", type=int, default=70, show_default=True,
+@click.option("--row-timeout-seconds", type=int, default=120, show_default=True,
               help="Hard per-row discovery deadline in --fast mode.")
 def main(limit: int, all_rows: bool, concurrency: int | None,
          portals_only: bool, fast: bool, row_timeout_seconds: int) -> None:
@@ -130,7 +130,7 @@ def main(limit: int, all_rows: bool, concurrency: int | None,
         raise click.ClickException("No source rows found")
 
     async def run() -> list[str]:
-        effective_concurrency = concurrency or (6 if fast else 2)
+        effective_concurrency = concurrency or (3 if fast else 2)
         semaphore = asyncio.Semaphore(max(1, effective_concurrency))
         write_lock = asyncio.Lock()
 
