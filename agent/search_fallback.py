@@ -17,6 +17,7 @@ import asyncio
 import logging
 import os
 import re
+import weakref
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -37,6 +38,21 @@ DEFAULT_TIMEOUT_S = int(os.getenv("GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS", "90"))
 DEFAULT_MODEL = "gpt-5.5"
 
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
+
+_search_sems: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, asyncio.Semaphore
+] = weakref.WeakKeyDictionary()
+
+
+def _get_search_sem() -> asyncio.Semaphore:
+    """Bound hosted searches so large sheets do not self-throttle/time out."""
+    loop = asyncio.get_running_loop()
+    semaphore = _search_sems.get(loop)
+    if semaphore is None:
+        limit = max(1, int(os.getenv("GENIE_OPENAI_SEARCH_CONCURRENCY", "6")))
+        semaphore = asyncio.Semaphore(limit)
+        _search_sems[loop] = semaphore
+    return semaphore
 
 
 def _api_key() -> str:
@@ -190,6 +206,7 @@ async def execute_search_fallback(
     query: str | None = None,
     client: AsyncOpenAI | None = None,
     country: str = "",
+    search_context_size: str = "medium",
 ) -> list[dict[str, str]]:
     """Use OpenAI web search to return untrusted portal candidates.
 
@@ -211,13 +228,14 @@ async def execute_search_fallback(
         max_retries=0,  # this rescue path owns retries at the orchestration layer
     )
     try:
-        response = await api.responses.create(
-            model=_model(),
-            tools=[{"type": "web_search", "search_context_size": "medium"}],
-            tool_choice="required",
-            include=["web_search_call.action.sources"],
-            input=_search_instruction(q, max_results, country),
-        )
+        async with _get_search_sem():
+            response = await api.responses.create(
+                model=_model(),
+                tools=[{"type": "web_search", "search_context_size": search_context_size}],
+                tool_choice="required",
+                include=["web_search_call.action.sources"],
+                input=_search_instruction(q, max_results, country),
+            )
         hits = parse_results(response, max_results)
         if not hits:
             logger.info("search: OpenAI web search returned 0 cited sources for %r", university_name)

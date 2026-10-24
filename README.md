@@ -53,6 +53,9 @@ No spreadsheet, no org ID, no OAuth — one domain in, portals and terms out.
 
 # machine-readable
 .venv/bin/python -m agent.lookup kbu.ac.th --json > result.json
+
+# bounded first pass for a large batch; retry empty results without --fast
+.venv/bin/python -m agent.lookup u-tokyo.ac.jp --portals-only --fast
 ```
 
 ```
@@ -147,6 +150,26 @@ UNIVERSITIES_TAB_NAME="<input-tab>" \
 PORTALS_TAB_NAME="Portals" \
 .venv/bin/python scripts/run_v3_sheet.py --all --concurrency 4
 ```
+
+For large sheets, use the two-pass runner. The fast pass performs a bounded
+static-HTML crawl and low-context web search in parallel, deduplicates work by
+registrable domain, caps candidates and network time, verifies real forms or
+actionable student/LMS SSO controls without Chromium, defers legal-page work,
+and writes Sheets updates on a background lane. Six workers with a 70-second
+row deadline are the tested local defaults:
+
+```bash
+GOOGLE_SHEET_ID="<sheet-id>" \
+UNIVERSITIES_TAB_NAME="<input-tab>" \
+PORTALS_TAB_NAME="Portals" \
+.venv/bin/python scripts/run_v3_sheet.py --all --fast
+```
+
+Fast mode intentionally leaves JavaScript-only, blocked, and ambiguous rows
+unresolved rather than weakening the login-page guard. Retry only those rows
+in normal mode to enable Chromium, crawl recovery, targeted endpoint rescue,
+and legal/T&C enrichment. `--fast` implies `--portals-only`; it never claims
+that a timed-out row has no portal.
 
 The output tab contains portal URLs, matching legal-page URLs, and a
 `GenieV3 status` column. The legacy `Overall T&C Verdict` column remains blank

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -47,12 +48,15 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-from agent.crawler import (extract_targeted_university_links,   # noqa: E402
+from agent.crawler import (extract_static_university_links,     # noqa: E402
+                           extract_targeted_university_links,
                            extract_links_from_evidence_pages)
 from agent.filters import LocalKnowledgeMatrixFilter            # noqa: E402
 from agent.graph_matcher import (GraphComplianceMatcher,           # noqa: E402
-                                 DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
+                                 DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK,
+                                 registrable_root)
 from agent.guardrails import (verify_portal_endpoint_final,     # noqa: E402
+                              verify_student_login_surface,
                               verify_student_login_surface_hybrid, portal_url_allowed,
                               portal_dedupe_key, canonical_portal_url,
                               transport_ok, REQUIRE_HTTPS)
@@ -66,6 +70,11 @@ from agent.v3_orchestrator import (harvest_portal_legal_links,  # noqa: E402
                                    GUARDRAIL_RETRY_S)
 
 logger = logging.getLogger("genie.lookup")
+
+# Successful fast-pass results are immutable JSON-shaped dictionaries. Reusing
+# them avoids repeating browser/search/model work when duplicate domains occur
+# in a sheet. Deep mode deliberately remains uncached for diagnosis/retries.
+_FAST_RESULT_CACHE: dict[tuple[str, str, bool], dict[str, Any]] = {}
 
 _DIRECT_LOGIN_HINT_RE = re.compile(
     r"(?:login|logon|sign[\s_-]?in|auth(?:enticate|entication)?|sso|"
@@ -198,6 +207,7 @@ async def find_portals(
     portals_only: bool = False,
     page_timeout_ms: int = 30_000,
     use_search_fallback: bool = True,
+    fast_mode: bool = False,
     _targeted_endpoint_rescue: bool = False,
 ) -> dict[str, Any]:
     """Discover portals for one university domain.
@@ -212,6 +222,10 @@ async def find_portals(
             graph matching. Roughly halves the runtime.
         use_search_fallback: fall back to web search when the crawl finds
             nothing.
+        fast_mode: bounded first pass for large batches. It uses static HTTP
+            discovery, skips browser retry chains/evidence-page crawling, caps
+            candidates and network time, and defers JavaScript-only ambiguity
+            to normal mode.
 
     Returns a dict with `domain`, `portals` (each with `tnc_url` unless
     `portals_only`), and a `stats` block explaining what happened.
@@ -221,6 +235,20 @@ async def find_portals(
     domain = _clean_domain(supplied_domain)
     if not domain:
         return {"domain": "", "portals": [], "error": "no domain given"}
+    if fast_mode:
+        # Research sheets often contain a departmental hostname which is dead
+        # while the institution's registrable root is the public site. Use the
+        # root in the bounded pass; deep mode retains the exact supplied host.
+        domain = registrable_root(domain)
+        crawl_target = _crawl_target(domain)
+        page_timeout_ms = min(page_timeout_ms, 8_000)
+
+    cache_key = (domain.lower(), country.lower(), portals_only)
+    if fast_mode and cache_key in _FAST_RESULT_CACHE:
+        cached = copy.deepcopy(_FAST_RESULT_CACHE[cache_key])
+        cached["name"] = name or cached.get("name") or domain
+        cached.setdefault("stats", {})["fast_cache_hit"] = True
+        return cached
 
     row = UniversityRow(row=0, org_id="lookup", name=name or domain,
                         domain=domain, country=country)
@@ -244,6 +272,8 @@ async def find_portals(
         hits = await execute_search_fallback(
             row.name, domain,
             query=build_login_endpoint_query(row.name, domain, country), country=country,
+            timeout_seconds=60 if fast_mode else 90,
+            search_context_size="low" if fast_mode else "medium",
         )
         stats["used_search"] = True
         candidates = lkm.filter_and_rank_links(hits, country=country) if hits else []
@@ -251,10 +281,18 @@ async def find_portals(
             candidates = hits
     else:
         async def _crawl() -> list[dict[str, str]]:
+            if fast_mode:
+                # Starting many Chromium processes was the largest measured
+                # batch bottleneck. JavaScript-only sites are deliberately
+                # left for deep retry while search runs beside this HTTP GET.
+                return await extract_static_university_links(
+                    crawl_target, timeout_seconds=6, country_hint=country)
             async with _get_browser_sem():
                 return await extract_targeted_university_links(
                     crawl_target, page_timeout_ms=page_timeout_ms,
-                    country_hint=country)
+                    country_hint=country,
+                    max_depth_pages=0 if fast_mode else 6,
+                    retry_failures=not fast_mode)
 
         # Crawl4AI and OpenAI search are independent evidence sources. Running
         # them together prevents a slow/dead homepage from serially delaying
@@ -268,9 +306,26 @@ async def find_portals(
         search_task = (asyncio.create_task(execute_search_fallback(
             row.name, domain,
             query=build_login_endpoint_query(row.name, domain, country),
-            max_results=8, country=country)) if use_search_fallback else None)
+            max_results=6 if fast_mode else 8, country=country,
+            timeout_seconds=60 if fast_mode else 90,
+            search_context_size="low" if fast_mode else "medium",
+        )) if use_search_fallback else None)
         if search_task is not None:
-            links, hits = await asyncio.gather(crawl_task, search_task)
+            if fast_mode:
+                links = await crawl_task
+                quick = lkm.filter_and_rank_links(links, country=country) if links else []
+                has_direct_login = any(_DIRECT_LOGIN_HINT_RE.search(
+                    f"{item.get('url', '')} {item.get('text', '')}")
+                    for item in quick)
+                if has_direct_login:
+                    search_task.cancel()
+                    await asyncio.gather(search_task, return_exceptions=True)
+                    hits = []
+                    stats["search_cancelled_after_crawl_hit"] = True
+                else:
+                    hits = await search_task
+            else:
+                links, hits = await asyncio.gather(crawl_task, search_task)
             stats["used_search"] = True
             stats["search_reason"] = "parallel independent discovery"
             # Search commonly returns an official IT guide rather than the
@@ -280,7 +335,7 @@ async def find_portals(
                 str(hit.get("url") or "") for hit in hits
                 if _is_university_host(str(hit.get("url") or ""), domain)
             ]
-            if official_evidence_pages:
+            if official_evidence_pages and not fast_mode:
                 evidence_links = await extract_links_from_evidence_pages(
                     official_evidence_pages, country_hint=country)
                 hits = list(hits) + evidence_links
@@ -298,6 +353,8 @@ async def find_portals(
             if key and key not in seen_candidates:
                 seen_candidates.add(key)
                 candidates.append(candidate)
+                if fast_mode and len(candidates) >= 16:
+                    break
 
     # 2. broad search rescue --------------------------------------------
     # Crawl4AI deliberately returns [] on an unrenderable/blocked page so one
@@ -370,9 +427,12 @@ async def find_portals(
                 "stats": stats, "error": "no web portal candidates"}
 
     checks = await asyncio.gather(*(
-        verify_portal_endpoint_final(p.exact_url, GUARDRAIL_TIMEOUT_S,
+        verify_portal_endpoint_final(p.exact_url,
+                                     min(GUARDRAIL_TIMEOUT_S, 4) if fast_mode
+                                     else GUARDRAIL_TIMEOUT_S,
                                      country_hint=country,
-                                     retry_timeout_seconds=GUARDRAIL_RETRY_S)
+                                     retry_timeout_seconds=(None if fast_mode
+                                                            else GUARDRAIL_RETRY_S))
         for p in allowed_portals))
     stats["endpoint_probe_failures"] = sum(1 for c in checks if not c[0])
 
@@ -398,10 +458,19 @@ async def find_portals(
 
     # Accept a real credential form OR an actionable rendered Login/SSO control.
     # URL vocabulary is not an acceptance/rejection rule here.
-    auth_checks = await asyncio.gather(*(
-        verify_student_login_surface_hybrid(
-            p.exact_url, country_hint=country, official_domain=domain)
-        for p, _ in eligible))
+    if fast_mode:
+        # Cheap HTTP inspection only. Ambiguous JavaScript/SSO pages are deep-
+        # pass work; browser launch/cancellation stalls were the main cause of
+        # multi-minute outliers in the large-sheet benchmark.
+        auth_checks = list(await asyncio.gather(*(
+            verify_student_login_surface(
+                p.exact_url, timeout_seconds=4, country_hint=country)
+            for p, _ in eligible)))
+    else:
+        auth_checks = list(await asyncio.gather(*(
+            verify_student_login_surface_hybrid(
+                p.exact_url, country_hint=country, official_domain=domain)
+            for p, _ in eligible)))
     verified_keys: set[str] = set()
     verified_apps: dict[str, tuple[Any, Any]] = {}
     for (portal, check), (accepted, note, stable_url) in zip(eligible, auth_checks):
@@ -445,17 +514,19 @@ async def find_portals(
     # dead, external-IdP-only, not a login form, or not student-facing.  Make
     # one independent, subdomain-aware search attempt rather than calling a
     # generic web search for every successful university.
-    if not live and use_search_fallback and not _targeted_endpoint_rescue:
+    if (not live and use_search_fallback and not _targeted_endpoint_rescue
+            and not fast_mode):
         logger.info("lookup: %s — all candidates failed verification; "
                     "invoking targeted login endpoint rescue", domain)
         return await find_portals(
             domain, name=name, country=country, portals_only=portals_only,
             page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
+            fast_mode=fast_mode,
             _targeted_endpoint_rescue=True,
         )
 
     if portals_only:
-        return {
+        output = {
             "domain": domain, "name": result.university_name,
             "insecure_dropped": insecure,
             "portals": [{"url": p.exact_url, "category": p.category,
@@ -463,6 +534,9 @@ async def find_portals(
                         for p, c in live],
             "stats": stats,
         }
+        if fast_mode and output["portals"]:
+            _FAST_RESULT_CACHE[cache_key] = copy.deepcopy(output)
+        return output
 
     # 5. portal-level legal harvest + graph match ------------------------
     legal = list(result.harvested_legal_links or [])
@@ -542,6 +616,8 @@ def main() -> None:
     ap.add_argument("--no-search", action="store_true",
                     help="do not fall back to web search")
     ap.add_argument("--page-timeout-ms", type=int, default=30_000)
+    ap.add_argument("--fast", action="store_true",
+                    help="bounded first pass; retry unresolved rows without --fast")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of text")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
@@ -555,7 +631,7 @@ def main() -> None:
     res = asyncio.run(find_portals(
         a.domain, name=a.name, country=a.country,
         portals_only=a.portals_only, page_timeout_ms=a.page_timeout_ms,
-        use_search_fallback=not a.no_search))
+        use_search_fallback=not a.no_search, fast_mode=a.fast))
 
     if a.json:
         print(json.dumps(res, indent=2, ensure_ascii=False))

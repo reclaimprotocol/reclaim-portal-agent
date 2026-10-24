@@ -36,7 +36,25 @@ def _unique_urls(portals: list[dict], key: str) -> list[str]:
     return values
 
 
-async def _process_one(row: dict, sheets: SheetsClient, *, portals_only: bool) -> str:
+def _write_output(sheets: SheetsClient, org_id: str, output: dict) -> None:
+    """Serialize one Sheets upsert outside the asyncio event loop."""
+    existing = sheets.read_portals_by_orgid(org_id)
+    values = [output.get(col, "") for col in SheetsClient.PORTALS_COLUMNS]
+    if existing:
+        sheets.update_portal_rows([(existing[0][0], values)])
+    else:
+        sheets.append_portal_rows([output])
+
+
+async def _process_one(
+    row: dict,
+    sheets: SheetsClient,
+    *,
+    portals_only: bool,
+    fast: bool,
+    row_timeout_seconds: int,
+    write_lock: asyncio.Lock,
+) -> str:
     org_id = SheetsClient.extract_orgid(row)
     name = str(row.get("SheerID University Name") or "").strip()
     domain = str(row.get("SheerID Website Domain") or "").strip()
@@ -44,9 +62,19 @@ async def _process_one(row: dict, sheets: SheetsClient, *, portals_only: bool) -
     if not org_id or not name or not domain:
         return f"skipped {org_id or '<no id>'}: missing Org name or Domain"
 
-    result = await find_portals(
-        domain, name=name, country=country, portals_only=portals_only,
-    )
+    try:
+        result = await asyncio.wait_for(
+            find_portals(
+                domain, name=name, country=country,
+                portals_only=(portals_only or fast), fast_mode=fast,
+            ),
+            timeout=row_timeout_seconds if fast else None,
+        )
+    except TimeoutError:
+        result = {
+            "domain": domain, "name": name, "portals": [],
+            "error": f"fast-pass deadline exceeded ({row_timeout_seconds}s)",
+        }
     portals = result.get("portals") or []
     portal_urls = _unique_urls(portals, "url")
     tnc_urls = _unique_urls(portals, "tnc_url")
@@ -68,12 +96,10 @@ async def _process_one(row: dict, sheets: SheetsClient, *, portals_only: bool) -
         "Overall T&C Verdict": "",
         "GenieV3 status": status,
     }
-    existing = sheets.read_portals_by_orgid(org_id)
-    values = [output.get(col, "") for col in SheetsClient.PORTALS_COLUMNS]
-    if existing:
-        sheets.update_portal_rows([(existing[0][0], values)])
-    else:
-        sheets.append_portal_rows([output])
+    # Google API calls are synchronous. Running them directly here freezes all
+    # active discoveries; use one background writer lane instead.
+    async with write_lock:
+        await asyncio.to_thread(_write_output, sheets, org_id, output)
     return f"{org_id}: {status}"
 
 
@@ -82,11 +108,16 @@ async def _process_one(row: dict, sheets: SheetsClient, *, portals_only: bool) -
               help="Maximum organisations to process.")
 @click.option("--all", "all_rows", is_flag=True,
               help="Process every source row instead of using --limit.")
-@click.option("--concurrency", type=int, default=2, show_default=True,
-              help="Maximum GenieV3 lookups in flight. Browser rendering is separately capped.")
+@click.option("--concurrency", type=int, default=None,
+              help="Lookups in flight (default: 6 in --fast mode, otherwise 2).")
 @click.option("--portals-only", is_flag=True,
               help="Skip legal-page discovery and write only portal URLs.")
-def main(limit: int, all_rows: bool, concurrency: int, portals_only: bool) -> None:
+@click.option("--fast", is_flag=True,
+              help="Bounded first pass; defers legal discovery and deep retries.")
+@click.option("--row-timeout-seconds", type=int, default=70, show_default=True,
+              help="Hard per-row discovery deadline in --fast mode.")
+def main(limit: int, all_rows: bool, concurrency: int | None,
+         portals_only: bool, fast: bool, row_timeout_seconds: int) -> None:
     """Discover portals with GenieV3 and upsert them to the output tab."""
     config = load_config()
     _bootstrap.setup_logging(config.log_level)
@@ -99,12 +130,18 @@ def main(limit: int, all_rows: bool, concurrency: int, portals_only: bool) -> No
         raise click.ClickException("No source rows found")
 
     async def run() -> list[str]:
-        semaphore = asyncio.Semaphore(max(1, concurrency))
+        effective_concurrency = concurrency or (6 if fast else 2)
+        semaphore = asyncio.Semaphore(max(1, effective_concurrency))
+        write_lock = asyncio.Lock()
 
         async def guarded(row: dict) -> str:
             async with semaphore:
                 try:
-                    return await _process_one(row, sheets, portals_only=portals_only)
+                    return await _process_one(
+                        row, sheets, portals_only=portals_only, fast=fast,
+                        row_timeout_seconds=max(1, row_timeout_seconds),
+                        write_lock=write_lock,
+                    )
                 except Exception as exc:  # noqa: BLE001
                     org_id = SheetsClient.extract_orgid(row) or "<no id>"
                     logger.exception("GenieV3 failed for %s", org_id)

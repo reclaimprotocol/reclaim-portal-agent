@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlsplit
 
+import aiohttp
 from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 
@@ -51,6 +52,11 @@ logger = logging.getLogger("genie.crawler")
 WAIT_FOR_JS = "js:() => document.readyState === 'complete'"
 
 DEFAULT_PAGE_TIMEOUT_MS = 30_000
+STATIC_PAGE_LIMIT_BYTES = 1024 * 1024
+STATIC_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 #: Schemes that are anchors in markup but not navigable links.
 _NON_HTTP_PREFIXES = ("mailto:", "tel:", "javascript:", "data:", "file:", "sms:", "#")
@@ -106,6 +112,15 @@ def exit_country(url_or_domain: str, country_hint: str = "") -> str | None:
 def proxy_for(url_or_domain: str, country_hint: str = "") -> dict[str, str] | None:
     """crawl4ai `proxy_config` for this URL, or None for direct."""
     return _proxy.playwright_proxy(country_hint, url_or_domain)
+
+
+def _aiohttp_proxy(url_or_domain: str, country_hint: str = "") -> str | None:
+    """aiohttp proxy URL matching the browser crawler's country routing."""
+    cfg = proxy_for(url_or_domain, country_hint)
+    if not cfg:
+        return None
+    server = cfg["server"].replace("http://", "").replace("https://", "")
+    return f"http://{cfg['username']}:{cfg['password']}@{server}"
 
 
 async def probe_proxy(sample_url: str = "https://x.edu.br/") -> tuple[bool, str]:
@@ -341,6 +356,63 @@ def _anchors_from_html(html: str, base_url: str) -> list[dict[str, str]]:
     return out
 
 
+async def extract_static_university_links(
+    domain: str,
+    *,
+    timeout_seconds: int = 6,
+    country_hint: str = "",
+) -> list[dict[str, str]]:
+    """Fetch homepage anchors without Chromium for the batch fast pass.
+
+    Most public university homepages render their navigation server-side. A
+    bounded HTTP GET extracts those links in milliseconds/seconds and avoids
+    launching a separate browser process. Returning ``[]`` lets the caller
+    choose between search rescue and a deeper Chromium pass.
+    """
+    try:
+        url = _as_url(domain)
+    except ValueError:
+        return []
+    timeout = aiohttp.ClientTimeout(total=max(1, timeout_seconds))
+    try:
+        attempts = [url]
+        www_url = _www_variant(url)
+        if www_url:
+            attempts.append(www_url)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for attempt in attempts:
+                try:
+                    async with session.get(
+                        attempt,
+                        allow_redirects=True,
+                        headers={"User-Agent": STATIC_USER_AGENT},
+                        proxy=_aiohttp_proxy(attempt, country_hint),
+                        ssl=False,
+                    ) as response:
+                        if not 200 <= response.status < 400:
+                            continue
+                        content_type = (response.headers.get("Content-Type") or "").lower()
+                        if content_type and "html" not in content_type:
+                            continue
+                        body = await response.content.read(STATIC_PAGE_LIMIT_BYTES)
+                        html = body.decode(response.charset or "utf-8", errors="ignore")
+                        links = _anchors_from_html(html, str(response.url))
+                        logger.info("crawler: static %s -> %d links", attempt, len(links))
+                        if links:
+                            return links
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("crawler: static %s skipped (%s)",
+                                attempt, type(exc).__name__)
+        return []
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — browser fallback owns recovery
+        logger.info("crawler: static %s skipped (%s)", url, type(exc).__name__)
+        return []
+
+
 async def _crawl_once(
     crawler: AsyncWebCrawler, url: str, run_cfg: CrawlerRunConfig
 ) -> tuple[list[dict[str, str]], str]:
@@ -366,6 +438,7 @@ async def extract_raw_university_links(
     use_proxy: bool = True,
     country_hint: str = "",
     fallback_direct: bool = True,
+    retry_failures: bool = True,
     _via: str = "",
 ) -> list[dict[str, str]]:
     """Render `domain` in headless Chromium and return every hyperlink on it.
@@ -386,6 +459,9 @@ async def extract_raw_university_links(
         country_hint: org country name, used when the domain carries no ccTLD
             (a .com/.org university still needs a correct exit).
         fallback_direct: on a proxied failure, retry once directly.
+        retry_failures: run the identical, ``www`` and proxy/direct recovery
+            attempts. Fast batch discovery disables these expensive retries;
+            unresolved rows are sent to the normal deep pass instead.
 
     Returns:
         `[{'url': ..., 'text': ...}]`, absolutised and de-duplicated. Always a
@@ -426,6 +502,12 @@ async def extract_raw_university_links(
         # has no portal. Retry the identical request once before search rescue
         # is considered.  This keeps a bounded cost while preventing a flaky
         # browser process from becoming a false negative.
+        if not retry_failures:
+            kind = classify_block(err)
+            if kind:
+                await record_block(url, kind, err, cc, stealth_tried=True)
+            return []
+
         logger.info("crawler: %s -> retrying once after transient crawl error", url)
         if crawler is not None:
             retry_links, retry_err = await _crawl_once(crawler, url, run_cfg)
@@ -535,6 +617,7 @@ async def extract_targeted_university_links(
     page_timeout_ms: int = DEFAULT_PAGE_TIMEOUT_MS,
     country_hint: str = "",
     max_depth_pages: int = 6,
+    retry_failures: bool = True,
 ) -> list[dict[str, str]]:
     """Homepage plus a small evidence-driven depth-1 crawl.
 
@@ -543,7 +626,8 @@ async def extract_targeted_university_links(
     which is where universities commonly publish the actual portal or SSO link.
     """
     homepage = await extract_raw_university_links(
-        domain, page_timeout_ms=page_timeout_ms, country_hint=country_hint)
+        domain, page_timeout_ms=page_timeout_ms, country_hint=country_hint,
+        retry_failures=retry_failures)
     pages = _targeted_depth_pages(homepage, domain, country_hint, max_depth_pages)
     if not pages:
         return homepage

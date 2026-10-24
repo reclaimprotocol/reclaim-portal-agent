@@ -12,6 +12,7 @@ from agent.guardrails import (
     canonical_portal_url,
     portal_dedupe_key,
     portal_url_allowed,
+    verify_student_login_surface,
 )
 from agent.filters import LocalKnowledgeMatrixFilter
 from agent.lookup import _get_browser_sem
@@ -23,6 +24,8 @@ def test_rejects_documents_and_literal_ip_hosts() -> None:
     assert portal_url_allowed("https://[2001:db8::7]/login")[0] is False
     assert portal_url_allowed(
         "https://utelecon-directory.adm.u-tokyo.ac.jp/login")[0] is False
+    assert portal_url_allowed("https://javascript:void(0);")[0] is False
+    assert portal_url_allowed("javascript:void(0)")[0] is False
 
 
 def test_browser_limiters_are_scoped_to_each_event_loop() -> None:
@@ -45,6 +48,7 @@ def test_rejects_informational_and_internal_lms_content_routes() -> None:
         "https://lms.example.edu/courses/26335",
         "https://lms.example.edu/portal/site/!error/page/!error-100",
         "https://auth.example.edu/portal/en/1st-login.html",
+        "https://study.example.edu/lms/error/notLogin",
     ]
     assert all(portal_url_allowed(url)[0] is False for url in rejected)
 
@@ -78,6 +82,49 @@ def test_rendered_sso_gate_requires_an_actionable_control() -> None:
     assert prose_only is False
 
 
+def test_static_verifier_accepts_actionable_academic_sso(monkeypatch) -> None:
+    """A real LMS login button should not require Chromium to be accepted."""
+    html = b"""
+        <html><h1>Student learning management system</h1>
+        <a href="/sso/login">Student SSO Login</a></html>
+    """
+
+    class Content:
+        async def read(self, _limit):
+            return html
+
+    class Response:
+        status = 200
+        url = "https://lms.example.edu/"
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr("agent.guardrails.aiohttp.ClientSession",
+                        lambda **_kwargs: Session())
+    accepted, note, stable = asyncio.run(verify_student_login_surface(
+        "https://lms.example.edu/", use_proxy=False,
+    ))
+    assert accepted is True
+    assert "login/SSO" in note
+    assert stable == "https://lms.example.edu/sso/login"
+
+
 def test_login_link_yields_the_authentication_target() -> None:
     accepted, _, target = _rendered_auth_control_target(
         '<nav><a href="/sso/login">Student SSO Login</a></nav>',
@@ -109,6 +156,18 @@ def test_recovers_stable_back_url_from_published_session_transaction() -> None:
     final = "https://slink.example/login?sessid=another-temporary-value"
     assert _stable_verified_url(published, final) == (
         "https://slink.example/user/index.php?tenant=university")
+
+
+def test_recovers_stable_openid_return_url() -> None:
+    published = (
+        "https://portal.example.edu/openid/action/login?"
+        "openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0&"
+        "openid.return_to=https%3A%2F%2Fportal.example.edu%2Fstudent%2Fhome&"
+        "openid.assoc_handle=temporary-transaction"
+    )
+    final = "https://idp.example.net/sso?state=temporary"
+    assert _stable_verified_url(published, final) == (
+        "https://portal.example.edu/student/home")
 
 
 def test_rejects_password_only_without_student_identifier() -> None:
