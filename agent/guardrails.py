@@ -551,12 +551,20 @@ async def verify_student_login_surface(
     if "html" not in content_type and "<html" not in text.lower() and "<form" not in text.lower():
         return False, "not an HTML login page", final_url
     accepted, evidence = _login_form_evidence(text)
-    if not accepted:
-        return False, evidence, final_url
+    control_ok, control_evidence, control_target = _rendered_auth_control_target(
+        text, final_url)
+    if not accepted and not control_ok:
+        return False, f"{evidence}; {control_evidence}", final_url
     audience_ok, audience_reason = _student_audience_evidence(text, final_url)
     if not audience_ok:
         return False, audience_reason, final_url
-    return True, f"{evidence}; {audience_reason}", final_url
+    stable_url = final_url
+    if not accepted and control_target:
+        target_allowed, _target_reason = portal_url_allowed(control_target)
+        if target_allowed and not _has_volatile_auth_state(control_target):
+            stable_url = canonical_portal_url(control_target)
+    auth_evidence = evidence if accepted else control_evidence
+    return True, f"{auth_evidence}; {audience_reason}", stable_url
 
 
 def _proxy_url(url: str, country_hint: str = "") -> str | None:

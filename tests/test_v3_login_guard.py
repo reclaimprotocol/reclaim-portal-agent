@@ -12,6 +12,7 @@ from agent.guardrails import (
     canonical_portal_url,
     portal_dedupe_key,
     portal_url_allowed,
+    verify_student_login_surface,
 )
 from agent.filters import LocalKnowledgeMatrixFilter
 from agent.lookup import _get_browser_sem
@@ -79,6 +80,49 @@ def test_rendered_sso_gate_requires_an_actionable_control() -> None:
         '<p>Read the student login documentation before continuing.</p>')
     assert actionable is True
     assert prose_only is False
+
+
+def test_static_verifier_accepts_actionable_academic_sso(monkeypatch) -> None:
+    """A real LMS login button should not require Chromium to be accepted."""
+    html = b"""
+        <html><h1>Student learning management system</h1>
+        <a href="/sso/login">Student SSO Login</a></html>
+    """
+
+    class Content:
+        async def read(self, _limit):
+            return html
+
+    class Response:
+        status = 200
+        url = "https://lms.example.edu/"
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr("agent.guardrails.aiohttp.ClientSession",
+                        lambda **_kwargs: Session())
+    accepted, note, stable = asyncio.run(verify_student_login_surface(
+        "https://lms.example.edu/", use_proxy=False,
+    ))
+    assert accepted is True
+    assert "login/SSO" in note
+    assert stable == "https://lms.example.edu/sso/login"
 
 
 def test_login_link_yields_the_authentication_target() -> None:
