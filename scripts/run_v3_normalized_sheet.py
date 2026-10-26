@@ -291,8 +291,41 @@ async def run(args: argparse.Namespace) -> None:
     block_rows: list[list[str]] = []
     result_lock = asyncio.Lock()
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
+    completed_count = 0
+    total_portal_rows = 0
+    total_block_rows = 0
+
+    def flush_result_rows() -> tuple[int, int]:
+        """Append buffered discovery/block rows and clear only successful batches."""
+        nonlocal total_portal_rows, total_block_rows
+        portal_count = 0
+        block_count = 0
+        if portal_rows:
+            batch = list(portal_rows)
+            service.spreadsheets().values().append(
+                spreadsheetId=args.sheet_id,
+                range=f"'{_escaped(output_tab)}'!A:N",
+                valueInputOption="RAW", insertDataOption="INSERT_ROWS",
+                body={"values": batch},
+            ).execute()
+            portal_count = len(batch)
+            total_portal_rows += portal_count
+            del portal_rows[:portal_count]
+        if block_rows:
+            batch = list(block_rows)
+            service.spreadsheets().values().append(
+                spreadsheetId=args.sheet_id,
+                range=f"'{_escaped(args.blocked_tab)}'!A:M",
+                valueInputOption="RAW", insertDataOption="INSERT_ROWS",
+                body={"values": batch},
+            ).execute()
+            block_count = len(batch)
+            total_block_rows += block_count
+            del block_rows[:block_count]
+        return portal_count, block_count
 
     async def one(source_row: int, row: list[str]) -> dict[str, Any]:
+        nonlocal completed_count
         org_id = _cell(row, indexes["org_id"])
         name = _cell(row, indexes["name"])
         country = _cell(row, indexes["country"])
@@ -387,6 +420,13 @@ async def run(args: argparse.Namespace) -> None:
             portal_rows.extend(new_portal_rows)
             portal_rows.extend(no_portal_row)
             block_rows.extend(new_block_rows)
+            completed_count += 1
+            if completed_count % 10 == 0:
+                flushed_portals, flushed_blocks = flush_result_rows()
+                logging.info(
+                    "CHECKPOINT completed_orgs=%d/%d portal_rows=%d blocked_rows=%d",
+                    completed_count, len(pending), flushed_portals, flushed_blocks,
+                )
         summary = {
             "row": source_row, "org_id": org_id, "name": name,
             "portals": len(new_portal_rows),
@@ -402,18 +442,12 @@ async def run(args: argparse.Namespace) -> None:
     )
     results = await asyncio.gather(*(one(number, row) for number, row in pending))
 
-    if portal_rows:
-        service.spreadsheets().values().append(
-            spreadsheetId=args.sheet_id, range=f"'{_escaped(output_tab)}'!A:N",
-            valueInputOption="RAW", insertDataOption="INSERT_ROWS",
-            body={"values": portal_rows},
-        ).execute()
-    if block_rows:
-        service.spreadsheets().values().append(
-            spreadsheetId=args.sheet_id, range=f"'{_escaped(args.blocked_tab)}'!A:M",
-            valueInputOption="RAW", insertDataOption="INSERT_ROWS",
-            body={"values": block_rows},
-        ).execute()
+    async with result_lock:
+        flushed_portals, flushed_blocks = flush_result_rows()
+    logging.info(
+        "FINAL_FLUSH portal_rows=%d blocked_rows=%d",
+        flushed_portals, flushed_blocks,
+    )
     recovered = _blocked_from_log(
         args.log, organisations, block_existing, args.tab, registrable_root)
     if recovered:
@@ -425,7 +459,7 @@ async def run(args: argparse.Namespace) -> None:
         block_rows.extend(recovered)
     logging.info(
         "DONE orgs=%d portal_rows=%d blocked_rows=%d orgs_with_errors=%d",
-        len(results), len(portal_rows), len(block_rows),
+        len(results), total_portal_rows, total_block_rows,
         sum(bool(item["errors"]) for item in results),
     )
 
