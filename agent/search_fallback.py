@@ -1,11 +1,10 @@
-"""Genie-V3 · Layer 2 — external web-search fallback (OpenAI).
+"""Genie-V3 · Layer 2 — external web-search discovery (OpenAI).
 
-The normal path is still the university's own rendered website. This module is
-only a recovery path for a crawl that yields no useful links, or a targeted
-capability expansion. OpenAI web search supplies *candidate* URLs from the
-indexed web; it is deliberately not trusted as a portal verdict. Every URL it
-returns goes through the same filter, model classification, live-endpoint and
-student-login-surface checks as a URL found on the university homepage.
+OpenAI web search runs alongside the university-site crawl. It supplies
+*candidate* URLs from the indexed web; it is deliberately not trusted as a
+portal verdict. Every URL it returns goes through the same filter, model
+classification, live-endpoint and student-login-surface checks as a URL found
+on the university homepage.
 
 This uses OpenAI's hosted ``web_search`` tool through the Responses API. A
 missing/invalid key, rate limit, timeout, or malformed response always degrades
@@ -35,7 +34,7 @@ _DOCUMENT_URL_RE = re.compile(
 # turns a temporary slow search into a false "no portal" result, so give the
 # hosted tool enough time to obtain and cite live sources.
 DEFAULT_TIMEOUT_S = int(os.getenv("GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS", "90"))
-DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_MODEL = "gpt-5.6-luna"
 
 _PLATFORM_TERMS = ("student portal", "login", "samarth", "moodle", "erp")
 
@@ -49,7 +48,13 @@ def _get_search_sem() -> asyncio.Semaphore:
     loop = asyncio.get_running_loop()
     semaphore = _search_sems.get(loop)
     if semaphore is None:
-        limit = max(1, int(os.getenv("GENIE_OPENAI_SEARCH_CONCURRENCY", "6")))
+        # Share the V3 search budget across normalized and legacy runners;
+        # allow a dedicated override if operators need a different web-search cap.
+        configured_limit = os.getenv(
+            "GENIE_OPENAI_SEARCH_CONCURRENCY",
+            os.getenv("GENIE_SEARCH_CONCURRENCY", "3"),
+        )
+        limit = max(1, int(configured_limit))
         semaphore = asyncio.Semaphore(limit)
         _search_sems[loop] = semaphore
     return semaphore
