@@ -152,8 +152,9 @@ PORTALS_TAB_NAME="Portals" \
 ```
 
 For large sheets, use the two-pass runner. Fast mode performs a bounded static
-HTML crawl and skips Chromium. OpenAI web search runs only if no portal survives
-the crawl, model, and login verification path. Legal-page work remains deferred.
+HTML crawl and skips Chromium. OpenAI web search runs in parallel with crawling;
+both candidate sources are combined before model and login verification. Legal-page
+work remains deferred.
 Three workers with a 120-second row deadline target roughly 10-15 organisations
 per 10 minutes while favouring portal coverage over raw speed:
 
@@ -230,17 +231,16 @@ portals remain excluded.
 | | Layer | Job | Module |
 |---|---|---|---|
 | **L1** | Model | Direct OpenAI extraction and tier fallback | `openai_cascade.py` |
-| **L2** | Discovery | Crawl-first discovery · conditional search rescue · multilingual filtering · legal graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
+| **L2** | Discovery | Parallel crawl + hosted search · multilingual filtering · legal graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
 | **L3** | Verification | Reachability · rendered authentication proof · student audience · canonical URL | `guardrails.py` |
 | **L4** | Production | Per-event-loop browser limits, search pacing, retries, observability | `lookup.py` · `v3_orchestrator.py` |
 | **L5** | Optimisation | Memory, caching, co-learning | `memory_cache.py` |
 
 ### Current adaptive-discovery architecture
 
-GenieV3 crawls and verifies the university site first. It invokes OpenAI hosted
-web search only when that path produces no verified student portal. Search hits
-remain candidates: every URL passes the same model, endpoint, browser, and
-student-audience checks before it reaches the output.
+GenieV3 runs site crawling and OpenAI hosted web search in parallel, merges
+their candidate URLs, then applies the same model, endpoint, browser, and
+student-audience checks before anything reaches the output.
 
 ```mermaid
 flowchart TD
@@ -249,6 +249,8 @@ flowchart TD
 
     SHIELD --> CRAWL["🌐 Crawl-first discovery<br/>static HTTP or rendered multi-depth crawl"]
     CRAWL --> MERGE["🧩 Merge, rank, and filter candidates"]
+    SHIELD --> SEARCH["🔍 OpenAI web-search candidates<br/>gpt-5.6-luna"]
+    SEARCH --> MERGE
     MERGE --> MODEL["🧠 Direct OpenAI cascade<br/>gpt-5.5 → gpt-4.1-mini"]
     MERGE --> DIRECT["📌 Preserve explicit official login endpoints"]
     MODEL --> PROPOSED["Candidate portal set"]
@@ -259,10 +261,6 @@ flowchart TD
     STATIC -->|ambiguous or JS-driven| RENDER["🖥️ Chromium render<br/>forms and actionable login/SSO controls"]
     STATIC --> VERIFY["🎓 Student/LMS/library audience gate"]
     RENDER --> VERIFY
-    VERIFY -->|zero verified portals| SEARCH["🔍 One OpenAI web-search rescue<br/>only after crawl/model/verification finds none"]
-    SEARCH --> SFILTER["Filter and classify search candidates"]
-    SFILTER --> SPROBE["Run the same endpoint and student-login checks"]
-    SPROBE --> VERIFY
     VERIFY -->|verified portal(s)| CANON["🧹 Canonicalise and deduplicate<br/>stable SSO URL · one entry per application"]
     CANON --> LEGAL["🕸️ Portal legal-page crawl + graph match"]
     LEGAL --> OUT["📤 Portals sheet / verified CSV"]
@@ -301,13 +299,11 @@ When no keyword matches, a structural heuristic ranks plausible institutional
 hosts and entry points rather than returning an empty set.
 
 **Search** (`search_fallback.py`) uses OpenAI's hosted **web_search** tool
-with an OpenAI model. Discovery crawls and verifies site candidates first;
-web search runs only when no student portal survives those checks. Each row
-gets at most one rescue search. Search results are untrusted candidates and
-pass through the same filtering, model classification, reachability, rendered
-login, and student-audience checks as crawled URLs. Optional capability
-expansion searches for missing ERP, LMS, and fee-payment systems, but is
-disabled by default (`GENIE_CAPABILITY_EXPANSION=0`).
+with `gpt-5.6-luna` by default. It runs concurrently with crawling; search hits
+remain untrusted candidates and pass through the same filtering, model
+classification, reachability, rendered login, and student-audience checks as
+crawled URLs. Optional capability-expansion searches for missing ERP, LMS, and
+fee-payment systems remain disabled by default (`GENIE_CAPABILITY_EXPANSION=0`).
 
 Queries are **OR-grouped**, not space-separated, so the search request describes
 alternatives rather than requiring every platform term on one result. Search
@@ -434,7 +430,7 @@ well as a wide IPv4 range.
 | Variable | Purpose |
 |---|---|
 | `OPENAI_API_KEY` | required for direct V3 inference and hosted web search |
-| `GENIE_OPENAI_SEARCH_MODEL` | optional OpenAI web-search model override; default `gpt-5.5` |
+| `GENIE_OPENAI_SEARCH_MODEL` | optional OpenAI web-search model override; default `gpt-5.6-luna` |
 | `GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS` | hosted web-search timeout, default 90s (60s for fast profiles) |
 | `GENIE_MODEL_TIERS` | override the cascade (comma-separated) |
 | `GENIE_BROWSER_CONCURRENCY` | browser semaphore, default 6 |
