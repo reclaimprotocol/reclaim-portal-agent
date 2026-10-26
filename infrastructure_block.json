@@ -1157,5 +1157,60 @@
   "last_seen": "2026-09-01T11:05:09+00:00",
   "exit_country": null,
   "stealth_tried": true
+ },
+ "nippharmaedu.com": {
+  "domain": "nippharmaedu.com",
+  "first_seen": "2026-10-16T07:15:37+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (39 bytes, 0 chars visible)",
+  "last_seen": "2026-10-16T07:15:37+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "vpjal.org": {
+  "domain": "vpjal.org",
+  "first_seen": "2026-10-16T07:19:36+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: HTTP 403 with HTML content (7795 bytes)",
+  "last_seen": "2026-10-16T07:19:36+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "akginstituteofnursing.co.in": {
+  "domain": "akginstituteofnursing.co.in",
+  "first_seen": "2026-10-16T07:36:25+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "cloudflare_challenge",
+  "detail": "Blocked by anti-bot protection: Cloudflare JS challenge",
+  "last_seen": "2026-10-16T07:36:25+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "apsmcollege.ac.in": {
+  "domain": "apsmcollege.ac.in",
+  "first_seen": "2026-10-16T07:41:28+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text, no_content_elements (39 bytes, 0 chars visible)",
+  "last_seen": "2026-10-16T07:41:28+00:00",
+  "exit_country": null,
+  "stealth_tried": true
+ },
+ "agkm.com": {
+  "domain": "agkm.com",
+  "first_seen": "2026-10-16T07:44:00+00:00",
+  "attempts": 1,
+  "resolved": null,
+  "block_type": "anti_bot",
+  "detail": "Blocked by anti-bot protection: Structural: minimal_text on small page (151 bytes, 26 chars visible)",
+  "last_seen": "2026-10-16T07:44:00+00:00",
+  "exit_country": null,
+  "stealth_tried": true
  }
 }

@@ -36,7 +36,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -102,9 +102,9 @@ def _browser_config(proxy_config: dict[str, str] | None = None, **overrides: Any
 def exit_country(url_or_domain: str, country_hint: str = "") -> str | None:
     """ISO2 exit country this URL would use, or None for a direct connection.
 
-    Reuses `agent.proxy` unchanged: the country comes from the URL's ccTLD (or
-    an explicit country name), and `.in` plus bare gTLDs go direct — we already
-    egress from India, and a gTLD isn't locked to any country we could target.
+    Reuses `agent.proxy`: the country comes from an explicit organisation hint
+    first and the URL's ccTLD second. Dynamic mode therefore also routes gTLD
+    portals correctly when their sheet row contains a country.
     """
     return _proxy.active_country(country_hint, url_or_domain)
 
@@ -116,11 +116,39 @@ def proxy_for(url_or_domain: str, country_hint: str = "") -> dict[str, str] | No
 
 def _aiohttp_proxy(url_or_domain: str, country_hint: str = "") -> str | None:
     """aiohttp proxy URL matching the browser crawler's country routing."""
-    cfg = proxy_for(url_or_domain, country_hint)
-    if not cfg:
-        return None
-    server = cfg["server"].replace("http://", "").replace("https://", "")
-    return f"http://{cfg['username']}:{cfg['password']}@{server}"
+    candidates = _aiohttp_proxy_candidates(url_or_domain, country_hint)
+    return candidates[0][1] if candidates else None
+
+
+def _aiohttp_proxy_candidates(
+    url_or_domain: str, country_hint: str = ""
+) -> list[tuple[str, str]]:
+    """Ordered provider/proxy-URL pairs for the static fast crawl."""
+    output: list[tuple[str, str]] = []
+    for provider, cfg in proxy_candidates_for(url_or_domain, country_hint):
+        server = cfg["server"].replace("http://", "").replace("https://", "")
+        user = quote(cfg["username"], safe="")
+        password = quote(cfg["password"], safe="")
+        output.append((provider, f"http://{user}:{password}@{server}"))
+    return output
+
+
+def _aiohttp_proxy_failure(exc: Exception, proxy_url: str | None) -> bool:
+    if not proxy_url:
+        return False
+    return isinstance(exc, (
+        asyncio.TimeoutError,
+        aiohttp.ClientHttpProxyError,
+        aiohttp.ClientProxyConnectionError,
+        aiohttp.ClientConnectorError,
+    )) or _proxy.is_proxy_failure(exc)
+
+
+def proxy_candidates_for(
+    url_or_domain: str, country_hint: str = ""
+) -> list[tuple[str, dict[str, str]]]:
+    """Ordered provider/config pairs for proxy-transport failover."""
+    return _proxy.playwright_proxy_candidates(country_hint, url_or_domain)
 
 
 async def probe_proxy(sample_url: str = "https://x.edu.br/") -> tuple[bool, str]:
@@ -132,18 +160,28 @@ async def probe_proxy(sample_url: str = "https://x.edu.br/") -> tuple[bool, str]
     universities as having no portal. In V2 that produced dozens of false
     removals before we started probing first.
     """
-    cfg = proxy_for(sample_url)
-    if not cfg:
+    candidates = _proxy.requests_proxy_candidates("", sample_url)
+    if not candidates:
         return True, f"direct (no proxy for {sample_url})"
-    try:
-        import requests
-        p = _proxy.requests_proxies("", sample_url)
-        r = requests.get("https://api.ipify.org", proxies=p, timeout=25)
-        if r.status_code == 200 and r.text.strip():
-            return True, f"exit ip {r.text.strip()} ({exit_country(sample_url)})"
-        return False, f"probe returned HTTP {r.status_code}: {r.text[:120]}"
-    except Exception as exc:  # noqa: BLE001
-        return False, f"{type(exc).__name__}: {str(exc)[:160]}"
+    failures: list[str] = []
+    import requests
+    for provider, candidate in candidates:
+        try:
+            r = requests.get(
+                "https://api.ipify.org", proxies=candidate, timeout=25)
+            if r.status_code == 200 and r.text.strip():
+                return True, (
+                    f"exit ip {r.text.strip()} ({exit_country(sample_url)}) "
+                    f"via {provider}"
+                )
+            failures.append(f"{provider}: HTTP {r.status_code}")
+            if r.status_code not in {407, 500, 502, 503, 504}:
+                break
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{provider}: {type(exc).__name__}")
+            if not _proxy.is_proxy_failure(exc):
+                break
+    return False, "; ".join(failures)
 
 
 # --------------------------------------------------------------------------- #
@@ -381,30 +419,45 @@ async def extract_static_university_links(
             attempts.append(www_url)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             for attempt in attempts:
-                try:
-                    async with session.get(
-                        attempt,
-                        allow_redirects=True,
-                        headers={"User-Agent": STATIC_USER_AGENT},
-                        proxy=_aiohttp_proxy(attempt, country_hint),
-                        ssl=False,
-                    ) as response:
-                        if not 200 <= response.status < 400:
+                routes = _aiohttp_proxy_candidates(attempt, country_hint) \
+                    or [("direct", None)]
+                for index, (provider, proxy_url) in enumerate(routes):
+                    try:
+                        async with session.get(
+                            attempt,
+                            allow_redirects=True,
+                            headers={"User-Agent": STATIC_USER_AGENT},
+                            proxy=proxy_url,
+                            ssl=False,
+                        ) as response:
+                            if not 200 <= response.status < 400:
+                                break
+                            content_type = (response.headers.get("Content-Type") or "").lower()
+                            if content_type and "html" not in content_type:
+                                break
+                            body = await response.content.read(STATIC_PAGE_LIMIT_BYTES)
+                            html = body.decode(response.charset or "utf-8", errors="ignore")
+                            links = _anchors_from_html(html, str(response.url))
+                            logger.info(
+                                "crawler: static %s -> %d links via %s",
+                                attempt, len(links), provider,
+                            )
+                            if links:
+                                return links
+                        break
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        if (index + 1 < len(routes)
+                                and _aiohttp_proxy_failure(exc, proxy_url)):
+                            logger.info(
+                                "crawler: static %s proxy failed via %s; retrying via %s",
+                                attempt, provider, routes[index + 1][0],
+                            )
                             continue
-                        content_type = (response.headers.get("Content-Type") or "").lower()
-                        if content_type and "html" not in content_type:
-                            continue
-                        body = await response.content.read(STATIC_PAGE_LIMIT_BYTES)
-                        html = body.decode(response.charset or "utf-8", errors="ignore")
-                        links = _anchors_from_html(html, str(response.url))
-                        logger.info("crawler: static %s -> %d links", attempt, len(links))
-                        if links:
-                            return links
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001
-                    logger.info("crawler: static %s skipped (%s)",
-                                attempt, type(exc).__name__)
+                        logger.info("crawler: static %s skipped via %s (%s)",
+                                    attempt, provider, type(exc).__name__)
+                        break
         return []
     except asyncio.CancelledError:
         raise
@@ -475,7 +528,11 @@ async def extract_raw_university_links(
         return []
 
     run_cfg = _run_config(page_timeout_ms, wait_for)
-    pcfg = proxy_for(url, country_hint) if (use_proxy and crawler is None) else None
+    proxy_candidates = (
+        proxy_candidates_for(url, country_hint)
+        if (use_proxy and crawler is None) else []
+    )
+    pcfg = proxy_candidates[0][1] if proxy_candidates else None
     # `_via` carries the exit of a SHARED browser, whose proxy was fixed by the
     # caller and is invisible here. Without it a proxied group logs "direct",
     # which is precisely the confusion that has cost us hours diagnosing the
@@ -483,16 +540,36 @@ async def extract_raw_university_links(
     cc = (exit_country(url, country_hint) if pcfg else None) or (_via or None)
 
     try:
+        provider = ""
         if crawler is not None:
             links, err = await _crawl_once(crawler, url, run_cfg)
         else:
-            async with AsyncWebCrawler(config=_browser_config(pcfg)) as own:
-                links, err = await _crawl_once(own, url, run_cfg)
+            attempts = proxy_candidates or [("direct", None)]
+            links, err = [], ""
+            for index, (provider, candidate) in enumerate(attempts):
+                try:
+                    async with AsyncWebCrawler(config=_browser_config(candidate)) as own:
+                        links, err = await _crawl_once(own, url, run_cfg)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    err = f"{type(exc).__name__}: {str(exc)[:200]}"
+                if not err:
+                    break
+                has_fallback = index + 1 < len(attempts)
+                if not (has_fallback and _proxy.is_proxy_failure(err)):
+                    break
+                next_provider = attempts[index + 1][0]
+                logger.warning(
+                    "crawler: %s proxy transport failed via %s; retrying via %s",
+                    url, provider, next_provider,
+                )
 
         if not err:
-            logger.info("crawler: %s -> %d links via %s", url, len(links), cc or "direct")
+            route = f"{provider}:{cc}" if provider and provider != "direct" else (cc or "direct")
+            logger.info("crawler: %s -> %d links via %s", url, len(links), route)
             if is_blocked(url):
-                await clear_block(url, f"{cc or 'direct'}")
+                await clear_block(url, route)
             return links
 
         logger.warning("crawler: %s via %s -> %s", url, cc or "direct", err)
@@ -712,7 +789,8 @@ async def extract_many(
     chosen PER DOMAIN from the ccTLD — so a single shared browser cannot serve a
     mixed-geography batch without sending Brazilian traffic out of a Philippine
     exit. Domains are therefore grouped by exit country and one browser is
-    opened per group (`None` = the direct group: India and bare gTLDs).
+    opened per group (`None` = targets with no inferred/configured geography,
+    geo mode off, or an explicitly bypassed home country).
 
     A browser launch costs seconds; V2 batch runs on this 8-core/8 GB box were
     stable at ~10 concurrent workers and swapped beyond that, so keep

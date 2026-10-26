@@ -180,6 +180,47 @@ The output tab contains portal URLs, matching legal-page URLs, and a
 for these runs because GenieV3 finds legal pages but does not run the older
 content-verdict classifier.
 
+#### Normalized output: one portal per row
+
+For delivery sheets where every portal must occupy its own row, use
+`scripts/run_v3_normalized_sheet.py`. It reads the current repository's
+GenieV3 implementation (never an old `/private/tmp` copy), leaves the source
+worksheet untouched, and creates two worksheets in the same spreadsheet:
+
+- `<source tab> Portals`: one portal URL per row and that portal's matched T&C
+  URL in the adjacent field;
+- `Blocked Sites`: organisation-owned candidate endpoints stopped by a known
+  Cloudflare, Akamai, CAPTCHA, WAF, or other anti-bot response.
+
+The source tab must contain `Org ID`, `Org Name`, `Country`, and `Website`.
+Common aliases such as `OrgID`, `University Name`, `Domain`, and the equivalent
+SheerID headers are accepted. A Website cell may contain multiple domains
+separated by commas, semicolons, or newlines; each is searched independently
+and duplicate `Org ID + Portal URL` results are suppressed.
+
+The write-enabled OAuth token is stored at `.tokens/token-write.json`. Test ten
+rows first:
+
+```bash
+.venv/bin/python scripts/run_v3_normalized_sheet.py \
+  --sheet-id '<SHEET_ID>' \
+  --tab 'Top500First' \
+  --output-tab 'Top500First Portals' \
+  --blocked-tab 'Blocked Sites' \
+  --mode fast \
+  --limit 10 \
+  --concurrency 3 \
+  --row-timeout-seconds 180
+```
+
+Use `--limit 0` to process every non-empty source row. `--mode fast` is the
+balanced, bounded first pass; rerun unresolved organisations with `--mode deep`
+for full Chromium/depth recovery. The runner passes each row's country into
+discovery, so dynamic proxy routing and Bright Data → Grass transport failover
+apply to every domain. It writes only verified same-host student login
+surfaces; PDFs, literal IPs, informational login links, and non-student portals
+remain excluded.
+
 ---
 
 ## 1. The five layers
@@ -347,6 +388,34 @@ browser and caches a token at `GOOGLE_TOKEN_PATH`.
 **It fails closed.** If the provider rejects our IP (`401 ip_blacklisted`),
 every proxied fetch returns status 0 and healthy portals are recorded as dead.
 
+The proxy layer supports two providers. `PROXY_PROVIDER=auto` uses the existing
+Bright Data gateway for ordinary countries and retries through Grass when
+Bright Data has a proxy-transport failure (for example a tunnel/connect error
+or proxy authentication failure). Countries in the configured Grass-only set
+(by default `ir,iq,sy,ru,cu,kp`) start with Grass because Bright Data does not
+serve them. A genuine response from the university, including HTTP 403/404/500,
+does not trigger provider switching. Grass uses its standard
+`proxy.grass.io:80` gateway and routes by the ISO2 country embedded in the
+username. Browser traffic always uses Grass **direct** mode with a stable
+per-host session; Grass smart mode terminates TLS and its documentation says it
+must not be combined with a real browser.
+
+```dotenv
+USE_PROXY=1
+PROXY_PROVIDER=auto
+
+# Existing Bright Data credentials
+RESIDENTIAL_PROXY_GATEWAY=brd.superproxy.io:33335
+RESIDENTIAL_PROXY_USER=...
+RESIDENTIAL_PROXY_PASS=...
+
+# Grass proxy subaccount credentials (not the account email)
+GRASS_PROXY_GATEWAY=proxy.grass.io:80
+GRASS_PROXY_USER=...
+GRASS_PROXY_PASS=...
+GRASS_PROXY_COUNTRIES=ir,iq,sy,ru,cu,kp
+```
+
 ```bash
 # ALWAYS probe before a batch
 .venv/bin/python -c "
@@ -375,7 +444,13 @@ well as a wide IPv4 range.
 | `GENIE_CAPABILITY_EXPANSION` | `0` disables opportunistic expansion, default on |
 | `GENIE_GUARDRAIL_TIMEOUT` / `_RETRY` | liveness budgets, default 5s / 20s |
 | `GENIE_MAX_CANDIDATES` | filter cap, default 40 |
-| `USE_PROXY`, `RESIDENTIAL_PROXY_*` | residential proxy |
+| `USE_PROXY`, `RESIDENTIAL_PROXY_*` | residential proxy credentials |
+| `PROXY_PROVIDER` | `auto`, `brightdata`, or `grass`; auto uses the country fallback map |
+| `GRASS_PROXY_GATEWAY`, `GRASS_PROXY_USER`, `GRASS_PROXY_PASS` | Grass proxy-subaccount connection settings |
+| `GRASS_PROXY_COUNTRIES` | comma-separated ISO2 countries routed to Grass in auto mode |
+| `PROXY_GEO_MODE` | `dynamic` routes by organisation country/portal ccTLD; `fixed` uses `PROXY_GEO_CC`; `off` uses direct access |
+| `PROXY_GEO_CC` | ISO2 exit used when `PROXY_GEO_MODE=fixed` |
+| `PROXY_HOME_CC`, `PROXY_BYPASS_HOME` | actual agent egress country and optional direct-route optimisation; no country is bypassed by default |
 
 ---
 
