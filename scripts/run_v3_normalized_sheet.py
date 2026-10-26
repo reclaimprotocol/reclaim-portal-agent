@@ -34,8 +34,9 @@ DEFAULT_SHEET_ID = "1S24-nC-ZhNPfFNE2WGVDmsj0NHJJU4x1W6i5dzY5iKU"
 PORTAL_HEADERS = (
     "Org ID", "Org Name", "Country", "Website", "Portal URL", "T&C URL",
     "Portal Category", "Portal System", "Source Tab", "Source Row",
-    "Run Mode", "Checked At",
+    "Run Mode", "Checked At", "Discovery Status", "Discovery Notes",
 )
+LEGACY_PORTAL_HEADERS = PORTAL_HEADERS[:12]
 BLOCK_HEADERS = (
     "Org ID", "Org Name", "Country", "Website", "Portal URL", "T&C URL",
     "Block Type", "Details", "Blocked Host", "Exit Country", "Source Tab",
@@ -86,6 +87,15 @@ def _ensure_tab(service, sheet_id: str, tab: str, headers: tuple[str, ...]) -> N
     if not values:
         service.spreadsheets().values().update(
             spreadsheetId=sheet_id, range=f"'{_escaped(tab)}'!A1",
+            valueInputOption="RAW", body={"values": [list(headers)]},
+        ).execute()
+    elif (tab.endswith("Portals")
+          and tuple(values[0][: len(LEGACY_PORTAL_HEADERS)]) == LEGACY_PORTAL_HEADERS
+          and headers == PORTAL_HEADERS):
+        # Upgrade the old portal output schema in-place without touching data.
+        service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=f"'{_escaped(tab)}'!A1",
             valueInputOption="RAW", body={"values": [list(headers)]},
         ).execute()
     elif tuple(values[0][: len(headers)]) != headers:
@@ -252,8 +262,16 @@ async def run(args: argparse.Namespace) -> None:
         "websites": _split_domains(_cell(row, indexes["website"])),
     } for number, row in pending]
 
-    portal_existing = _existing_keys(
-        _read(service, args.sheet_id, output_tab), (0, 4))
+    existing_portal_rows = _read(service, args.sheet_id, output_tab)
+    portal_existing = _existing_keys(existing_portal_rows, (0, 4))
+    existing_org_ids = {
+        str(row[0]).strip().casefold() for row in existing_portal_rows[1:]
+        if row and len(row) > 4 and str(row[4]).strip()
+    }
+    existing_no_portal_org_ids = {
+        str(row[0]).strip().casefold() for row in existing_portal_rows[1:]
+        if row and len(row) > 12 and row[12].strip() == "No portal found"
+    }
     block_existing = _existing_keys(
         _read(service, args.sheet_id, args.blocked_tab), (0, 4, 8, 6))
 
@@ -307,8 +325,12 @@ async def run(args: argparse.Namespace) -> None:
         checked = datetime.now(timezone.utc).isoformat(timespec="seconds")
         new_portal_rows: list[list[str]] = []
         seen_urls: set[str] = set()
+        valid_found_urls: set[str] = set()
         for portal in found:
             url = str(portal.get("url") or "").strip()
+            normalized_url = url.rstrip("/").casefold()
+            if normalized_url:
+                valid_found_urls.add(normalized_url)
             key = (org_id.casefold(), url.rstrip("/").casefold())
             if not url or url.rstrip("/").casefold() in seen_urls or key in portal_existing:
                 continue
@@ -319,8 +341,22 @@ async def run(args: argparse.Namespace) -> None:
                 str(portal.get("tnc_url") or ""),
                 str(portal.get("category") or ""),
                 str(portal.get("system") or ""), args.tab, str(source_row),
-                args.mode, checked,
+                args.mode, checked, "Portal found", "",
             ])
+
+        # Keep zero-result organizations visible for follow-up. Do not emit a
+        # false negative if this organization already has a portal row or the
+        # run only rediscovered URLs already recorded in the output tab.
+        no_portal_row: list[list[str]] = []
+        if (not valid_found_urls
+                and org_id.casefold() not in existing_org_ids
+                and org_id.casefold() not in existing_no_portal_org_ids):
+            no_portal_row.append([
+                org_id, name, country, "; ".join(websites), "", "", "", "",
+                args.tab, str(source_row), args.mode, checked, "No portal found",
+                "; ".join(errors) if errors else "No verified student portal identified",
+            ])
+            existing_no_portal_org_ids.add(org_id.casefold())
 
         blocks = load_blocks()
         new_block_rows: list[list[str]] = []
@@ -349,10 +385,12 @@ async def run(args: argparse.Namespace) -> None:
 
         async with result_lock:
             portal_rows.extend(new_portal_rows)
+            portal_rows.extend(no_portal_row)
             block_rows.extend(new_block_rows)
         summary = {
             "row": source_row, "org_id": org_id, "name": name,
-            "portals": len(new_portal_rows), "blocked": len(new_block_rows),
+            "portals": len(new_portal_rows),
+            "no_portal_row": bool(no_portal_row), "blocked": len(new_block_rows),
             "errors": errors,
         }
         logging.info("RESULT %s", json.dumps(summary, ensure_ascii=False))
@@ -366,7 +404,7 @@ async def run(args: argparse.Namespace) -> None:
 
     if portal_rows:
         service.spreadsheets().values().append(
-            spreadsheetId=args.sheet_id, range=f"'{_escaped(output_tab)}'!A:L",
+            spreadsheetId=args.sheet_id, range=f"'{_escaped(output_tab)}'!A:N",
             valueInputOption="RAW", insertDataOption="INSERT_ROWS",
             body={"values": portal_rows},
         ).execute()
