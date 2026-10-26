@@ -89,17 +89,33 @@ services:
       # returned no portals from a US exit and the correct one through a BD exit.
       - key: USE_PROXY
         value: "1"
+      - key: PROXY_PROVIDER
+        value: auto
       # MUST match where this runs. Default `in` skips the proxy for Indian
       # domains on the assumption we are in India; from a US host that silently
       # fetches the largest slice of the org list from the wrong continent.
       - key: PROXY_HOME_CC
         value: us
+      - key: PROXY_GEO_MODE
+        value: dynamic
+      - key: PROXY_BYPASS_HOME
+        value: "0"
       - key: RESIDENTIAL_PROXY_GATEWAY   # host:port, NO scheme
         sync: false
       - key: RESIDENTIAL_PROXY_USER
         sync: false
       - key: RESIDENTIAL_PROXY_PASS
         sync: false
+      # Grass is the transport-failure fallback for Bright Data and the primary
+      # route for excluded countries below. Use proxy-subaccount credentials.
+      - key: GRASS_PROXY_GATEWAY
+        value: proxy.grass.io:80
+      - key: GRASS_PROXY_USER
+        sync: false
+      - key: GRASS_PROXY_PASS
+        sync: false
+      - key: GRASS_PROXY_COUNTRIES
+        value: ir,iq,sy,ru,cu,kp
       - key: AGENT_RUNS_DIR
         value: /data/runs
       # L5 memory on the disk — otherwise every deploy resets the resume shield

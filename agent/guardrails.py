@@ -39,7 +39,8 @@ import re
 import ssl
 import weakref
 from typing import Any, Iterable, Sequence
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import (parse_qsl, quote, urlencode, urljoin, urlsplit,
+                          urlunsplit)
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -419,27 +420,49 @@ async def verify_student_login_surface_rendered(
     if not allowed:
         return False, reason, url_path
     published = _as_url(url_path)
-    try:
-        from crawl4ai import AsyncWebCrawler
-        from agent.crawler import (_browser_config, _run_config, WAIT_FOR_JS,
-                                   proxy_for)
-        proxy_cfg = proxy_for(published, country_hint)
-        async with _get_render_sem():
-            async with AsyncWebCrawler(config=_browser_config(proxy_cfg)) as crawler:
-                result = await crawler.arun(
-                    url=published,
-                    config=_run_config(timeout_seconds * 1000, WAIT_FOR_JS),
+    from crawl4ai import AsyncWebCrawler
+    from agent.crawler import (_browser_config, _run_config, WAIT_FOR_JS,
+                               proxy_candidates_for)
+    routes = proxy_candidates_for(published, country_hint) or [("direct", None)]
+    result = None
+    for index, (provider, proxy_cfg) in enumerate(routes):
+        try:
+            async with _get_render_sem():
+                async with AsyncWebCrawler(config=_browser_config(proxy_cfg)) as crawler:
+                    result = await crawler.arun(
+                        url=published,
+                        config=_run_config(timeout_seconds * 1000, WAIT_FOR_JS),
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if (index + 1 < len(routes)
+                    and (_proxy.is_proxy_failure(exc)
+                         or isinstance(exc, asyncio.TimeoutError))):
+                logger.info(
+                    "guardrails: rendered login %s failed via %s; retrying via %s",
+                    published, provider, routes[index + 1][0],
                 )
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        return False, f"render {type(exc).__name__}", published
+                continue
+            return False, f"render {type(exc).__name__}", published
 
-    html = getattr(result, "html", "") or ""
+        html = getattr(result, "html", "") or ""
+        error = str(getattr(result, "error_message", "") or "")
+        if (not html and index + 1 < len(routes)
+                and _proxy.is_proxy_failure(error)):
+            logger.info(
+                "guardrails: rendered login %s failed via %s; retrying via %s",
+                published, provider, routes[index + 1][0],
+            )
+            continue
+        break
+
+    html = getattr(result, "html", "") or "" if result is not None else ""
     final_url = (getattr(result, "redirected_url", None)
-                 or getattr(result, "url", None) or published)
+                 or getattr(result, "url", None) or published) if result is not None else published
     if not html:
-        error = str(getattr(result, "error_message", "") or "render returned no HTML")
+        error = str(getattr(result, "error_message", "") or "render returned no HTML") \
+            if result is not None else "render returned no result"
         return False, error[:180], final_url
 
     form_ok, form_reason = _login_form_evidence(html)
@@ -519,29 +542,42 @@ async def verify_student_login_surface(
         return False, reason, url_path
 
     url = _as_url(url_path)
-    proxy = _proxy_url(url, country_hint) if use_proxy else None
+    proxy_candidates = _proxy_urls(url, country_hint) if use_proxy else []
+    routes = proxy_candidates or [("direct", None)]
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     headers = {"User-Agent": USER_AGENT}
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as sess:
-            async with sess.get(url, allow_redirects=True, headers=headers,
-                                proxy=proxy, ssl=_INSECURE_SSL) as resp:
-                final_url = str(resp.url)
-                final_allowed, final_reason = portal_url_allowed(final_url)
-                if not final_allowed:
-                    return False, f"final URL: {final_reason}", final_url
-                if _normalised_host(final_url) != _normalised_host(url):
-                    return False, "redirected to another host", final_url
-                content_type = (resp.headers.get("Content-Type") or "").lower()
-                if "pdf" in content_type:
-                    return False, "PDF response", final_url
-                if not (200 <= resp.status < 400):
-                    return False, f"HTTP {resp.status}; login form unavailable", final_url
-                body = await resp.content.read(_MAX_LOGIN_PAGE_BYTES)
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - failure should only reject this candidate
-        return False, type(exc).__name__, url
+    body = b""
+    content_type = ""
+    final_url = url
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        for index, (provider, proxy_url) in enumerate(routes):
+            try:
+                async with sess.get(url, allow_redirects=True, headers=headers,
+                                    proxy=proxy_url, ssl=_INSECURE_SSL) as resp:
+                    final_url = str(resp.url)
+                    final_allowed, final_reason = portal_url_allowed(final_url)
+                    if not final_allowed:
+                        return False, f"final URL: {final_reason}", final_url
+                    if _normalised_host(final_url) != _normalised_host(url):
+                        return False, "redirected to another host", final_url
+                    content_type = (resp.headers.get("Content-Type") or "").lower()
+                    if "pdf" in content_type:
+                        return False, "PDF response", final_url
+                    if not (200 <= resp.status < 400):
+                        return False, f"HTTP {resp.status}; login form unavailable", final_url
+                    body = await resp.content.read(_MAX_LOGIN_PAGE_BYTES)
+                break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if (index + 1 < len(routes)
+                        and _proxy_transport_failure(exc, proxy_url)):
+                    logger.info(
+                        "guardrails: login fetch %s failed via %s; retrying via %s",
+                        url, provider, routes[index + 1][0],
+                    )
+                    continue
+                return False, type(exc).__name__, url
 
     if body.lstrip().startswith(b"%PDF"):
         return False, "PDF response", final_url
@@ -573,11 +609,32 @@ def _proxy_url(url: str, country_hint: str = "") -> str | None:
     aiohttp takes the proxy as a single URL string, so the username/password
     from `agent.proxy` are embedded rather than passed as BasicAuth.
     """
-    cfg = _proxy.playwright_proxy(country_hint, url)
-    if not cfg:
-        return None
-    server = cfg["server"].replace("http://", "").replace("https://", "")
-    return f"http://{cfg['username']}:{cfg['password']}@{server}"
+    candidates = _proxy_urls(url, country_hint)
+    return candidates[0][1] if candidates else None
+
+
+def _proxy_urls(url: str, country_hint: str = "") -> list[tuple[str, str]]:
+    """Ordered ``(provider, aiohttp proxy URL)`` candidates."""
+    output: list[tuple[str, str]] = []
+    for provider, cfg in _proxy.playwright_proxy_candidates(country_hint, url):
+        server = cfg["server"].replace("http://", "").replace("https://", "")
+        user = quote(cfg["username"], safe="")
+        password = quote(cfg["password"], safe="")
+        output.append((provider, f"http://{user}:{password}@{server}"))
+    return output
+
+
+def _proxy_transport_failure(exc: Exception, proxy_url: str | None) -> bool:
+    """Whether an exception warrants retrying through the next provider."""
+    if not proxy_url:
+        return False
+    transport_types = (
+        asyncio.TimeoutError,
+        aiohttp.ClientHttpProxyError,
+        aiohttp.ClientProxyConnectionError,
+        aiohttp.ClientConnectorError,
+    )
+    return isinstance(exc, transport_types) or _proxy.is_proxy_failure(exc)
 
 
 def _classify(status: int) -> bool:
@@ -630,16 +687,18 @@ async def verify_portal_endpoint_final(
         logger.warning("guardrails: %s", exc)
         return False, 0, "bad url", url_path
 
-    proxy = _proxy_url(url, country_hint) if use_proxy else None
+    proxy_candidates = _proxy_urls(url, country_hint) if use_proxy else []
+    routes = proxy_candidates or [("direct", None)]
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     headers = {"User-Agent": USER_AGENT}
 
     async def _attempt(sess: aiohttp.ClientSession,
-                       budget: aiohttp.ClientTimeout) -> tuple[bool, int, str, str]:
+                       budget: aiohttp.ClientTimeout,
+                       proxy_url: str | None) -> tuple[bool, int, str, str]:
         # 1) HEAD — cheapest possible probe.
         try:
             async with sess.head(url, allow_redirects=True, timeout=budget,
-                                 headers=headers, proxy=proxy,
+                                 headers=headers, proxy=proxy_url,
                                  ssl=_INSECURE_SSL) as resp:
                 status, landed = resp.status, str(resp.url)
             if status != METHOD_NOT_ALLOWED:
@@ -657,7 +716,7 @@ async def verify_portal_endpoint_final(
 
         # 2) GET — 405, or a HEAD the server mishandled.
         async with sess.get(url, allow_redirects=True, timeout=budget,
-                            headers=headers, proxy=proxy,
+                            headers=headers, proxy=proxy_url,
                             ssl=_INSECURE_SSL) as resp:
             status, landed = resp.status, str(resp.url)
             await resp.release()
@@ -668,30 +727,48 @@ async def verify_portal_endpoint_final(
     own_session = session is None
     sess = session or aiohttp.ClientSession(timeout=timeout)
     try:
-        try:
-            return await _attempt(sess, timeout)
-        except asyncio.TimeoutError:
-            if retry_timeout_seconds:
-                logger.info("guardrails: %s timed out at %ss — retrying at %ss",
-                            url, timeout_seconds, retry_timeout_seconds)
-                try:
-                    return await _attempt(
-                        sess, aiohttp.ClientTimeout(total=retry_timeout_seconds))
-                except Exception as exc:  # noqa: BLE001
-                    logger.info("guardrails: %s dead on retry (%s)", url, type(exc).__name__)
-                    return False, 0, f"retry {type(exc).__name__}", url
-            logger.info("guardrails: %s timed out after %ss — treated as dead",
-                        url, timeout_seconds)
-            return False, 0, "timeout", url
-        except aiohttp.ClientError as exc:
-            logger.info("guardrails: %s unreachable (%s)", url, type(exc).__name__)
-            return False, 0, type(exc).__name__, url
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — never break the caller's loop
-            logger.warning("guardrails: %s unexpected %s: %s",
-                           url, type(exc).__name__, str(exc)[:160])
-            return False, 0, type(exc).__name__, url
+        for index, (provider, proxy_url) in enumerate(routes):
+            failure: Exception | None = None
+            try:
+                return await _attempt(sess, timeout, proxy_url)
+            except asyncio.TimeoutError as exc:
+                failure = exc
+                if retry_timeout_seconds:
+                    logger.info("guardrails: %s timed out at %ss via %s — retrying at %ss",
+                                url, timeout_seconds, provider, retry_timeout_seconds)
+                    try:
+                        return await _attempt(
+                            sess, aiohttp.ClientTimeout(total=retry_timeout_seconds),
+                            proxy_url,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as retry_exc:  # noqa: BLE001
+                        failure = retry_exc
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                failure = exc
+
+            if (failure is not None and index + 1 < len(routes)
+                    and _proxy_transport_failure(failure, proxy_url)):
+                logger.info(
+                    "guardrails: %s proxy transport failed via %s (%s); retrying via %s",
+                    url, provider, type(failure).__name__, routes[index + 1][0],
+                )
+                continue
+            if isinstance(failure, asyncio.TimeoutError):
+                logger.info("guardrails: %s timed out after %ss via %s — treated as dead",
+                            url, timeout_seconds, provider)
+                return False, 0, "timeout", url
+            if isinstance(failure, aiohttp.ClientError):
+                logger.info("guardrails: %s unreachable via %s (%s)",
+                            url, provider, type(failure).__name__)
+                return False, 0, type(failure).__name__, url
+            logger.warning("guardrails: %s unexpected %s via %s: %s",
+                           url, type(failure).__name__, provider, str(failure)[:160])
+            return False, 0, type(failure).__name__, url
+        return False, 0, "no route", url
     finally:
         if own_session:
             await sess.close()
