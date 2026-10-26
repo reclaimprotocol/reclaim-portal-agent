@@ -151,15 +151,11 @@ PORTALS_TAB_NAME="Portals" \
 .venv/bin/python scripts/run_v3_sheet.py --all --concurrency 4
 ```
 
-For large sheets, use the two-pass runner. The fast pass performs a bounded
-static-HTML crawl and medium-context web search in parallel, keeps both sources
-so a homepage portal does not hide a separate LMS or library system, and checks
-up to 24 ranked candidates. It verifies every candidate statically, renders one
-strong JavaScript candidate to look for a second portal when static discovery
-already succeeds, or up to two when static verification finds nothing. Legal-
-page work remains deferred. Three workers with a 120-second row deadline target
-roughly 10-15 organisations per 10 minutes while favouring portal coverage over
-raw speed:
+For large sheets, use the two-pass runner. Fast mode performs a bounded static
+HTML crawl and skips Chromium. OpenAI web search runs only if no portal survives
+the crawl, model, and login verification path. Legal-page work remains deferred.
+Three workers with a 120-second row deadline target roughly 10-15 organisations
+per 10 minutes while favouring portal coverage over raw speed:
 
 ```bash
 GOOGLE_SHEET_ID="<sheet-id>" \
@@ -168,12 +164,10 @@ PORTALS_TAB_NAME="Portals" \
 .venv/bin/python scripts/run_v3_sheet.py --all --fast
 ```
 
-Fast mode intentionally leaves JavaScript-only, blocked, and ambiguous rows
-unresolved when they exceed its bounded rendered fallback rather than weakening
-the login-page guard. Retry only those rows in normal mode to enable a full
-Chromium crawl, crawl recovery, targeted endpoint rescue, and legal/T&C
-enrichment. `--fast` implies `--portals-only`; it never claims that a timed-out
-row has no portal.
+Fast mode may leave JavaScript-only, blocked, and ambiguous rows unresolved.
+Retry those rows in normal mode for a full Chromium crawl, crawl recovery, and
+legal/T&C enrichment. `--fast` implies `--portals-only`; it never claims that a
+timed-out row has no portal.
 
 The output tab contains portal URLs, matching legal-page URLs, and a
 `GenieV3 status` column. The legacy `Overall T&C Verdict` column remains blank
@@ -199,7 +193,7 @@ separated by commas, semicolons, or newlines; each is searched independently
 and duplicate `Org ID + Portal URL` results are suppressed.
 
 The write-enabled OAuth token is stored at `.tokens/token-write.json`. Test ten
-rows first:
+rows first. Sheet row numbers are inclusive and row 1 is the header:
 
 ```bash
 .venv/bin/python scripts/run_v3_normalized_sheet.py \
@@ -207,19 +201,27 @@ rows first:
   --tab 'Top500First' \
   --output-tab 'Top500First Portals' \
   --blocked-tab 'Blocked Sites' \
-  --mode fast \
+  --start-row 2 \
+  --end-row 11 \
+  --mode stable-fast \
   --limit 10 \
   --concurrency 3 \
   --row-timeout-seconds 180
 ```
 
-Use `--limit 0` to process every non-empty source row. `--mode fast` is the
-balanced, bounded first pass; rerun unresolved organisations with `--mode deep`
-for full Chromium/depth recovery. The runner passes each row's country into
-discovery, so dynamic proxy routing and Bright Data → Grass transport failover
-apply to every domain. It writes only verified same-host student login
-surfaces; PDFs, literal IPs, informational login links, and non-student portals
-remain excluded.
+Use `--limit 0` to process every non-empty source row in the selected range.
+Omit `--end-row` to continue through the end of the tab. Modes:
+
+- `fast`: static crawl and lightweight login verification; skips Chromium.
+- `stable-fast`: static crawl plus a small bounded Chromium recovery pass.
+- `deep`: full rendered, multi-depth crawl and hybrid login verification.
+
+For example, process rows 25 through 40 in deep mode by setting
+`--start-row 25 --end-row 40 --mode deep --concurrency 2`. The runner passes
+each row's country into discovery, so dynamic proxy routing and Bright Data →
+Grass transport failover apply to every domain. It writes only verified student
+login surfaces; PDFs, literal IPs, informational login links, and non-student
+portals remain excluded.
 
 ---
 
@@ -228,44 +230,40 @@ remain excluded.
 | | Layer | Job | Module |
 |---|---|---|---|
 | **L1** | Model | Direct OpenAI extraction and tier fallback | `openai_cascade.py` |
-| **L2** | Discovery | Parallel crawl/search · multilingual filtering · evidence expansion · legal graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
+| **L2** | Discovery | Crawl-first discovery · conditional search rescue · multilingual filtering · legal graph association | `crawler` · `filters` · `search_fallback` · `graph_matcher` |
 | **L3** | Verification | Reachability · rendered authentication proof · student audience · canonical URL | `guardrails.py` |
 | **L4** | Production | Per-event-loop browser limits, search pacing, retries, observability | `lookup.py` · `v3_orchestrator.py` |
 | **L5** | Optimisation | Memory, caching, co-learning | `memory_cache.py` |
 
 ### Current adaptive-discovery architecture
 
-The important change is that web search is no longer only an emergency step
-after a failed homepage crawl. Crawl4AI and OpenAI hosted web search run as
-independent discovery paths, then their evidence is merged before inference.
-Neither path is trusted by itself: every proposed URL passes the same objective
-browser and audience checks before it reaches the output.
+GenieV3 crawls and verifies the university site first. It invokes OpenAI hosted
+web search only when that path produces no verified student portal. Search hits
+remain candidates: every URL passes the same model, endpoint, browser, and
+student-audience checks before it reaches the output.
 
 ```mermaid
 flowchart TD
     IN["📥 Google Sheet row or agent.lookup<br/>name · official domain · country"] --> SHIELD
     SHIELD["🛡️ Pre-crawl shield<br/>history · infrastructure blocks · vendor memory"]
 
-    SHIELD --> CRAWL["🌐 Crawl4AI + Chromium<br/>homepage · deep links · sibling hosts"]
-    SHIELD --> SEARCH["🔍 OpenAI hosted web search<br/>country/language-aware portal queries"]
-
-    SEARCH --> EVIDENCE["🔗 Follow official evidence pages<br/>bounded one-hop extraction"]
+    SHIELD --> CRAWL["🌐 Crawl-first discovery<br/>static HTTP or rendered multi-depth crawl"]
     CRAWL --> MERGE["🧩 Merge, rank, and filter candidates"]
-    EVIDENCE --> MERGE
-
     MERGE --> MODEL["🧠 Direct OpenAI cascade<br/>gpt-5.5 → gpt-4.1-mini"]
     MERGE --> DIRECT["📌 Preserve explicit official login endpoints"]
     MODEL --> PROPOSED["Candidate portal set"]
     DIRECT --> PROPOSED
-
     PROPOSED --> PREFILTER["🚫 Deterministic pre-filter<br/>documents · IPs · help/policy/course routes"]
     PREFILTER --> LIVE["📡 Endpoint reachability<br/>HEAD/GET · WAF-aware · timeout retry"]
     LIVE --> STATIC["🧾 Static HTML login and audience signals"]
     STATIC -->|ambiguous or JS-driven| RENDER["🖥️ Chromium render<br/>forms and actionable login/SSO controls"]
     STATIC --> VERIFY["🎓 Student/LMS/library audience gate"]
     RENDER --> VERIFY
-
-    VERIFY --> CANON["🧹 Canonicalise and deduplicate<br/>stable SSO URL · one entry per application"]
+    VERIFY -->|zero verified portals| SEARCH["🔍 One OpenAI web-search rescue<br/>only after crawl/model/verification finds none"]
+    SEARCH --> SFILTER["Filter and classify search candidates"]
+    SFILTER --> SPROBE["Run the same endpoint and student-login checks"]
+    SPROBE --> VERIFY
+    VERIFY -->|verified portal(s)| CANON["🧹 Canonicalise and deduplicate<br/>stable SSO URL · one entry per application"]
     CANON --> LEGAL["🕸️ Portal legal-page crawl + graph match"]
     LEGAL --> OUT["📤 Portals sheet / verified CSV"]
 
@@ -303,11 +301,13 @@ When no keyword matches, a structural heuristic ranks plausible institutional
 hosts and entry points rather than returning an empty set.
 
 **Search** (`search_fallback.py`) uses OpenAI's hosted **web_search** tool
-with an OpenAI model. For single-domain V3 lookup, primary Crawl4AI discovery
-and web search run concurrently. Search results that point at an official
-university evidence page receive a bounded one-hop crawl so the actual login
-target can be recovered. In batch orchestration, search also supports rescue
-and category expansion for missing ERP, LMS, and fee-payment capabilities.
+with an OpenAI model. Discovery crawls and verifies site candidates first;
+web search runs only when no student portal survives those checks. Each row
+gets at most one rescue search. Search results are untrusted candidates and
+pass through the same filtering, model classification, reachability, rendered
+login, and student-audience checks as crawled URLs. Optional capability
+expansion searches for missing ERP, LMS, and fee-payment systems, but is
+disabled by default (`GENIE_CAPABILITY_EXPANSION=0`).
 
 Queries are **OR-grouped**, not space-separated, so the search request describes
 alternatives rather than requiring every platform term on one result. Search
@@ -435,13 +435,13 @@ well as a wide IPv4 range.
 |---|---|
 | `OPENAI_API_KEY` | required for direct V3 inference and hosted web search |
 | `GENIE_OPENAI_SEARCH_MODEL` | optional OpenAI web-search model override; default `gpt-5.5` |
-| `GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS` | hosted web-search timeout, default 90s |
+| `GENIE_OPENAI_SEARCH_TIMEOUT_SECONDS` | hosted web-search timeout, default 90s (60s for fast profiles) |
 | `GENIE_MODEL_TIERS` | override the cascade (comma-separated) |
 | `GENIE_BROWSER_CONCURRENCY` | browser semaphore, default 6 |
 | `GENIE_LOOKUP_BROWSER_CONCURRENCY` | concurrent primary Crawl4AI sessions in `agent.lookup`, default 1 |
 | `GENIE_VERIFY_BROWSER_CONCURRENCY` | concurrent rendered login verifications, default 2 |
 | `GENIE_SEARCH_CONCURRENCY` | global search turnstile, default 3 — quota is per account, not per code path |
-| `GENIE_CAPABILITY_EXPANSION` | `0` disables opportunistic expansion, default on |
+| `GENIE_CAPABILITY_EXPANSION` | `1` opts into extra searches for missing portal categories; default `0` |
 | `GENIE_GUARDRAIL_TIMEOUT` / `_RETRY` | liveness budgets, default 5s / 20s |
 | `GENIE_MAX_CANDIDATES` | filter cap, default 40 |
 | `USE_PROXY`, `RESIDENTIAL_PROXY_*` | residential proxy credentials |

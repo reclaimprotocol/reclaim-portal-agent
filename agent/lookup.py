@@ -49,8 +49,7 @@ except Exception:  # noqa: BLE001
     pass
 
 from agent.crawler import (extract_static_university_links,     # noqa: E402
-                           extract_targeted_university_links,
-                           extract_links_from_evidence_pages)
+                           extract_targeted_university_links)
 from agent.filters import LocalKnowledgeMatrixFilter            # noqa: E402
 from agent.graph_matcher import (GraphComplianceMatcher,           # noqa: E402
                                  DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK,
@@ -75,7 +74,7 @@ logger = logging.getLogger("genie.lookup")
 # Successful fast-pass results are immutable JSON-shaped dictionaries. Reusing
 # them avoids repeating browser/search/model work when duplicate domains occur
 # in a sheet. Deep mode deliberately remains uncached for diagnosis/retries.
-_FAST_RESULT_CACHE: dict[tuple[str, str, bool], dict[str, Any]] = {}
+_FAST_RESULT_CACHE: dict[tuple[str, str, bool, bool], dict[str, Any]] = {}
 
 # Fast mode is a balanced first pass, not a race to mark rows complete.  These
 # limits keep worst-case throughput near 10-15 organisations per 10 minutes
@@ -84,7 +83,7 @@ _FAST_RESULT_CACHE: dict[tuple[str, str, bool], dict[str, Any]] = {}
 FAST_STATIC_TIMEOUT_S = max(
     4, int(os.getenv("GENIE_FAST_STATIC_TIMEOUT_SECONDS", "8")))
 FAST_SEARCH_TIMEOUT_S = max(
-    20, int(os.getenv("GENIE_FAST_SEARCH_TIMEOUT_SECONDS", "75")))
+    20, int(os.getenv("GENIE_FAST_SEARCH_TIMEOUT_SECONDS", "60")))
 FAST_CANDIDATE_CAP = max(8, int(os.getenv("GENIE_FAST_CANDIDATE_CAP", "24")))
 FAST_RENDER_LIMIT = max(0, int(os.getenv("GENIE_FAST_RENDER_LIMIT", "2")))
 FAST_RENDER_TIMEOUT_S = max(
@@ -253,6 +252,7 @@ async def find_portals(
     page_timeout_ms: int = 30_000,
     use_search_fallback: bool = True,
     fast_mode: bool = False,
+    stable_fast: bool = False,
     _targeted_endpoint_rescue: bool = False,
 ) -> dict[str, Any]:
     """Discover portals for one university domain.
@@ -267,10 +267,10 @@ async def find_portals(
             graph matching. Roughly halves the runtime.
         use_search_fallback: fall back to web search when the crawl finds
             nothing.
-        fast_mode: bounded first pass for large batches. It uses static HTTP
-            discovery, skips browser retry chains/evidence-page crawling, caps
-            candidates and network time, and defers JavaScript-only ambiguity
-            to normal mode.
+        fast_mode: bounded first pass using static HTTP discovery and short
+            verification budgets instead of the full-depth browser crawl.
+        stable_fast: in fast mode, permit a small, bounded set of Chromium
+            recoveries for JavaScript-only student login pages.
 
     Returns a dict with `domain`, `portals` (each with `tnc_url` unless
     `portals_only`), and a `stats` block explaining what happened.
@@ -288,7 +288,7 @@ async def find_portals(
         crawl_target = _crawl_target(domain)
         page_timeout_ms = min(page_timeout_ms, 10_000)
 
-    cache_key = (domain.lower(), country.lower(), portals_only)
+    cache_key = (domain.lower(), country.lower(), portals_only, stable_fast)
     if fast_mode and cache_key in _FAST_RESULT_CACHE:
         cached = copy.deepcopy(_FAST_RESULT_CACHE[cache_key])
         cached["name"] = name or cached.get("name") or domain
@@ -310,8 +310,10 @@ async def find_portals(
                              "rejected_non_login_pages": 0,
                              "rejected_non_student_portals": 0,
                              "rejected_external_redirects": 0}
+    stats["discovery_mode"] = (
+        "deep" if not fast_mode else "stable-fast" if stable_fast else "fast")
 
-    # 1. crawl / targeted search ----------------------------------------
+    # 1. crawl first / explicit search rescue ----------------------------
     if _targeted_endpoint_rescue:
         stats["search_reason"] = "all initial portal candidates failed verification"
         hits = await execute_search_fallback(
@@ -325,69 +327,24 @@ async def find_portals(
         if not candidates and hits:
             candidates = hits
     else:
-        async def _crawl() -> list[dict[str, str]]:
-            if fast_mode:
-                # Starting many Chromium processes was the largest measured
-                # batch bottleneck. JavaScript-only sites are deliberately
-                # handled by a bounded verification fallback below while search
-                # runs beside this HTTP GET.
-                return await extract_static_university_links(
-                    crawl_target, timeout_seconds=FAST_STATIC_TIMEOUT_S,
-                    country_hint=country)
-            async with _get_browser_sem():
-                return await extract_targeted_university_links(
-                    crawl_target, page_timeout_ms=page_timeout_ms,
-                    country_hint=country,
-                    max_depth_pages=0 if fast_mode else 6,
-                    retry_failures=not fast_mode)
-
-        # Crawl4AI and OpenAI search are independent evidence sources. Running
-        # them together prevents a slow/dead homepage from serially delaying
-        # the rescue path and makes vendor-hosted SSO discoverable even when it
-        # is not linked from the public homepage.
-        crawl_task = asyncio.create_task(_crawl())
-        # Ask for direct authentication endpoints from the start.  The broad
-        # query often spent its six-result budget on rankings and IT guides;
-        # the endpoint query is both more deterministic and better at finding
-        # multiple systems (SIS + LMS + library) for one university.
-        search_task = (asyncio.create_task(execute_search_fallback(
-            row.name, domain,
-            query=build_login_endpoint_query(row.name, domain, country),
-            max_results=8, country=country,
-            timeout_seconds=FAST_SEARCH_TIMEOUT_S if fast_mode else 90,
-            search_context_size="medium",
-        )) if use_search_fallback else None)
-        if search_task is not None:
-            if fast_mode:
-                # Keep both independent sources. Cancelling search after the
-                # first homepage login improved latency but routinely missed a
-                # separate LMS, library, or vendor-hosted student system.
-                links, hits = await asyncio.gather(crawl_task, search_task)
-            else:
-                links, hits = await asyncio.gather(crawl_task, search_task)
-            stats["used_search"] = True
-            stats["search_reason"] = "parallel independent discovery"
-            # Search commonly returns an official IT guide rather than the
-            # portal linked by that guide. Follow only a few university-owned
-            # evidence pages and merge the destinations as candidates.
-            official_evidence_pages = [
-                str(hit.get("url") or "") for hit in hits
-                if _is_university_host(str(hit.get("url") or ""), domain)
-            ]
-            if official_evidence_pages and not fast_mode:
-                evidence_links = await extract_links_from_evidence_pages(
-                    official_evidence_pages, country_hint=country)
-                hits = list(hits) + evidence_links
+        if fast_mode:
+            # Both fast profiles start with static HTTP. stable-fast adds
+            # bounded rendered recovery below; fast skips Chromium entirely.
+            links = await extract_static_university_links(
+                crawl_target, timeout_seconds=FAST_STATIC_TIMEOUT_S,
+                country_hint=country)
         else:
-            links, hits = await crawl_task, []
+            async with _get_browser_sem():
+                links = await extract_targeted_university_links(
+                    crawl_target, page_timeout_ms=page_timeout_ms,
+                    country_hint=country, max_depth_pages=6,
+                    retry_failures=True)
         stats["crawled_links"] = len(links or [])
         crawl_candidates = lkm.filter_and_rank_links(
             links, country=country) if links else []
-        search_candidates = lkm.filter_and_rank_links(
-            hits, country=country) if hits else []
         candidates = []
         seen_candidates: set[str] = set()
-        for candidate in crawl_candidates + search_candidates:
+        for candidate in crawl_candidates:
             key = str(candidate.get("url") or "").rstrip("/").lower()
             if key and key not in seen_candidates:
                 seen_candidates.add(key)
@@ -404,7 +361,10 @@ async def find_portals(
         stats["search_reason"] = "crawl yielded no usable portal candidates"
         logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
                     domain, stats["search_reason"])
-        hits = await execute_search_fallback(row.name, domain, country=country)
+        hits = await execute_search_fallback(
+            row.name, domain, country=country,
+            timeout_seconds=FAST_SEARCH_TIMEOUT_S if fast_mode else 90,
+        )
         stats["used_search"] = True
         if hits:
             candidates = lkm.filter_and_rank_links(hits, country=country) or hits
@@ -416,19 +376,23 @@ async def find_portals(
     # 3. extract ---------------------------------------------------------
     result: IntegratedDiscoveryOutput = await asyncio.to_thread(
         execute_model_cascade, "lookup", row.name, domain, candidates, country=country)
-    # A homepage can contain links but none that identify a student portal.
-    # Give web search one independent chance in this case too.  Search results
-    # are still only candidates: they go through the same classifier and the
-    # strict endpoint/login-surface checks below.
-    if (not result.discovered_portals and use_search_fallback
-            and not stats["used_search"]):
+    # Search only after the crawl candidates failed to identify a portal.
+    # Search results still pass through the same classifier and strict checks.
+    if (not result.discovered_portals
+            and not _direct_login_candidates(candidates, domain)
+            and use_search_fallback and not stats["used_search"]):
         stats["search_reason"] = "website candidates identified no portal"
         logger.info("lookup: %s — %s; invoking OpenAI web-search rescue",
                     domain, stats["search_reason"])
-        hits = await execute_search_fallback(row.name, domain, country=country)
+        hits = await execute_search_fallback(
+            row.name, domain, country=country,
+            timeout_seconds=FAST_SEARCH_TIMEOUT_S if fast_mode else 90,
+        )
         stats["used_search"] = True
         if hits:
             search_candidates = lkm.filter_and_rank_links(hits, country=country) or hits
+            if fast_mode:
+                search_candidates = search_candidates[:FAST_CANDIDATE_CAP]
             stats["candidates"] += len(search_candidates)
             candidates += search_candidates
             result = await asyncio.to_thread(
@@ -461,6 +425,16 @@ async def find_portals(
             stats["rejected_non_web_urls"] += 1
             logger.info("lookup: %s — dropped %s (%s)",
                         domain, portal.exact_url, reason)
+    if (not allowed_portals and use_search_fallback and not stats["used_search"]
+            and not _targeted_endpoint_rescue):
+        logger.info("lookup: %s — all model candidates failed URL policy; "
+                    "invoking targeted login endpoint rescue", domain)
+        return await find_portals(
+            domain, name=name, country=country, portals_only=portals_only,
+            page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
+            fast_mode=fast_mode, stable_fast=stable_fast,
+            _targeted_endpoint_rescue=True,
+        )
     if not allowed_portals:
         return {"domain": domain, "name": result.university_name, "portals": [],
                 "stats": stats, "error": "no web portal candidates"}
@@ -498,15 +472,14 @@ async def find_portals(
     # Accept a real credential form OR an actionable rendered Login/SSO control.
     # URL vocabulary is not an acceptance/rejection rule here.
     if fast_mode:
-        # Verify everything cheaply first. Render one additional strong
-        # login/LMS/SSO candidate after a static success, or up to two when all
-        # static checks fail. This recovers modern JavaScript portals without
-        # turning the first pass into a deep crawl.
+        # Fast mode skips Chromium; stable-fast renders a bounded subset to
+        # recover JavaScript-only login forms without a full deep crawl.
         auth_checks = list(await asyncio.gather(*(
             verify_student_login_surface(
                 p.exact_url, timeout_seconds=4, country_hint=country)
             for p, _ in eligible)))
-        render_indexes = _balanced_render_indexes(eligible, auth_checks)
+        render_indexes = (_balanced_render_indexes(eligible, auth_checks)
+                          if stable_fast else [])
         if render_indexes:
             rendered = await asyncio.gather(*(
                 verify_student_login_surface_rendered(
@@ -570,14 +543,14 @@ async def find_portals(
     # dead, external-IdP-only, not a login form, or not student-facing.  Make
     # one independent, subdomain-aware search attempt rather than calling a
     # generic web search for every successful university.
-    if (not live and use_search_fallback and not _targeted_endpoint_rescue
-            and not fast_mode):
+    if (not live and use_search_fallback and not stats["used_search"]
+            and not _targeted_endpoint_rescue):
         logger.info("lookup: %s — all candidates failed verification; "
                     "invoking targeted login endpoint rescue", domain)
         return await find_portals(
             domain, name=name, country=country, portals_only=portals_only,
             page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
-            fast_mode=fast_mode,
+            fast_mode=fast_mode, stable_fast=stable_fast,
             _targeted_endpoint_rescue=True,
         )
 

@@ -467,7 +467,7 @@ MANDATORY_CAPABILITIES: dict[str, str] = {
 
 #: Opportunistic expansion costs one search per missing capability on rows that
 #: already succeeded. Off-switch kept for A/B and for constrained reruns.
-CAPABILITY_EXPANSION = os.getenv("GENIE_CAPABILITY_EXPANSION", "1").strip().lower() \
+CAPABILITY_EXPANSION = os.getenv("GENIE_CAPABILITY_EXPANSION", "0").strip().lower() \
     in ("1", "true", "yes", "on")
 
 #: OpenAI web search is metered and bursts can draw rate-limit responses.
@@ -813,6 +813,17 @@ async def process_university(
                 logger.warning("[API CASCADE ESCALATION] org %s — tier 1 dropped it; "
                                "answered by tier %s (%s)", row.org_id,
                                trace.get("tier"), trace.get("model"))
+            if not result.discovered_portals and not used_search:
+                logger.info("[FALLBACK TRIGGER] org %s — model found no portals, "
+                            "entering OpenAI web-search rescue", row.org_id)
+                rescue_candidates = await search_rescue(row, lkm)
+                if rescue_candidates:
+                    used_search = True
+                    result, trace = await cascade_with_pacing(row, rescue_candidates)
+                    if trace.get("escalated"):
+                        logger.warning("[API CASCADE ESCALATION] org %s — search rescue "
+                                       "answered by tier %s (%s)", row.org_id,
+                                       trace.get("tier"), trace.get("model"))
             if not result.discovered_portals:
                 return RowOutcome(row.org_id, False,
                                   seconds=round(time.monotonic() - t0, 1),
@@ -878,22 +889,23 @@ async def process_university(
                                    row.org_id, p.exact_url, code, note)
 
             if not live_portals:
-                logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
-                               "verification, routing to OpenAI web-search rescue",
-                               row.org_id, dead)
-                hits = await search_rescue(row, lkm)
-                if hits:
-                    used_search = True
-                    result, _t2 = await cascade_with_pacing(row, hits)
-                    checks = await asyncio.gather(*(
-                        verify_portal_endpoint_final(
-                            p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
-                            retry_timeout_seconds=GUARDRAIL_RETRY_S)
-                        for p in result.discovered_portals))
-                    reachable = [(p, c) for p, c in
-                                 zip(result.discovered_portals, checks) if c[0]]
-                    live_portals, dropped2 = _apply_transport_policy(row.org_id, reachable)
-                    insecure_dropped += dropped2
+                if not used_search:
+                    logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
+                                   "verification, routing to OpenAI web-search rescue",
+                                   row.org_id, dead)
+                    hits = await search_rescue(row, lkm)
+                    if hits:
+                        used_search = True
+                        result, _t2 = await cascade_with_pacing(row, hits)
+                        checks = await asyncio.gather(*(
+                            verify_portal_endpoint_final(
+                                p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
+                                retry_timeout_seconds=GUARDRAIL_RETRY_S)
+                            for p in result.discovered_portals))
+                        reachable = [(p, c) for p, c in
+                                     zip(result.discovered_portals, checks) if c[0]]
+                        live_portals, dropped2 = _apply_transport_policy(row.org_id, reachable)
+                        insecure_dropped += dropped2
                 if not live_portals:
                     note = (f"all portals dead ({dead})" if not insecure_dropped
                             else f"all portals dead ({dead}) / "

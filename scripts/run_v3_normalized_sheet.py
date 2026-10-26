@@ -232,9 +232,15 @@ async def run(args: argparse.Namespace) -> None:
         "country": find_header("Country"),
         "website": find_header("Website", "Domain", "Email Domains", "SheerID Website Domain"),
     }
+    if args.start_row < 2:
+        raise ValueError("--start-row must be 2 or greater (row 1 contains headers)")
+    if args.end_row is not None and args.end_row < args.start_row:
+        raise ValueError("--end-row must be greater than or equal to --start-row")
     source_rows = [
         (number, row) for number, row in enumerate(source[1:], start=2)
-        if any(str(value).strip() for value in row)
+        if number >= args.start_row
+        and (args.end_row is None or number <= args.end_row)
+        and any(str(value).strip() for value in row)
     ]
     pending = source_rows if args.limit <= 0 else source_rows[: args.limit]
 
@@ -283,7 +289,9 @@ async def run(args: argparse.Namespace) -> None:
                     result = await asyncio.wait_for(
                         find_portals(
                             website, name=name, country=country,
-                            portals_only=False, fast_mode=(args.mode == "fast"),
+                            portals_only=False,
+                            fast_mode=args.mode in ("fast", "stable-fast"),
+                            stable_fast=(args.mode == "stable-fast"),
                         ),
                         timeout=args.row_timeout_seconds,
                     )
@@ -392,13 +400,17 @@ def main() -> None:
     parser.add_argument("--blocked-tab", default="Blocked Sites")
     parser.add_argument(
         "--limit", type=int, default=10,
-        help="maximum source rows to process; use 0 for every row (default: 10)",
+        help="maximum rows to process within the selected range; 0 means all",
     )
+    parser.add_argument("--start-row", type=int, default=2,
+                        help="first source sheet row to include (inclusive; default: 2)")
+    parser.add_argument("--end-row", type=int, default=None,
+                        help="last source sheet row to include (inclusive)")
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--row-timeout-seconds", type=int, default=180)
     parser.add_argument(
-        "--mode", choices=("fast", "deep"), default="fast",
-        help="balanced fast pass or full deep discovery (default: fast)",
+        "--mode", choices=("fast", "stable-fast", "deep"), default="stable-fast",
+        help="fast skips Chromium; stable-fast adds bounded browser recovery; deep uses full crawl",
     )
     parser.add_argument("--agent-root", type=Path, default=DEFAULT_AGENT_ROOT)
     parser.add_argument("--log", type=Path, default=Path("/private/tmp/geniev3-normalized.log"))
