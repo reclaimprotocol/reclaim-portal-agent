@@ -158,6 +158,14 @@ def _challenge_kind(reason: str) -> str:
     return "anti_bot"
 
 
+def _safe_error_detail(value: str) -> str:
+    """Keep credential-shaped strings out of the shared error ledger."""
+    return re.sub(
+        r"(?i)(sk-[A-Za-z0-9_-]{20,}|(?:api[_-]?key|token|authorization)\s*[:=]\s*\S+)",
+        "[REDACTED]", str(value).strip(),
+    )
+
+
 def _blocked_from_log(
     log_path: Path,
     organisations: list[dict[str, Any]],
@@ -218,6 +226,57 @@ def _blocked_from_log(
     return output
 
 
+def _errors_from_log(
+    log_path: Path,
+    organisations: list[dict[str, Any]],
+    existing: set[tuple[str, ...]],
+    source_tab: str,
+) -> list[list[str]]:
+    """Recover per-domain crawl failures into the Blocked Sites ledger.
+
+    These are labelled ``crawl_error`` rather than as confirmed blocks, so
+    timeouts and transport failures remain distinguishable from WAF challenges.
+    """
+    if not log_path.exists():
+        return []
+    by_id = {org["org_id"].casefold(): org for org in organisations}
+    output: list[list[str]] = []
+    for line in log_path.read_text(errors="replace").splitlines():
+        marker = "RESULT "
+        if marker not in line:
+            continue
+        try:
+            result = json.loads(line.split(marker, 1)[1])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        org = by_id.get(str(result.get("org_id") or "").casefold())
+        if not org:
+            continue
+        for error in result.get("errors") or []:
+            detail = _safe_error_detail(error)
+            if not detail or "no portals identified" in detail.casefold():
+                continue
+            website = next((site for site in org["websites"]
+                            if detail.casefold().startswith(site.casefold() + ": ")), "")
+            if not website:
+                website = org["websites"][0] if org["websites"] else ""
+            if not website:
+                continue
+            key = (
+                org["org_id"].casefold(), "", website.casefold(), "crawl_error",
+            )
+            if key in existing:
+                continue
+            existing.add(key)
+            output.append([
+                org["org_id"], org["name"], org["country"], website,
+                "", "", "crawl_error", detail, website, "", source_tab,
+                str(result.get("row") or org["source_row"]),
+                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            ])
+    return output
+
+
 async def run(args: argparse.Namespace) -> None:
     find_portals, load_blocks, registrable_root = _load_agent(args.agent_root)
     service = _service()
@@ -252,6 +311,14 @@ async def run(args: argparse.Namespace) -> None:
         and (args.end_row is None or number <= args.end_row)
         and any(str(value).strip() for value in row)
     ]
+    if args.org_ids:
+        selected_ids = {item.strip().casefold() for item in args.org_ids.split(",") if item.strip()}
+        if not selected_ids:
+            raise ValueError("--org-ids must contain at least one non-empty Org ID")
+        source_rows = [
+            (number, row) for number, row in source_rows
+            if _cell(row, indexes["org_id"]).casefold() in selected_ids
+        ]
     pending = source_rows if args.limit <= 0 else source_rows[: args.limit]
 
     organisations = [{
@@ -272,12 +339,24 @@ async def run(args: argparse.Namespace) -> None:
         str(row[0]).strip().casefold() for row in existing_portal_rows[1:]
         if row and len(row) > 12 and row[12].strip() == "No portal found"
     }
+    no_portal_row_numbers = {
+        str(row[0]).strip().casefold(): row_number
+        for row_number, row in enumerate(existing_portal_rows[1:], start=2)
+        # A stale status is not enough to make a row replaceable: users may
+        # have manually filled its Portal URL while leaving the old status.
+        # Only reuse a negative-result row when its portal cell is still blank.
+        if (row and len(row) > 12 and row[12].strip() == "No portal found"
+                and not _cell(row, 4))
+    }
     block_existing = _existing_keys(
         _read(service, args.sheet_id, args.blocked_tab), (0, 4, 8, 6))
 
     if args.sync_log_only:
         recovered = _blocked_from_log(
             args.log, organisations, block_existing, args.tab, registrable_root)
+        recovered_errors = _errors_from_log(
+            args.log, organisations, block_existing, args.tab)
+        recovered.extend(recovered_errors)
         if recovered:
             service.spreadsheets().values().append(
                 spreadsheetId=args.sheet_id,
@@ -285,9 +364,11 @@ async def run(args: argparse.Namespace) -> None:
                 valueInputOption="RAW", insertDataOption="INSERT_ROWS",
                 body={"values": recovered},
             ).execute()
-        logging.info("SYNC BLOCKS rows=%d", len(recovered))
+        logging.info("SYNC BLOCKS rows=%d error_rows=%d",
+                     len(recovered) - len(recovered_errors), len(recovered_errors))
         return
     portal_rows: list[list[str]] = []
+    portal_updates: list[tuple[int, list[str]]] = []
     block_rows: list[list[str]] = []
     result_lock = asyncio.Lock()
     semaphore = asyncio.Semaphore(max(1, args.concurrency))
@@ -300,6 +381,21 @@ async def run(args: argparse.Namespace) -> None:
         nonlocal total_portal_rows, total_block_rows
         portal_count = 0
         block_count = 0
+        if portal_updates:
+            updates = list(portal_updates)
+            service.spreadsheets().values().batchUpdate(
+                spreadsheetId=args.sheet_id,
+                body={
+                    "valueInputOption": "RAW",
+                    "data": [{
+                        "range": f"'{_escaped(output_tab)}'!A{row_number}:N{row_number}",
+                        "values": [row],
+                    } for row_number, row in updates],
+                },
+            ).execute()
+            portal_count += len(updates)
+            total_portal_rows += len(updates)
+            del portal_updates[:len(updates)]
         if portal_rows:
             batch = list(portal_rows)
             service.spreadsheets().values().append(
@@ -416,7 +512,32 @@ async def run(args: argparse.Namespace) -> None:
                 str(entry.get("last_seen") or checked),
             ])
 
+        # Record per-domain crawl/transport failures in the same 10-org
+        # checkpoint as verified anti-bot blocks. A negative discovery result
+        # is not itself an error and stays in the portal output tab only.
+        for error in errors:
+            detail = _safe_error_detail(error)
+            if not detail or "no portals identified" in detail.casefold():
+                continue
+            website = next((site for site in websites
+                            if detail.casefold().startswith(site.casefold() + ": ")), "")
+            if not website:
+                continue
+            key = (org_id.casefold(), "", website.casefold(), "crawl_error")
+            if key in block_existing:
+                continue
+            block_existing.add(key)
+            new_block_rows.append([
+                org_id, name, country, website, "", "", "crawl_error", detail,
+                website, "", args.tab, str(source_row), checked,
+            ])
+
         async with result_lock:
+            stale_row = no_portal_row_numbers.get(org_id.casefold())
+            if new_portal_rows and stale_row is not None:
+                portal_updates.append((stale_row, new_portal_rows.pop(0)))
+                no_portal_row_numbers.pop(org_id.casefold(), None)
+                existing_no_portal_org_ids.discard(org_id.casefold())
             portal_rows.extend(new_portal_rows)
             portal_rows.extend(no_portal_row)
             block_rows.extend(new_block_rows)
@@ -429,7 +550,7 @@ async def run(args: argparse.Namespace) -> None:
                 )
         summary = {
             "row": source_row, "org_id": org_id, "name": name,
-            "portals": len(new_portal_rows),
+            "portals": len(seen_urls),
             "no_portal_row": bool(no_portal_row), "blocked": len(new_block_rows),
             "errors": errors,
         }
@@ -450,6 +571,9 @@ async def run(args: argparse.Namespace) -> None:
     )
     recovered = _blocked_from_log(
         args.log, organisations, block_existing, args.tab, registrable_root)
+    recovered_errors = _errors_from_log(
+        args.log, organisations, block_existing, args.tab)
+    recovered.extend(recovered_errors)
     if recovered:
         service.spreadsheets().values().append(
             spreadsheetId=args.sheet_id, range=f"'{_escaped(args.blocked_tab)}'!A:M",
@@ -457,6 +581,7 @@ async def run(args: argparse.Namespace) -> None:
             body={"values": recovered},
         ).execute()
         block_rows.extend(recovered)
+        total_block_rows += len(recovered)
     logging.info(
         "DONE orgs=%d portal_rows=%d blocked_rows=%d orgs_with_errors=%d",
         len(results), total_portal_rows, total_block_rows,
@@ -478,6 +603,10 @@ def main() -> None:
                         help="first source sheet row to include (inclusive; default: 2)")
     parser.add_argument("--end-row", type=int, default=None,
                         help="last source sheet row to include (inclusive)")
+    parser.add_argument(
+        "--org-ids", default="",
+        help="optional comma-separated Org IDs to select within the source row range",
+    )
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--row-timeout-seconds", type=int, default=180)
     parser.add_argument(
