@@ -118,20 +118,20 @@
   "platform_name": "",
   "tnc_url": "https://www.instructure.com/policies/terms-of-use",
   "privacy_policy_url": "https://www.instructure.com/policies/privacy",
-  "hit_counter": 2,
+  "hit_counter": 14,
   "first_seen": "2026-08-31T05:32:55+00:00",
   "last_updated": "2026-08-31T05:32:55+00:00",
-  "last_hit_at": "2026-08-31T06:38:13+00:00"
+  "last_hit_at": "2026-10-30T08:21:46+00:00"
  },
  "nmims.edu": {
   "domain_signature": "nmims.edu",
   "platform_name": "NMIMS Online Fee Payment",
   "tnc_url": "https://nmims.edu/privacy-policy.php",
   "privacy_policy_url": "https://nmims.edu/privacy-policy.php",
-  "hit_counter": 2,
+  "hit_counter": 8,
   "first_seen": "2026-08-31T05:32:58+00:00",
   "last_updated": "2026-09-01T10:12:59+00:00",
-  "last_hit_at": "2026-09-01T10:12:59+00:00"
+  "last_hit_at": "2026-10-30T08:19:42+00:00"
  },
  "buet.ac.bd": {
   "domain_signature": "buet.ac.bd",
@@ -166,9 +166,10 @@
   "platform_name": "Portal Uninter",
   "tnc_url": "https://www.uninter.com/solicitacao-dos-titulares-de-dados-lgpd/",
   "privacy_policy_url": "https://www.uninter.com/politica-de-privacidade/",
-  "hit_counter": 1,
+  "hit_counter": 3,
   "first_seen": "2026-08-31T05:37:06+00:00",
-  "last_updated": "2026-08-31T06:41:18+00:00"
+  "last_updated": "2026-08-31T06:41:18+00:00",
+  "last_hit_at": "2026-10-29T13:32:21+00:00"
  },
  "brainwareuniversity.ac.in": {
   "domain_signature": "brainwareuniversity.ac.in",
@@ -380,9 +381,10 @@
   "platform_name": "Webmail",
   "tnc_url": "https://sites.usp.br/lgpd/",
   "privacy_policy_url": null,
-  "hit_counter": 1,
+  "hit_counter": 20,
   "first_seen": "2026-08-31T06:46:05+00:00",
-  "last_updated": "2026-08-31T06:46:05+00:00"
+  "last_updated": "2026-08-31T06:46:05+00:00",
+  "last_hit_at": "2026-10-27T09:20:57+00:00"
  },
  "djsce.ac.in": {
   "domain_signature": "djsce.ac.in",
@@ -458,10 +460,10 @@
   "platform_name": "Current Students",
   "tnc_url": "https://manipal.edu/mu/about-us/disclaimer.html",
   "privacy_policy_url": null,
-  "hit_counter": 2,
+  "hit_counter": 12,
   "first_seen": "2026-08-31T07:13:29+00:00",
   "last_updated": "2026-08-31T07:54:35+00:00",
-  "last_hit_at": "2026-08-31T07:54:35+00:00"
+  "last_hit_at": "2026-10-27T09:14:43+00:00"
  },
  "itc-ac.edu.mx": {
   "domain_signature": "itc-ac.edu.mx",
@@ -836,10 +838,10 @@
   "platform_name": "Moodle",
   "tnc_url": "https://ead.cpv.ifsp.edu.br/admin/tool/dataprivacy/summary.php",
   "privacy_policy_url": null,
-  "hit_counter": 9,
+  "hit_counter": 13,
   "first_seen": "2026-08-31T07:46:12+00:00",
   "last_updated": "2026-08-31T07:46:12+00:00",
-  "last_hit_at": "2026-09-01T11:05:11+00:00"
+  "last_hit_at": "2026-10-26T14:36:27+00:00"
  },
  "unifacc.com.br": {
   "domain_signature": "unifacc.com.br",
