@@ -85,7 +85,9 @@ def _browser_config(proxy_config: dict[str, str] | None = None, **overrides: Any
         headless=True,
         text_mode=True,        # <- images/heavy assets not downloaded
         light_mode=True,       # disables background features we don't use
-        ignore_https_errors=True,   # university TLS is frequently misconfigured
+        # Keep discovery consistent with the final TLS-verifying portal
+        # guardrail: invalid/expired certificates must not be accepted.
+        ignore_https_errors=False,
         enable_stealth=True,   # mask webdriver/navigator automation fingerprints
         avoid_ads=True,        # skip ad frames/overlays that hide real nav links
         verbose=False,
@@ -428,7 +430,6 @@ async def extract_static_university_links(
                             allow_redirects=True,
                             headers={"User-Agent": STATIC_USER_AGENT},
                             proxy=proxy_url,
-                            ssl=False,
                         ) as response:
                             if not 200 <= response.status < 400:
                                 break

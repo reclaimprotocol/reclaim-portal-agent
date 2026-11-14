@@ -138,11 +138,10 @@ def _get_render_sem() -> asyncio.Semaphore:
         _render_sems[loop] = semaphore
     return semaphore
 
-#: aiohttp validates certificates by default; university TLS often fails that
-#: check while the site itself is fine. We are testing reachability, not trust.
-_INSECURE_SSL = ssl.create_default_context()
-_INSECURE_SSL.check_hostname = False
-_INSECURE_SSL.verify_mode = ssl.CERT_NONE
+#: Use the platform trust store and hostname validation for every URL probe.
+#: A portal with an expired, mismatched, or otherwise untrusted certificate
+#: must not pass verification and be written as a usable portal.
+_SSL_CONTEXT = ssl.create_default_context()
 
 
 def _as_url(url_path: str) -> str:
@@ -553,7 +552,7 @@ async def verify_student_login_surface(
         for index, (provider, proxy_url) in enumerate(routes):
             try:
                 async with sess.get(url, allow_redirects=True, headers=headers,
-                                    proxy=proxy_url, ssl=_INSECURE_SSL) as resp:
+                                    proxy=proxy_url, ssl=_SSL_CONTEXT) as resp:
                     final_url = str(resp.url)
                     final_allowed, final_reason = portal_url_allowed(final_url)
                     if not final_allowed:
@@ -699,7 +698,7 @@ async def verify_portal_endpoint_final(
         try:
             async with sess.head(url, allow_redirects=True, timeout=budget,
                                  headers=headers, proxy=proxy_url,
-                                 ssl=_INSECURE_SSL) as resp:
+                                 ssl=_SSL_CONTEXT) as resp:
                 status, landed = resp.status, str(resp.url)
             if status != METHOD_NOT_ALLOWED:
                 alive = _classify(status)
@@ -717,7 +716,7 @@ async def verify_portal_endpoint_final(
         # 2) GET — 405, or a HEAD the server mishandled.
         async with sess.get(url, allow_redirects=True, timeout=budget,
                             headers=headers, proxy=proxy_url,
-                            ssl=_INSECURE_SSL) as resp:
+                            ssl=_SSL_CONTEXT) as resp:
             status, landed = resp.status, str(resp.url)
             await resp.release()
         alive = _classify(status)
@@ -834,7 +833,7 @@ async def verify_many(
     """Verify a batch through ONE session, bounded by `concurrency`."""
     sem = asyncio.Semaphore(max(1, concurrency))
     results: dict[str, bool] = {}
-    connector = aiohttp.TCPConnector(limit=max(1, concurrency), ssl=_INSECURE_SSL)
+    connector = aiohttp.TCPConnector(limit=max(1, concurrency), ssl=_SSL_CONTEXT)
     async with aiohttp.ClientSession(connector=connector) as sess:
         async def one(u: str) -> None:
             async with sem:

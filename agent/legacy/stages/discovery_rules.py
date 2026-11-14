@@ -32,13 +32,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import ssl
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
 
 import requests
-import urllib3
 from bs4 import BeautifulSoup
 
 from agent.config import (
@@ -83,40 +81,13 @@ from agent.config import (
 )
 from agent import regions
 from requests.adapters import HTTPAdapter
-from urllib3.util.ssl_ import create_urllib3_context
 
 logger = logging.getLogger(__name__)
 
 
-# --- HTTP session with tolerant SSL --------------------------------------
-#
-# Many Indian government / state university servers (e.g.
-# sppuapp.digitaluniversity.ac) combine two TLS legacy behaviours that
-# modern Python rejects by default:
-#
-# 1. **Unsafe legacy renegotiation** — Python 3.14 raises
-#    SSLError(UNSAFE_LEGACY_RENEGOTIATION_DISABLED). Fixed by opting in to
-#    `OP_LEGACY_SERVER_CONNECT` on the TLS context.
-# 2. **Self-signed / untrusted CA chains** — raises
-#    SSLCertVerificationError. We set `verify=False` on the session.
-#
-# Trade-offs: the session is intentionally more permissive than stdlib
-# defaults. Acceptable because this agent only performs unauthenticated
-# GETs against public pages; domain-validation (Filter 2) then rejects
-# anything off-domain before a URL can reach Stage A output. No
-# credentials are ever sent, so legacy-renegotiation MITM or a spoofed
-# cert can't leak anything.
-_LEGACY_SERVER_CONNECT_FLAG = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
-
-
-class _LegacyTolerantAdapter(HTTPAdapter):
-    def init_poolmanager(self, *args, **kwargs):  # type: ignore[override]
-        ctx = create_urllib3_context()
-        ctx.options |= _LEGACY_SERVER_CONNECT_FLAG
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        kwargs["ssl_context"] = ctx
-        return super().init_poolmanager(*args, **kwargs)
+# --- HTTP session with standard TLS certificate validation ----------------
+# Expired, hostname-mismatched, and untrusted certificates must fail portal
+# validation instead of being treated as reachable login pages.
 
 
 # Realistic browser headers — some Indian gov sites 403 the default Python
@@ -148,7 +119,7 @@ def _make_http_session() -> requests.Session:
     # max_retries=0 — retrying a 404 / DNS failure / TLS error doesn't
     # help portal discovery; skipping the retry roughly halves worst-case
     # latency on dead probes.
-    https_adapter = _LegacyTolerantAdapter(
+    https_adapter = HTTPAdapter(
         pool_connections=40, pool_maxsize=40, max_retries=0,
     )
     http_adapter = HTTPAdapter(
@@ -156,14 +127,9 @@ def _make_http_session() -> requests.Session:
     )
     session.mount("https://", https_adapter)
     session.mount("http://", http_adapter)
-    session.verify = False
     session.headers.update(_DEFAULT_BROWSER_HEADERS)
     return session
 
-
-# Silence the noisy "Unverified HTTPS request is being made" warning — the
-# looser verification is a deliberate design choice (see module docstring).
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HTTP_SESSION: requests.Session = _make_http_session()
 
@@ -411,7 +377,7 @@ def crt_sh_subdomains(domain: str, timeout: float = 8.0, cap: int = 40) -> list[
         r = requests.get(
             f"https://crt.sh/?q=%25.{domain}&output=json",
             headers={"User-Agent": "curl/8.4.0", "Accept": "application/json"},
-            timeout=timeout, verify=False,
+            timeout=timeout,
         )
         data = r.json() if r.status_code == 200 else None
     except Exception:
