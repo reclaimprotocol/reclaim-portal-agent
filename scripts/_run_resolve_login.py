@@ -73,7 +73,7 @@ def _retry(fn, n=4):
 
 def _fetch(u):
     try:
-        r = requests.get(u, headers=UA, timeout=15, verify=False, allow_redirects=True,
+        r = requests.get(u, headers=UA, timeout=15, allow_redirects=True,
                          proxies=M._proxies(u))
         return r.status_code, r.url, (r.text or "")
     except Exception:  # noqa: BLE001

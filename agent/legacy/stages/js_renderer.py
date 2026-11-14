@@ -160,7 +160,7 @@ class JSRenderer:
         try:
             context = self._browser.new_context(
                 user_agent=self.user_agent,
-                ignore_https_errors=True,
+                ignore_https_errors=False,
                 # Browser-like Accept / Accept-Language headers — see
                 # `_BROWSER_EXTRA_HTTP_HEADERS` rationale at module top.
                 extra_http_headers=_BROWSER_EXTRA_HTTP_HEADERS,
@@ -238,7 +238,7 @@ class JSRenderer:
         context = page = None
         try:
             context = self._browser.new_context(
-                user_agent=self.user_agent, ignore_https_errors=True,
+                user_agent=self.user_agent, ignore_https_errors=False,
                 extra_http_headers=_BROWSER_EXTRA_HTTP_HEADERS,
                 **_proxy_kw(url),
             )

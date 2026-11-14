@@ -186,14 +186,14 @@ def _fetch(u):
     followed by `requests`, so without this a portal like biis.buet.ac.bd reads as
     an 88-byte empty page and the strict-login test scores it dead."""
     try:
-        r = requests.get(u, headers=UA, timeout=15, verify=False, allow_redirects=True,
+        r = requests.get(u, headers=UA, timeout=15, allow_redirects=True,
                          proxies=M._proxies(u))
         st, fin, html = r.status_code, r.url, (r.text or "")
         for _ in range(M._CLIENT_REDIRECT_HOPS):
             nxt = M._client_redirect_target(html, fin)
             if not nxt:
                 break
-            rr = requests.get(nxt, headers=UA, timeout=15, verify=False,
+            rr = requests.get(nxt, headers=UA, timeout=15,
                               allow_redirects=True, proxies=M._proxies(nxt))
             st, fin, html = rr.status_code, rr.url, (rr.text or "")
         return st, fin, html

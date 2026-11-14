@@ -285,7 +285,7 @@ def _affiliation_corroborated(
     root = discovery_rules.registrable_root(parent_domain) or parent_domain
     try:
         r = discovery_rules.HTTP_SESSION.get(
-            f"https://{primary}/", timeout=http_timeout, verify=False,
+            f"https://{primary}/", timeout=http_timeout,
             headers={"User-Agent": user_agent},
         )
         html = (r.text or "").lower()
@@ -3867,7 +3867,7 @@ def _validate_one(
         try:
             canary = discovery_rules.HTTP_SESSION.get(
                 f"https://{host}/genie-canary-9x7q-not-a-real-path",
-                timeout=http_timeout, verify=False,
+                timeout=http_timeout,
                 headers={"User-Agent": user_agent}, allow_redirects=True,
             )
             if (canary.status_code < 400

@@ -119,7 +119,7 @@ def stage_a(url: str):
 
 def _fetch(u):
     try:
-        r = requests.get(u, headers=R.UA, timeout=15, verify=False,
+        r = requests.get(u, headers=R.UA, timeout=15,
                          allow_redirects=True, proxies=M._proxies(u))
         return r.status_code, r.url, (r.text or "")
     except Exception:  # noqa: BLE001
