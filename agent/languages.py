@@ -65,71 +65,67 @@ def profile_for_country(country: str) -> LanguageProfile:
 #: "ex-alumnos" / "antigos alunos" are alumni, not students.
 _NOT_FORMER = r"(?<!ex)(?<!ex[\s-])(?<!antiguos\s)(?<!antigos\s)"
 
-STUDENT_AUDIENCE_PATTERNS: dict[str, tuple[str, ...]] = {
-    "Spanish": (
-        r"estudiant(?:es?|il(?:es)?|ado)",
-        # Not "alumna": English alumni pages use that singular.
-        _NOT_FORMER + r"alumn(?:os?|as|ado)",
-        r"matr[ií]cula",                    # also Portuguese
-        r"legajo",                          # Argentine student file number
-        r"acad[eé]mic[oa]s?",
-        r"asignaturas?",
-        r"(?:control|plan)\s+de\s+estudios",
-        r"(?:aula|campus)\s+virtual",
-        r"entorno\s+virtual\s+de\s+aprendizaje",
-        r"educaci[oó]n\s+a\s+distancia",
-    ),
-    "Portuguese": (
-        r"estudant(?:es?|il)",
-        _NOT_FORMER + r"alun[oa]s?",
-        r"discentes?",
-        r"acad[eê]mic[oa]s?",
-        r"ambiente\s+virtual\s+de\s+(?:ensino\s+e\s+)?aprendiza(?:gem|do)",
-        r"sala\s+de\s+aula",
-        r"(?:ensino|educa[cç][aã]o)\s+a\s+dist[aâ]ncia",
-    ),
-    "Vietnamese": (
-        r"sinh\s*vi[eê]n",                  # sinh viên · sinhvien
-        r"học\s+viên",
-        r"\bmssv\b",                        # mã số sinh viên
-        r"đào\s+tạo", r"\bdaotao\b",        # academic affairs / training office
-        r"tín\s+chỉ", r"\btinchi\b",        # credit-registration portals
-        r"học\s+phần",
-    ),
-    "French": (
-        r"[eé]tudiant",
-        r"\bélèves?\b",
-        r"\bapprenants?\b",
-        r"scolarit[eé]",
-        r"espace\s+num[eé]rique\s+de\s+travail",
-    ),
-    "Indonesian and Malay": (
-        r"mahasisw[ai]",
-        r"\bsiswa\b",
-        r"\bpelajar\b",
-        r"\bnim\b",                         # nomor induk mahasiswa
-        r"siakad",                          # sistem informasi akademik
-        r"akademik",                        # also Turkish
-        r"\b(?:per)?kuliah(?:an)?\b",
-    ),
-    "Turkish": (
-        r"[oö][gğ]renc[iıİ]",               # öğrenci · ogrenci · ÖĞRENCİ
-        r"uzaktan\s+e[gğ]itim",
-    ),
+STUDENT_AUDIENCE_PATTERNS: tuple[str, ...] = (
+    # Spanish
+    r"estudiant(?:es?|il(?:es)?|ado)",
+    # Not "alumna": English alumni pages use that singular.
+    _NOT_FORMER + r"alumn(?:os?|as|ado)",
+    r"matr[ií]cula",                    # also Portuguese
+    r"legajo",                          # Argentine student file number
+    r"acad[eé]mic[oa]s?",
+    r"asignaturas?",
+    r"(?:control|plan)\s+de\s+estudios",
+    r"(?:aula|campus)\s+virtual",
+    r"entorno\s+virtual\s+de\s+aprendizaje",
+    r"educaci[oó]n\s+a\s+distancia",
+    # Portuguese
+    r"estudant(?:es?|il)",
+    _NOT_FORMER + r"alun[oa]s?",
+    r"discentes?",
+    r"acad[eê]mic[oa]s?",
+    r"ambiente\s+virtual\s+de\s+(?:ensino\s+e\s+)?aprendiza(?:gem|do)",
+    r"sala\s+de\s+aula",
+    r"(?:ensino|educa[cç][aã]o)\s+a\s+dist[aâ]ncia",
+    # Vietnamese
+    r"sinh\s*vi[eê]n",                  # sinh viên · sinhvien
+    r"học\s+viên",
+    r"\bmssv\b",                        # mã số sinh viên
+    r"đào\s+tạo", r"\bdaotao\b",        # academic affairs / training office
+    r"tín\s+chỉ", r"\btinchi\b",        # credit-registration portals
+    r"học\s+phần",
+    # French
+    r"[eé]tudiant",
+    r"\bélèves?\b",
+    r"\bapprenants?\b",
+    r"scolarit[eé]",
+    r"espace\s+num[eé]rique\s+de\s+travail",
+    # Indonesian and Malay
+    r"mahasisw[ai]",
+    r"\bsiswa\b",
+    r"\bpelajar\b",
+    r"\bnim\b",                         # nomor induk mahasiswa
+    r"siakad",                          # sistem informasi akademik
+    r"akademik",                        # also Turkish
+    r"\b(?:per)?kuliah(?:an)?\b",
+    # Turkish
+    r"[oö][gğ]renc[iıİ]",               # öğrenci · ogrenci · ÖĞRENCİ
+    r"uzaktan\s+e[gğ]itim",
     # Student nouns the discovery profiles above already rank on, so a link the
     # ranker promotes is not then rejected by the gate for lack of evidence.
-    "Traditional Chinese": ("學生", "學號", "選課", "教務"),
-    "Arabic": ("الطالب", "الطلاب", "الطلبة"),
-    "Russian": ("студент",),
-    "Hindi and Nepali": ("छात्र", "विद्यार्थी"),
-}
+    # Traditional Chinese
+    "學生", "學號", "選課", "教務",
+    # Arabic
+    "الطالب", "الطلاب", "الطلبة",
+    # Russian
+    "студент",
+    # Hindi and Nepali
+    "छात्र", "विद्यार्थी",
+)
 
 #: One alternation over every language above. Match against NFC-normalised
 #: text: Vietnamese pages in particular ship decomposed diacritics.
 STUDENT_AUDIENCE_RE = re.compile(
-    "|".join(f"(?:{fragment})"
-             for fragments in STUDENT_AUDIENCE_PATTERNS.values()
-             for fragment in fragments),
+    "|".join(f"(?:{fragment})" for fragment in STUDENT_AUDIENCE_PATTERNS),
     re.I,
 )
 

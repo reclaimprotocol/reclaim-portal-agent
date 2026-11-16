@@ -352,7 +352,6 @@ def test_decomposed_vietnamese_diacritics_still_match() -> None:
 @pytest.mark.parametrize("url", [
     "https://autogestion-guarani.unr.edu.ar/",             # SIU Guaraní host
     "https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/",     # ... versioned path
-    "https://autogestion.example.edu.ar/acceso",
     "https://g3w.example.edu.ar/",
     "https://du.samarth.edu.in/index.php/site/login",      # Samarth students
     "https://tkmce.etlab.in/user/login",                   # etlab
@@ -394,6 +393,12 @@ def test_student_information_systems_are_recognised_from_page_branding() -> None
      "no student or academic audience evidence"),
     ("<h1>Universidad Nacional - Iniciar sesión</h1>" + _BARE_FORM,
      "https://cuentas.example.edu.ar/login",
+     "no student or academic audience evidence"),
+    # "Autogestión" is ordinary Spanish for self-service, not proof of SIU Guaraní.
+    ("<h1>Autogestión de personal</h1>" + _BARE_FORM,
+     "https://rrhh.example.edu.ar/autogestion",
+     "no student or academic audience evidence"),
+    (_BARE_FORM, "https://autogestion.example.edu.ar/acceso",
      "no student or academic audience evidence"),
     # Samarth's employee apex and a bare "Samarth" institution name.
     ("<h1>Samarth eGov</h1>" + _BARE_FORM,
