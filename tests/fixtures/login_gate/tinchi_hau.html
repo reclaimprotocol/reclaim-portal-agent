@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!-- Minimal copy of https://tinchi.hau.edu.vn (Vietnamese credit-registration portal). Tokens removed. -->
+<html lang="vi">
+<head><meta charset="utf-8"><title>Đăng nhập hệ thống</title></head>
+<body>
+<h1>TRƯỜNG ĐẠI HỌC KIẾN TRÚC HÀ NỘI</h1>
+<form action="/" method="post">
+  <label><input type="radio" name="Role" value="0" checked> Sinh Viên</label>
+  <label><input type="radio" name="Role" value="1"> Giáo Viên</label>
+  <label><input type="radio" name="Role" value="2"> Quản Trị Hệ Thống</label>
+  <input id="UserName" name="UserName" placeholder="Tài khoản" type="text">
+  <input id="Password" name="Password" placeholder="Mật khẩu" type="password">
+  <a href="#">[ Quên mật khẩu sinh viên]</a>
+  <button type="submit">Đăng nhập</button>
+</form>
+<p>Lưu ý bảo mật: Không đăng nhập tài khoản ở các ứng dụng hoặc website không rõ nguồn gốc để tránh bị đánh cắp thông tin tài khoản.</p>
+<div id="forgot">
+  <h4>Lấy lại mật khẩu</h4>
+  <input type="text" id="txtMaSV" placeholder="Mã sinh viên lấy lại mật khẩu">
+  <button type="button">Gửi Email xác thực</button>
+</div>
+</body>
+</html>
