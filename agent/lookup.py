@@ -65,6 +65,7 @@ from agent.memory_cache import MemoryCache, signature           # noqa: E402
 from agent.openai_cascade import execute_model_cascade          # noqa: E402
 from agent.schemas import DiscoveredPortal, IntegratedDiscoveryOutput  # noqa: E402
 from agent.search_fallback import (build_login_endpoint_query,  # noqa: E402
+                                   build_student_system_followup_query,
                                    execute_search_fallback)
 from agent.v3_orchestrator import (harvest_portal_legal_links,  # noqa: E402
                                    UniversityRow, GUARDRAIL_TIMEOUT_S,
@@ -86,7 +87,15 @@ FAST_STATIC_TIMEOUT_S = max(
 FAST_SEARCH_TIMEOUT_S = max(
     20, int(os.getenv("GENIE_FAST_SEARCH_TIMEOUT_SECONDS", "60")))
 FAST_CANDIDATE_CAP = max(8, int(os.getenv("GENIE_FAST_CANDIDATE_CAP", "24")))
+FAST_SEARCH_CANDIDATE_RESERVE = max(
+    1, int(os.getenv("GENIE_FAST_SEARCH_CANDIDATE_RESERVE", "8")))
+FAST_ENDPOINT_TIMEOUT_S = max(
+    5, int(os.getenv("GENIE_FAST_ENDPOINT_TIMEOUT_SECONDS", "8")))
+FAST_LOGIN_TIMEOUT_S = max(
+    5, int(os.getenv("GENIE_FAST_LOGIN_TIMEOUT_SECONDS", "8")))
 FAST_RENDER_LIMIT = max(0, int(os.getenv("GENIE_FAST_RENDER_LIMIT", "2")))
+STABLE_FAST_RENDER_LIMIT = max(
+    FAST_RENDER_LIMIT, int(os.getenv("GENIE_STABLE_FAST_RENDER_LIMIT", "4")))
 FAST_RENDER_TIMEOUT_S = max(
     5, int(os.getenv("GENIE_FAST_RENDER_TIMEOUT_SECONDS", "15")))
 
@@ -216,6 +225,41 @@ def _balanced_render_indexes(
     return selected
 
 
+def _merge_candidate_sources(
+    crawl_candidates: list[dict[str, Any]],
+    search_candidates: list[dict[str, Any]],
+    *, fast_mode: bool,
+) -> list[dict[str, Any]]:
+    """Keep a reserved slice for web-search hits in fast mode.
+
+    Crawl pages can contain dozens of links and previously consumed the whole
+    fast candidate budget before search hits were considered. Search receives
+    a bounded reserved share, with remaining slots filled in crawl/search order.
+    """
+    if not fast_mode:
+        cap = None
+    else:
+        cap = FAST_CANDIDATE_CAP
+    crawl_quota = (max(0, cap - min(FAST_SEARCH_CANDIDATE_RESERVE,
+                                  len(search_candidates)))
+                   if cap is not None else len(crawl_candidates))
+    search_quota = (min(FAST_SEARCH_CANDIDATE_RESERVE, len(search_candidates))
+                    if cap is not None else len(search_candidates))
+    ordered = (crawl_candidates[:crawl_quota] + search_candidates[:search_quota]
+               + crawl_candidates[crawl_quota:] + search_candidates[search_quota:])
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in ordered:
+        key = str(candidate.get("url") or "").rstrip("/").casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(candidate)
+        if cap is not None and len(merged) >= cap:
+            break
+    return merged
+
+
 def _portal_application_key(url: str) -> str:
     """Treat one hostname as one deployed portal application.
 
@@ -310,20 +354,53 @@ async def find_portals(
                              "rejected_non_web_urls": 0,
                              "rejected_non_login_pages": 0,
                              "rejected_non_student_portals": 0,
-                             "rejected_external_redirects": 0}
+                             "rejected_external_redirects": 0,
+                             "review_candidates": []}
     stats["discovery_mode"] = (
         "deep" if not fast_mode else "stable-fast" if stable_fast else "fast")
 
+    async def alternate_search() -> dict[str, Any]:
+        """Run one distinct search after the initial candidate path failed."""
+        rescued = await find_portals(
+            domain, name=name, country=country, portals_only=portals_only,
+            page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
+            fast_mode=fast_mode, stable_fast=stable_fast,
+            _targeted_endpoint_rescue=True,
+        )
+        rescued_stats = rescued.setdefault("stats", {})
+        prior = stats.get("review_candidates") or []
+        current = rescued_stats.get("review_candidates") or []
+        seen_review = {str(item.get("url") or "").rstrip("/").casefold()
+                       for item in current}
+        rescued_stats["review_candidates"] = current + [
+            item for item in prior
+            if str(item.get("url") or "").rstrip("/").casefold() not in seen_review
+        ][:max(0, 8 - len(current))]
+        rescued_stats["initial_candidates_rejected"] = len(prior)
+        return rescued
+
     # 1. run discovery sources in parallel -------------------------------
     if _targeted_endpoint_rescue:
-        stats["search_reason"] = "all initial portal candidates failed verification"
+        stats["search_reason"] = "alternate student-system query after initial verification failed"
         hits = await execute_search_fallback(
             row.name, domain,
-            query=build_login_endpoint_query(row.name, domain, country), country=country,
+            query=build_student_system_followup_query(row.name, domain, country),
+            max_results=8, country=country,
             timeout_seconds=FAST_SEARCH_TIMEOUT_S if fast_mode else 90,
             search_context_size="medium",
         )
         stats["used_search"] = True
+        official_evidence_pages = [
+            str(hit.get("url") or "") for hit in hits
+            if _is_university_host(str(hit.get("url") or ""), domain)
+        ]
+        if official_evidence_pages:
+            evidence_links = await extract_links_from_evidence_pages(
+                official_evidence_pages, country_hint=country,
+                page_timeout_ms=10_000 if fast_mode else 20_000,
+                limit=2 if fast_mode else 4,
+            )
+            hits = list(hits) + evidence_links
         candidates = lkm.filter_and_rank_links(hits, country=country) if hits else []
         if not candidates and hits:
             candidates = hits
@@ -358,9 +435,12 @@ async def find_portals(
                 str(hit.get("url") or "") for hit in hits
                 if _is_university_host(str(hit.get("url") or ""), domain)
             ]
-            if official_evidence_pages and not fast_mode:
+            if official_evidence_pages:
                 evidence_links = await extract_links_from_evidence_pages(
-                    official_evidence_pages, country_hint=country)
+                    official_evidence_pages, country_hint=country,
+                    page_timeout_ms=10_000 if fast_mode else 20_000,
+                    limit=2 if fast_mode else 4,
+                )
                 hits = list(hits) + evidence_links
         else:
             links, hits = await crawl_task, []
@@ -369,18 +449,15 @@ async def find_portals(
             links, country=country) if links else []
         search_candidates = lkm.filter_and_rank_links(
             hits, country=country) if hits else []
-        candidates = []
-        seen_candidates: set[str] = set()
-        for candidate in crawl_candidates + search_candidates:
-            key = str(candidate.get("url") or "").rstrip("/").lower()
-            if key and key not in seen_candidates:
-                seen_candidates.add(key)
-                candidates.append(candidate)
-                if fast_mode and len(candidates) >= FAST_CANDIDATE_CAP:
-                    break
+        candidates = _merge_candidate_sources(
+            crawl_candidates, search_candidates, fast_mode=fast_mode)
 
     stats["candidates"] = len(candidates)
     if not candidates:
+        if use_search_fallback and not _targeted_endpoint_rescue:
+            logger.info("lookup: %s — no initial candidates; running alternate student-system search",
+                        domain)
+            return await alternate_search()
         return {"domain": domain, "name": row.name, "portals": [],
                 "stats": stats, "error": "no candidates found"}
 
@@ -397,6 +474,10 @@ async def find_portals(
     )
 
     if not result.discovered_portals:
+        if use_search_fallback and not _targeted_endpoint_rescue:
+            logger.info("lookup: %s — classifier returned no portals; "
+                        "running alternate student-system search", domain)
+            return await alternate_search()
         return {"domain": domain, "name": row.name, "portals": [],
                 "stats": stats, "error": "no portals identified"}
 
@@ -413,23 +494,17 @@ async def find_portals(
             stats["rejected_non_web_urls"] += 1
             logger.info("lookup: %s — dropped %s (%s)",
                         domain, portal.exact_url, reason)
-    if (not allowed_portals and use_search_fallback and not stats["used_search"]
-            and not _targeted_endpoint_rescue):
+    if not allowed_portals and use_search_fallback and not _targeted_endpoint_rescue:
         logger.info("lookup: %s — all model candidates failed URL policy; "
-                    "invoking targeted login endpoint rescue", domain)
-        return await find_portals(
-            domain, name=name, country=country, portals_only=portals_only,
-            page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
-            fast_mode=fast_mode, stable_fast=stable_fast,
-            _targeted_endpoint_rescue=True,
-        )
+                    "running alternate student-system search", domain)
+        return await alternate_search()
     if not allowed_portals:
         return {"domain": domain, "name": result.university_name, "portals": [],
                 "stats": stats, "error": "no web portal candidates"}
 
     checks = await asyncio.gather(*(
         verify_portal_endpoint_final(p.exact_url,
-                                     min(GUARDRAIL_TIMEOUT_S, 4) if fast_mode
+                                     FAST_ENDPOINT_TIMEOUT_S if fast_mode
                                      else GUARDRAIL_TIMEOUT_S,
                                      country_hint=country,
                                      retry_timeout_seconds=(None if fast_mode
@@ -460,14 +535,19 @@ async def find_portals(
     # Accept a real credential form OR an actionable rendered Login/SSO control.
     # URL vocabulary is not an acceptance/rejection rule here.
     if fast_mode:
-        # Fast mode skips Chromium; stable-fast renders a bounded subset to
-        # recover JavaScript-only login forms without a full deep crawl.
+        # Both fast profiles use a bounded rendered retry for candidates whose
+        # static login check was inconclusive; stable-fast gets a larger budget.
         auth_checks = list(await asyncio.gather(*(
             verify_student_login_surface(
-                p.exact_url, timeout_seconds=4, country_hint=country)
+                p.exact_url, timeout_seconds=FAST_LOGIN_TIMEOUT_S,
+                country_hint=country)
             for p, _ in eligible)))
-        render_indexes = (_balanced_render_indexes(eligible, auth_checks)
-                          if stable_fast else [])
+        # Plain fast now gets a very small rendered retry budget too. Stable-fast
+        # keeps the same bounded cap, while deep mode retains full hybrid checks.
+        render_indexes = _balanced_render_indexes(
+            eligible, auth_checks,
+            limit=STABLE_FAST_RENDER_LIMIT if stable_fast else FAST_RENDER_LIMIT,
+        )
         if render_indexes:
             rendered = await asyncio.gather(*(
                 verify_student_login_surface_rendered(
@@ -522,6 +602,16 @@ async def find_portals(
             if ("non-student audience only" in note
                     or "no student or academic audience evidence" in note):
                 stats["rejected_non_student_portals"] += 1
+            if (_DIRECT_LOGIN_HINT_RE.search(str(portal.exact_url))
+                    or re.search(r"timeout|timed out|proxy|403|captcha|cloudflare|"
+                                 r"no password|no sign-in|no actionable", note, re.I)):
+                review_candidates = stats.setdefault("review_candidates", [])
+                review_key = portal.exact_url.rstrip("/").casefold()
+                if (all(str(item.get("url") or "").rstrip("/").casefold()
+                        != review_key for item in review_candidates)
+                        and len(review_candidates) < 8):
+                    review_candidates.append({"url": portal.exact_url,
+                                              "reason": note[:500]})
             logger.info("lookup: %s — dropped %s (not a verified login page: %s)",
                         domain, portal.exact_url, note)
     live = list(verified_apps.values())
@@ -531,16 +621,41 @@ async def find_portals(
     # dead, external-IdP-only, not a login form, or not student-facing.  Make
     # one independent, subdomain-aware search attempt rather than calling a
     # generic web search for every successful university.
-    if (not live and use_search_fallback and not stats["used_search"]
-            and not _targeted_endpoint_rescue):
+    if (not live and use_search_fallback and not _targeted_endpoint_rescue):
         logger.info("lookup: %s — all candidates failed verification; "
-                    "invoking targeted login endpoint rescue", domain)
-        return await find_portals(
-            domain, name=name, country=country, portals_only=portals_only,
-            page_timeout_ms=page_timeout_ms, use_search_fallback=use_search_fallback,
-            fast_mode=fast_mode, stable_fast=stable_fast,
-            _targeted_endpoint_rescue=True,
-        )
+                    "running alternate student-system search", domain)
+        return await alternate_search()
+
+    async def expand_single_portal(output: dict[str, Any]) -> dict[str, Any]:
+        """Deep mode gets one alternate query when it found only one portal."""
+        if fast_mode or _targeted_endpoint_rescue or not use_search_fallback:
+            return output
+        if len(output.get("portals") or []) != 1:
+            return output
+        extra = await alternate_search()
+        portals = output.setdefault("portals", [])
+        seen = {str(item.get("url") or "").rstrip("/").casefold()
+                for item in portals}
+        added = 0
+        for portal in extra.get("portals") or []:
+            key = str(portal.get("url") or "").rstrip("/").casefold()
+            if key and key not in seen:
+                seen.add(key)
+                portals.append(portal)
+                added += 1
+        output.setdefault("stats", {})["single_portal_followup_search"] = {
+            "added_portals": added,
+            "candidate_count": (extra.get("stats") or {}).get("candidates", 0),
+        }
+        review = output["stats"].setdefault("review_candidates", [])
+        review_seen = {str(item.get("url") or "").rstrip("/").casefold()
+                       for item in review}
+        for item in (extra.get("stats") or {}).get("review_candidates") or []:
+            key = str(item.get("url") or "").rstrip("/").casefold()
+            if key and key not in review_seen and len(review) < 8:
+                review.append(item)
+                review_seen.add(key)
+        return output
 
     if portals_only:
         output = {
@@ -551,6 +666,7 @@ async def find_portals(
                         for p, c in live],
             "stats": stats,
         }
+        output = await expand_single_portal(output)
         if fast_mode and output["portals"]:
             _FAST_RESULT_CACHE[cache_key] = copy.deepcopy(output)
         return output
@@ -584,8 +700,9 @@ async def find_portals(
             "match_confidence": m.get("confidence"),
             "match_basis": m.get("domain_relation"),
         })
-    return {"domain": domain, "name": result.university_name,
-            "portals": portals, "insecure_dropped": insecure, "stats": stats}
+    output = {"domain": domain, "name": result.university_name,
+              "portals": portals, "insecure_dropped": insecure, "stats": stats}
+    return await expand_single_portal(output)
 
 
 # --------------------------------------------------------------------------- #

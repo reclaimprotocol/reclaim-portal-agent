@@ -101,6 +101,26 @@ def build_login_endpoint_query(university_name: str, official_domain: str,
     )
 
 
+def build_student_system_followup_query(university_name: str, official_domain: str,
+                                        country: str = "") -> str:
+    """A second, differently worded search used only after initial verification fails.
+
+    The first query emphasizes direct login endpoints. This one searches for
+    institution-specific names for course platforms and student information
+    systems, which often appear on official guidance pages instead of indexed
+    login forms. It is deliberately conditional so successful rows do not incur
+    another web-search call.
+    """
+    profile = profile_for_country(country)
+    local_terms = " OR ".join(profile.search_terms)
+    return (
+        f'"{university_name}" "{official_domain}" '
+        f'("student information system" OR "student portal" OR "e-learning" '
+        f'OR Moodle OR LMS OR ERP OR "course platform" OR {local_terms}) '
+        "official students"
+    )
+
+
 def _as_mapping(value: Any) -> Mapping[str, Any] | None:
     """Support SDK objects and dicts (the latter keeps tests simple)."""
     if isinstance(value, Mapping):
