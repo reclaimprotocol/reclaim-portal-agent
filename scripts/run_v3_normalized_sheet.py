@@ -158,6 +158,16 @@ def _challenge_kind(reason: str) -> str:
     return "anti_bot"
 
 
+_REVIEWABLE_PORTAL_RE = re.compile(
+    r"login|logon|signin|sign-in|student|portal|moodle|canvas|lms|erp|"
+    r"sso|auth|courses|sis|oibs|unipa", re.I,
+)
+_REVIEWABLE_FAILURE_RE = re.compile(
+    r"timeout|timed out|proxy|403|captcha|cloudflare|akamai|"
+    r"no password|no sign-in|no actionable|redirected to another host", re.I,
+)
+
+
 def _safe_error_detail(value: str) -> str:
     """Keep credential-shaped strings out of the shared error ledger."""
     return re.sub(
@@ -198,17 +208,44 @@ def _blocked_from_log(
     output: list[list[str]] = []
     for line in log_path.read_text(errors="replace").splitlines():
         match = pattern.search(line)
-        if not match or not challenge.search(match.group("reason")):
-            continue
-        website = match.group("website").casefold().removeprefix("www.")
-        orgs = by_website.get(website) or by_website.get(
-            registrable_root(website).casefold()) or []
+        if match:
+            website = match.group("website").casefold().removeprefix("www.")
+            portal_url = match.group("url").rstrip("`'\"")
+            reason = match.group("reason")
+            blocked_host = (urlsplit(portal_url).hostname or website).lower()
+            orgs = by_website.get(website) or by_website.get(
+                registrable_root(website).casefold()) or []
+            if challenge.search(reason):
+                kind = _challenge_kind(reason)
+            elif (_REVIEWABLE_PORTAL_RE.search(portal_url)
+                  and _REVIEWABLE_FAILURE_RE.search(reason)):
+                kind = "verification_review"
+            else:
+                continue
+        else:
+            # A row deadline may cancel find_portals before it returns its
+            # partial candidate list. Retain likely login URLs that were still
+            # being checked at that point.
+            timeout_match = re.search(
+                r"guardrails: (?:login fetch )?(?P<url>https?://\S+?) "
+                r"(?:timed out at \d+s|failed via \S+|unreachable via \S+)",
+                line,
+            )
+            if not timeout_match:
+                continue
+            portal_url = timeout_match.group("url").rstrip("`'\"")
+            if not _REVIEWABLE_PORTAL_RE.search(portal_url):
+                continue
+            blocked_host = (urlsplit(portal_url).hostname or "").lower()
+            website = ""
+            reason = line.split(" :: ", 1)[-1].strip()[:500]
+            kind = "verification_review"
+            orgs = [org for org in organisations if any(
+                _host_related(blocked_host, site, registrable_root)
+                for site in org["websites"]
+            )]
         if not orgs:
             continue
-        portal_url = match.group("url").rstrip("`'\"")
-        blocked_host = (urlsplit(portal_url).hostname or website).lower()
-        reason = match.group("reason")
-        kind = _challenge_kind(reason)
         for org in orgs:
             key = (
                 org["org_id"].casefold(), portal_url.rstrip("/").casefold(),
@@ -335,9 +372,10 @@ async def run(args: argparse.Namespace) -> None:
         str(row[0]).strip().casefold() for row in existing_portal_rows[1:]
         if row and len(row) > 4 and str(row[4]).strip()
     }
+    negative_statuses = {"no portal found", "candidate needs review"}
     existing_no_portal_org_ids = {
         str(row[0]).strip().casefold() for row in existing_portal_rows[1:]
-        if row and len(row) > 12 and row[12].strip() == "No portal found"
+        if row and len(row) > 12 and row[12].strip().casefold() in negative_statuses
     }
     no_portal_row_numbers = {
         str(row[0]).strip().casefold(): row_number
@@ -345,7 +383,7 @@ async def run(args: argparse.Namespace) -> None:
         # A stale status is not enough to make a row replaceable: users may
         # have manually filled its Portal URL while leaving the old status.
         # Only reuse a negative-result row when its portal cell is still blank.
-        if (row and len(row) > 12 and row[12].strip() == "No portal found"
+        if (row and len(row) > 12 and row[12].strip().casefold() in negative_statuses
                 and not _cell(row, 4))
     }
     block_existing = _existing_keys(
@@ -428,6 +466,7 @@ async def run(args: argparse.Namespace) -> None:
         websites = _split_domains(_cell(row, indexes["website"]))
         started = datetime.now(timezone.utc).isoformat(timespec="seconds")
         found: list[dict[str, Any]] = []
+        review_found: list[dict[str, Any]] = []
         errors: list[str] = []
 
         async with semaphore:
@@ -444,6 +483,8 @@ async def run(args: argparse.Namespace) -> None:
                     )
                     if result.get("error"):
                         errors.append(f"{website}: {result['error']}")
+                    for candidate in (result.get("stats") or {}).get("review_candidates") or []:
+                        review_found.append({"website": website, **candidate})
                     for portal in result.get("portals") or []:
                         found.append({"website": website, **portal})
                 except TimeoutError:
@@ -480,10 +521,18 @@ async def run(args: argparse.Namespace) -> None:
         if (not valid_found_urls
                 and org_id.casefold() not in existing_org_ids
                 and org_id.casefold() not in existing_no_portal_org_ids):
+            needs_review = bool(review_found or errors)
+            review_note = "; ".join(filter(None, [
+                (f"{len(review_found)} likely portal candidate(s) need verification; "
+                 "see Blocked Sites") if review_found else "",
+                "; ".join(errors) if errors else "",
+                "No verified student portal identified" if not review_found and not errors else "",
+            ]))
             no_portal_row.append([
                 org_id, name, country, "; ".join(websites), "", "", "", "",
-                args.tab, str(source_row), args.mode, checked, "No portal found",
-                "; ".join(errors) if errors else "No verified student portal identified",
+                args.tab, str(source_row), args.mode, checked,
+                "Candidate needs review" if needs_review else "No portal found",
+                review_note,
             ])
             existing_no_portal_org_ids.add(org_id.casefold())
 
@@ -510,6 +559,27 @@ async def run(args: argparse.Namespace) -> None:
                 block_type, str(entry.get("detail") or ""), blocked_host,
                 str(entry.get("exit_country") or ""), args.tab, str(source_row),
                 str(entry.get("last_seen") or checked),
+            ])
+
+        # Keep likely login/SSO URLs that failed automated verification in the
+        # review ledger. They are not confirmed portals, but remain available
+        # for a longer retry or human review.
+        for candidate in review_found:
+            portal_url = str(candidate.get("url") or "").strip()
+            blocked_host = (urlsplit(portal_url).hostname or "").lower()
+            if not portal_url or not blocked_host:
+                continue
+            key = (org_id.casefold(), portal_url.rstrip("/").casefold(),
+                   blocked_host.casefold(), "verification_review")
+            if key in block_existing:
+                continue
+            block_existing.add(key)
+            new_block_rows.append([
+                org_id, name, country, candidate["website"], portal_url, "",
+                "verification_review",
+                _safe_error_detail(str(candidate.get("reason") or
+                                        "Candidate not automatically verified")),
+                blocked_host, "", args.tab, str(source_row), checked,
             ])
 
         # Record per-domain crawl/transport failures in the same 10-org
@@ -611,7 +681,7 @@ def main() -> None:
     parser.add_argument("--row-timeout-seconds", type=int, default=180)
     parser.add_argument(
         "--mode", choices=("fast", "stable-fast", "deep"), default="stable-fast",
-        help="fast skips Chromium; stable-fast adds bounded browser recovery; deep uses full crawl",
+        help="fast profiles use bounded Chromium recovery; deep uses full crawl and verification",
     )
     parser.add_argument("--agent-root", type=Path, default=DEFAULT_AGENT_ROOT)
     parser.add_argument("--log", type=Path, default=Path("/private/tmp/geniev3-normalized.log"))
