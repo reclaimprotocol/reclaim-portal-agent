@@ -540,7 +540,8 @@ async def find_portals(
         auth_checks = list(await asyncio.gather(*(
             verify_student_login_surface(
                 p.exact_url, timeout_seconds=FAST_LOGIN_TIMEOUT_S,
-                country_hint=country)
+                country_hint=country,
+                shared_platform_roots=matcher.saas_roots)
             for p, _ in eligible)))
         # Plain fast now gets a very small rendered retry budget too. Stable-fast
         # keeps the same bounded cap, while deep mode retains full hybrid checks.
@@ -566,7 +567,8 @@ async def find_portals(
     else:
         auth_checks = list(await asyncio.gather(*(
             verify_student_login_surface_hybrid(
-                p.exact_url, country_hint=country, official_domain=domain)
+                p.exact_url, country_hint=country, official_domain=domain,
+                shared_platform_roots=matcher.saas_roots)
             for p, _ in eligible)))
     verified_keys: set[str] = set()
     verified_apps: dict[str, tuple[Any, Any]] = {}

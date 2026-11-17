@@ -1,10 +1,15 @@
 """Focused checks for GenieV3's final student-login acceptance gate."""
 
 import asyncio
+import unicodedata
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from agent.guardrails import (
     _login_form_evidence,
+    _same_organisation_redirect,
     _get_render_sem,
     _rendered_auth_control,
     _rendered_auth_control_target,
@@ -256,3 +261,232 @@ def test_ranks_native_language_portal_labels() -> None:
     ]
     ranked = LocalKnowledgeMatrixFilter().filter_and_rank_links(links, country="Japan")
     assert {item["url"] for item in ranked} == {item["url"] for item in links}
+
+
+# --------------------------------------------------------------------------- #
+#  Native-language audience evidence, SIS platforms, same-root redirects       #
+# --------------------------------------------------------------------------- #
+_FIXTURES = Path(__file__).parent / "fixtures" / "login_gate"
+
+#: A real sign-in form with no audience copy of its own.
+_BARE_FORM = """
+    <form method="post"><input name="username" type="text">
+    <input name="password" type="password"><button type="submit">OK</button></form>
+"""
+
+
+def _labelled_form(label: str) -> str:
+    return f"<h1>{label}</h1>{_BARE_FORM}"
+
+
+@pytest.mark.parametrize("fixture, url", [
+    ("hcmus_login.html", "https://new-portal4.hcmus.edu.vn/login.aspx"),
+    ("siu_guarani_unr.html", "https://autogestion-guarani.unr.edu.ar"),
+    ("siu_guarani_uncuyo.html", "https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/"),
+    ("tinchi_hau.html", "https://tinchi.hau.edu.vn"),
+    ("coesfhe_sign_in.html", "https://coesfhe.com/users/sign_in"),
+    ("etlab_tkmce.html", "https://tkmce.etlab.in/user/login"),
+    ("eduno_ava.html", "https://ava07.eduno.com.br/login"),
+])
+def test_accepts_reported_non_english_student_logins(fixture: str, url: str) -> None:
+    """Pages users reported that the gate used to reject for audience."""
+    html = (_FIXTURES / fixture).read_text(encoding="utf-8")
+    form_ok, form_reason = _login_form_evidence(html)
+    audience_ok, audience_reason = _student_audience_evidence(html, url)
+    assert form_ok is True, form_reason
+    assert audience_ok is True, audience_reason
+
+
+@pytest.mark.parametrize("label", [
+    # Spanish
+    "Acceso para estudiantes", "Portal del Alumno", "Ingreso de alumnos",
+    "Bienestar estudiantil", "Sistema de Control de Estudios", "Aula Virtual",
+    # Portuguese
+    "Portal do Aluno", "Acesso do estudante", "Área do discente",
+    "Sistema Acadêmico", "Ambiente Virtual de Aprendizagem",
+    "Educação a Distância",
+    # Vietnamese
+    "Cổng thông tin sinh viên", "CỔNG THÔNG TIN SINH VIÊN",
+    "Phòng Đào tạo", "Đăng ký tín chỉ", "Cổng học viên",
+    # French
+    "Espace étudiant", "Portail des étudiantes", "Service de la scolarité",
+    # Indonesian / Malay
+    "Portal Mahasiswa", "Sistem Informasi Akademik", "SIAKAD", "Portal Pelajar",
+    # Turkish
+    "Öğrenci Bilgi Sistemi", "ÖĞRENCİ GİRİŞİ", "Uzaktan Eğitim",
+    # Languages the discovery profiles already rank on
+    "學生入口", "بوابة الطالب", "Личный кабинет студента", "विद्यार्थी पोर्टल",
+])
+def test_native_language_student_terms_are_audience_evidence(label: str) -> None:
+    accepted, reason = _student_audience_evidence(
+        _labelled_form(label), "https://acceso.example.org/")
+    assert accepted is True, f"{label}: {reason}"
+    assert reason == "student/academic audience evidence"
+
+
+@pytest.mark.parametrize("field", [
+    '<input name="matricula" type="text">',                 # es / pt
+    '<input name="user" placeholder="Matrícula" type="text">',
+    '<input id="inputLegajo" name="user" type="text">',     # Argentina
+    '<input id="txtMaSinhVien" name="user" type="text">',   # Vietnam
+    '<input name="user" placeholder="MSSV" type="text">',
+    '<input name="nim" type="text">',                       # Indonesia
+    '<input name="ogrenci_no" type="text">',                # Turkey
+    '<input name="user" aria-label="Numéro étudiant" type="text">',
+])
+def test_student_identifier_fields_are_audience_evidence(field: str) -> None:
+    accepted, reason = _student_audience_evidence(
+        f'<form>{field}<input type="password"><button type="submit">OK</button></form>',
+        "https://acceso.example.org/")
+    assert accepted is True, f"{field}: {reason}"
+
+
+def test_decomposed_vietnamese_diacritics_still_match() -> None:
+    decomposed = unicodedata.normalize("NFD", "Cổng thông tin sinh viên")
+    assert decomposed != "Cổng thông tin sinh viên"
+    accepted, _ = _student_audience_evidence(
+        _labelled_form(decomposed), "https://acceso.example.org/")
+    assert accepted is True
+
+
+@pytest.mark.parametrize("url", [
+    "https://autogestion-guarani.unr.edu.ar/",             # SIU Guaraní host
+    "https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/",     # ... versioned path
+    "https://g3w.example.edu.ar/",
+    "https://du.samarth.edu.in/index.php/site/login",      # Samarth students
+    "https://tkmce.etlab.in/user/login",                   # etlab
+    "https://example.mastersofterp.in/",                   # MasterSoft ERP
+])
+def test_known_student_information_systems_need_no_audience_copy(url: str) -> None:
+    accepted, reason = _student_audience_evidence(_BARE_FORM, url)
+    assert accepted is True, f"{url}: {reason}"
+    assert "known" in reason
+
+
+def test_student_information_systems_are_recognised_from_page_branding() -> None:
+    url = "https://erp.example.ac.in/login"
+    for branding in ("SIU Guaraní - Acceso", "etlab | login",
+                     "Designed by MasterSoft ERP Solutions Pvt. Ltd."):
+        accepted, reason = _student_audience_evidence(
+            f"<title>{branding}</title>{_BARE_FORM}", url)
+        assert accepted is True, f"{branding}: {reason}"
+
+
+@pytest.mark.parametrize("html, url, expected", [
+    # English non-student wording still wins over a recognised SIS platform.
+    ("<h1>Staff login</h1>" + _BARE_FORM,
+     "https://tkmce.etlab.in/user/login", "non-student audience only"),
+    ("<h1>Employee self service</h1>" + _BARE_FORM,
+     "https://autogestion.example.edu.ar/", "non-student audience only"),
+    ("<h1>Admissions - applicant login</h1>" + _BARE_FORM,
+     "https://du.samarth.edu.in/index.php/site/login", "non-student audience only"),
+    # Alumni words in Spanish/Portuguese/Latin are not the new student terms.
+    ("<h1>Alumni portal - ex-alumnos</h1>" + _BARE_FORM,
+     "https://egresados.example.edu/login", "non-student audience only"),
+    ("<h1>Alumni - antigos alunos</h1>" + _BARE_FORM,
+     "https://www.example.pt/login", "non-student audience only"),
+    ("<h1>Alumni and alumnae network</h1>" + _BARE_FORM,
+     "https://network.example.edu/login", "non-student audience only"),
+    # Native-language pages with no student wording stay unproven.
+    ("<h1>Acceso docentes y personal administrativo</h1>" + _BARE_FORM,
+     "https://intranet.example.edu.ar/login",
+     "no student or academic audience evidence"),
+    ("<h1>Universidad Nacional - Iniciar sesión</h1>" + _BARE_FORM,
+     "https://cuentas.example.edu.ar/login",
+     "no student or academic audience evidence"),
+    # "Autogestión" is ordinary Spanish for self-service, not proof of SIU Guaraní.
+    ("<h1>Autogestión de personal</h1>" + _BARE_FORM,
+     "https://rrhh.example.edu.ar/autogestion",
+     "no student or academic audience evidence"),
+    (_BARE_FORM, "https://autogestion.example.edu.ar/acceso",
+     "no student or academic audience evidence"),
+    # Samarth's employee apex and a bare "Samarth" institution name.
+    ("<h1>Samarth eGov</h1>" + _BARE_FORM,
+     "https://nehu.samarth.ac.in/index.php/site/login",
+     "no student or academic audience evidence"),
+])
+def test_non_student_and_unproven_logins_are_still_rejected(
+        html: str, url: str, expected: str) -> None:
+    accepted, reason = _student_audience_evidence(html, url)
+    assert accepted is False
+    assert reason == expected
+
+
+def _serve(monkeypatch, html: str, landed_url: str) -> None:
+    """Make the static verifier's GET land on ``landed_url`` with ``html``."""
+
+    class Content:
+        async def read(self, _limit):
+            return html.encode("utf-8")
+
+    class Response:
+        status = 200
+        url = landed_url
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr("agent.guardrails.aiohttp.ClientSession",
+                        lambda **_kwargs: Session())
+
+
+def test_same_root_redirect_is_the_same_organisation() -> None:
+    assert _same_organisation_redirect(
+        "https://portal.hcmus.edu.vn",
+        "https://new-portal3.hcmus.edu.vn/Login.aspx?ReturnUrl=%2f") is True
+    # `edu.vn` is a public suffix, not an organisation.
+    assert _same_organisation_redirect(
+        "https://portal.hcmus.edu.vn", "https://portal.hcmut.edu.vn/") is False
+    assert _same_organisation_redirect(
+        "https://portal.example.edu", "https://login.vendor.com/sso") is False
+    # Sibling tenants of one vendor are different institutions.
+    assert _same_organisation_redirect(
+        "https://tkmce.etlab.in/user/login", "https://demo.etlab.in/user/login",
+        {"etlab.in"}) is False
+
+
+def test_static_verifier_follows_a_load_balanced_sibling_host(monkeypatch) -> None:
+    _serve(monkeypatch, (_FIXTURES / "hcmus_login.html").read_text(encoding="utf-8"),
+           "https://new-portal3.hcmus.edu.vn/Login.aspx?ReturnUrl=%2f")
+    accepted, note, stable = asyncio.run(verify_student_login_surface(
+        "https://portal.hcmus.edu.vn", use_proxy=False))
+    assert accepted is True, note
+    assert "student/academic audience evidence" in note
+    # The entry point is published, not whichever node answered this time.
+    assert stable == "https://portal.hcmus.edu.vn"
+
+
+def test_static_verifier_still_rejects_a_redirect_to_another_organisation(
+        monkeypatch) -> None:
+    html = (_FIXTURES / "hcmus_login.html").read_text(encoding="utf-8")
+    _serve(monkeypatch, html, "https://portal.hcmut.edu.vn/login.aspx")
+    accepted, note, final = asyncio.run(verify_student_login_surface(
+        "https://portal.hcmus.edu.vn", use_proxy=False))
+    assert accepted is False
+    assert note == "redirected to another host"
+    assert final == "https://portal.hcmut.edu.vn/login.aspx"
+
+
+def test_static_verifier_rejects_a_hop_between_vendor_tenants(monkeypatch) -> None:
+    html = (_FIXTURES / "etlab_tkmce.html").read_text(encoding="utf-8")
+    _serve(monkeypatch, html, "https://demo.etlab.in/user/login")
+    accepted, note, _final = asyncio.run(verify_student_login_surface(
+        "https://tkmce.etlab.in/user/login", use_proxy=False,
+        shared_platform_roots={"etlab.in"}))
+    assert accepted is False
+    assert note == "redirected to another host"

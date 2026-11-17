@@ -36,6 +36,10 @@ class RegionPack:
     login_path_tokens: tuple[str, ...] = ()
     # (platform name, compiled regex over HTML/URL, portal category)
     platform_fingerprints: tuple[tuple[str, "re.Pattern[str]", str], ...] = ()
+    # (platform name, compiled regex) — markers specific enough to stand as
+    # student-audience evidence in the final login gate. Stricter than the
+    # discovery fingerprints above, which may match generic local words.
+    student_system_markers: tuple[tuple[str, "re.Pattern[str]"], ...] = ()
 
 
 # --------------------------------------------------------------------------- AR
@@ -89,7 +93,9 @@ _ARGENTINA = RegionPack(
     login_path_tokens=("acceso", "ingresar", "autogestion"),
     platform_fingerprints=(
         ("SIU-Guaraní",
-         re.compile(r"siu[\s-]*guaran|guaran[ií]|autogesti[oó]n|/g3w/", re.I),
+         # `g3w\d?` covers the versioned app path (`/g3w3/`) as well as the
+         # `g3w` host label and the original `/g3w/` path.
+         re.compile(r"siu[\s-]*guaran|guaran[ií]|autogesti[oó]n|\bg3w\d?\b", re.I),
          "Student Portal"),
         ("Moodle",
          re.compile(r"moodle|aula virtual|/login/index\.php", re.I),
@@ -97,6 +103,13 @@ _ARGENTINA = RegionPack(
         ("SysAcad",
          re.compile(r"sysacad", re.I),
          "Student Portal"),
+    ),
+    # No bare "autogestión" here: it is ordinary Spanish for self-service and
+    # also names staff portals ("Autogestión de personal").
+    student_system_markers=(
+        ("SIU-Guaraní",
+         re.compile(r"siu[\s-]*guaran|guaran[ií]|\bg3w\d?\b", re.I)),
+        ("SysAcad", re.compile(r"sysacad", re.I)),
     ),
 )
 
@@ -186,6 +199,23 @@ def detect_region(domains: list[str] | tuple[str, ...],
             return pack
         if cty and cty == pack.country.lower():
             return pack
+    return None
+
+
+def student_platform_fingerprint(evidence: str) -> str | None:
+    """Name of the regional student-information system named in ``evidence``
+    (a URL and/or page text), else None.
+
+    Used by the final login gate, whose sparse SIS login screens ("Usuario /
+    Contraseña / Ingresar") carry no audience copy of their own. It reads each
+    pack's ``student_system_markers`` rather than the looser discovery
+    fingerprints, so a generic word cannot pass a staff portal as a student
+    system.
+    """
+    for pack in REGION_PACKS:
+        for name, pattern in pack.student_system_markers:
+            if pattern.search(evidence or ""):
+                return name
     return None
 
 

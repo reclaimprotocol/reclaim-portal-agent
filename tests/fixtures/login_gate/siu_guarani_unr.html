@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!-- Minimal copy of https://autogestion-guarani.unr.edu.ar as rendered: the login
+     pagelet is injected by JavaScript, so the raw response has no form. -->
+<html>
+<head><meta charset="utf-8"><title>SIU Guaraní - Acceso</title></head>
+<body>
+<ul id="js-nav" class="nav">
+  <li><a href="https://autogestion-guarani.unr.edu.ar:443/acceso">Acceso</a></li>
+  <li><a href="https://autogestion-guarani.unr.edu.ar:443/fecha_examen">Fechas de Examen</a></li>
+  <li><a href="https://autogestion-guarani.unr.edu.ar:443/horarios_cursadas">Horarios de Cursadas</a></li>
+  <li><a href="https://autogestion-guarani.unr.edu.ar:443/validador_certificados">Validador de Certificados</a></li>
+  <li><a href="https://autogestion-guarani.unr.edu.ar:443/ayuda_menu">Ayuda</a></li>
+</ul>
+<div id="login" class="pagelet">
+  <h2>Ingresá tus datos</h2>
+  <form method="post" action="https://autogestion-guarani.unr.edu.ar:443/acceso?auth=form" id="guarani_form_login">
+    <label for="usuario">Usuario</label>
+    <input id="usuario" name="usuario" type="text" value="" maxlength="60">
+    <label for="password">Contraseña</label>
+    <input id="password" name="password" type="password" value="" maxlength="20">
+    <input id="login" name="login" type="submit" value="Ingresar" class="btn btn-info">
+  </form>
+  <a href="https://autogestion-guarani.unr.edu.ar:443/acceso/recuperar">¿Olvidaste tu contraseña?</a>
+</div>
+<div id="contenido_login" class="pagelet">
+  <h2>SIU Guaraní 3</h2>
+  <p>Algunas de las cosas que podés hacer con este sistema son:</p>
+  <ul>
+    <li>Inscribirte a materias y exámenes.</li>
+    <li>Consultar el plan de tu propuesta.</li>
+    <li>Consultar tu historia académica.</li>
+    <li>Actualizar tus datos personales.</li>
+  </ul>
+</div>
+</body>
+</html>

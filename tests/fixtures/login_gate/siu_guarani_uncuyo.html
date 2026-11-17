@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- Minimal copy of https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/ as rendered: the
+     login pagelet is injected by JavaScript, so the raw response has no form. -->
+<html>
+<head><meta charset="utf-8"><title>SIU Guaraní - Acceso</title></head>
+<body>
+<ul id="js-nav" class="nav">
+  <li><a href="https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/acceso">Acceso</a></li>
+  <li><a href="https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/fecha_examen">Fechas de Examen</a></li>
+  <li><a href="https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/horarios_cursadas">Horarios de Cursadas</a></li>
+</ul>
+<div id="login" class="pagelet">
+  <h2>Ingresá tus datos</h2>
+  <form method="post" action="https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/acceso?auth=form" id="guarani_form_login">
+    <label for="usuario">Usuario</label>
+    <input id="usuario" name="usuario" type="text" value="" maxlength="60">
+    <label for="password">Contraseña</label>
+    <input id="password" name="password" type="password" value="" maxlength="20">
+    <input id="login" name="login" type="submit" value="Ingresar" class="btn btn-info">
+  </form>
+  <a href="https://guarani3.ingenieria.uncuyo.edu.ar/g3w3/acceso/recuperar">¿Olvidaste tu contraseña o sos un usuario nuevo?</a>
+</div>
+<div id="contenido_login" class="pagelet">
+  <h2>SIU Guaraní</h2>
+  <p>Algunas de las cosas que podés hacer con este sistema son:</p>
+  <ul>
+    <li>Inscribirte a materias y exámenes.</li>
+    <li>Consultar el plan de tu propuesta.</li>
+    <li>Consultar tu historia académica.</li>
+  </ul>
+</div>
+</body>
+</html>
