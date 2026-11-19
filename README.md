@@ -261,7 +261,7 @@ flowchart TD
     STATIC -->|ambiguous or JS-driven| RENDER["🖥️ Chromium render<br/>forms and actionable login/SSO controls"]
     STATIC --> VERIFY["🎓 Student/LMS/library audience gate"]
     RENDER --> VERIFY
-    VERIFY -->|verified portal(s)| CANON["🧹 Canonicalise and deduplicate<br/>stable SSO URL · one entry per application"]
+    VERIFY -->|verified portals| CANON["🧹 Canonicalise and deduplicate<br/>stable SSO URL · one entry per application"]
     CANON --> LEGAL["🕸️ Portal legal-page crawl + graph match"]
     LEGAL --> OUT["📤 Portals sheet / verified CSV"]
 
