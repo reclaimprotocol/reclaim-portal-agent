@@ -37,6 +37,7 @@ import logging
 import os
 import re
 import ssl
+import unicodedata
 import weakref
 from typing import Any, Iterable, Sequence
 from urllib.parse import (parse_qsl, quote, urlencode, urljoin, urlsplit,
@@ -46,6 +47,9 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from agent import proxy as _proxy
+from agent.graph_matcher import registrable_root
+from agent.languages import STUDENT_AUDIENCE_RE as _NATIVE_STUDENT_AUDIENCE_RE
+from agent.regions import student_platform_fingerprint
 
 logger = logging.getLogger("genie.guardrails")
 
@@ -107,9 +111,15 @@ _NON_STUDENT_AUDIENCE_RE = re.compile(
     r"\b(?:admission(?:s)?|applicant(?:s)?|application\s+portal|prospective\s+student|"
     r"staff|faculty|employee(?:s)?|human\s+resources|payroll|administrator|admin\s+login|"
     r"alumni|parent(?:s)?|vendor|partner)\b", re.I)
+# The last line names student-information-system vendors whose tenant login
+# screens are a bare "Username / Password". Only `samarth.edu.in` is listed:
+# `samarth.ac.in` is Samarth's employee portal, and "Samarth" alone is a common
+# institution name. Regional systems (SIU Guaraní, ...) are not repeated here;
+# they come from the region packs via `student_platform_fingerprint`.
 _ACADEMIC_PLATFORM_RE = re.compile(
     r"(?:moodle|canvas(?:lms)?|blackboard|brightspace|d2l|chamilo|sakailms|"
-    r"(?:^|[./_-])lms(?:[./_-]|$)|koha|ezproxy|library\s+catalog|opac)", re.I)
+    r"(?:^|[./_-])lms(?:[./_-]|$)|koha|ezproxy|library\s+catalog|opac|"
+    r"\betlab\b|samarth\.edu\.in|mastersoft\s*erp)", re.I)
 _OFFICIAL_STUDENT_SERVICE_URL_RE = re.compile(
     r"(?:^|[./_-])(?:student|campus|portal|lms|moodle|canvas|library|"
     r"my)(?:[./_-]|$)", re.I)
@@ -290,8 +300,13 @@ def _student_audience_evidence(html: str, url: str) -> tuple[bool, str]:
     "is that somebody plausibly a student?"  Shared student/staff sign-in pages
     remain valid because they explicitly name students.  A staff-only or
     admissions-only page is rejected even when it has a perfectly real form.
-    Known LMS and academic-library products are accepted as student services
-    when their sparse login screen has no audience copy.
+    Known LMS, student-information-system and academic-library products are
+    accepted as student services when their sparse login screen has no
+    audience copy.
+
+    Student evidence is read in the page's own language as well as English
+    (`agent.languages.STUDENT_AUDIENCE_PATTERNS`); the non-student list is not
+    widened, so a staff- or alumni-only page gains nothing from that.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     page_text = soup.get_text(" ", strip=True)
@@ -300,16 +315,40 @@ def _student_audience_evidence(html: str, url: str) -> tuple[bool, str]:
                  ("name", "id", "placeholder", "autocomplete", "aria-label"))
         for field in soup.find_all(["input", "textarea", "button"])
     )
-    evidence = f"{url}\n{page_text}\n{form_descriptors}"
-    has_student_signal = bool(_STUDENT_AUDIENCE_RE.search(evidence))
+    # NFC so decomposed diacritics (common on Vietnamese pages) still match.
+    evidence = unicodedata.normalize(
+        "NFC", f"{url}\n{page_text}\n{form_descriptors}")
+    has_student_signal = bool(_STUDENT_AUDIENCE_RE.search(evidence)
+                              or _NATIVE_STUDENT_AUDIENCE_RE.search(evidence))
     has_non_student_signal = bool(_NON_STUDENT_AUDIENCE_RE.search(evidence))
     if has_non_student_signal and not has_student_signal:
         return False, "non-student audience only"
     if has_student_signal:
         return True, "student/academic audience evidence"
     if _ACADEMIC_PLATFORM_RE.search(evidence):
-        return True, "known LMS or academic-library platform"
+        return True, "known LMS, student-system or academic-library platform"
+    regional_platform = student_platform_fingerprint(evidence)
+    if regional_platform:
+        return True, f"known student information system ({regional_platform})"
     return False, "no student or academic audience evidence"
+
+
+def _same_organisation_redirect(
+    requested_url: str, final_url: str,
+    shared_platform_roots: Iterable[str] = (),
+) -> bool:
+    """Whether a cross-host redirect stayed inside one organisation.
+
+    Portals load-balance to sibling hosts (`portal.hcmus.edu.vn` ->
+    `new-portal3.hcmus.edu.vn`), which is the same service under the same
+    registrable root. Tenants of a multi-tenant vendor share the VENDOR's root
+    while belonging to different institutions, so a hop between hosts under a
+    root in ``shared_platform_roots`` is still a different organisation.
+    """
+    root = registrable_root(requested_url)
+    if not root or root != registrable_root(final_url):
+        return False
+    return root not in {r.lower() for r in shared_platform_roots if r}
 
 
 def _official_host(url: str, official_domain: str) -> bool:
@@ -508,10 +547,12 @@ async def verify_student_login_surface_hybrid(
     country_hint: str = "",
     official_domain: str = "",
     render_timeout_seconds: int = 25,
+    shared_platform_roots: Iterable[str] = (),
 ) -> tuple[bool, str, str]:
     """Fast static verification followed by Chromium on any ambiguity."""
     static = await verify_student_login_surface(
-        url_path, timeout_seconds, country_hint=country_hint)
+        url_path, timeout_seconds, country_hint=country_hint,
+        shared_platform_roots=shared_platform_roots)
     if static[0]:
         return static[0], static[1], _stable_verified_url(_as_url(url_path), static[2])
     rendered = await verify_student_login_surface_rendered(
@@ -528,6 +569,7 @@ async def verify_student_login_surface(
     *,
     use_proxy: bool = True,
     country_hint: str = "",
+    shared_platform_roots: Iterable[str] = (),
 ) -> tuple[bool, str, str]:
     """Verify that a reachable URL is an HTML student-login surface.
 
@@ -535,6 +577,13 @@ async def verify_student_login_surface(
     guard, this GET reads a bounded HTML response and requires password +
     identifier + sign-in/authorise evidence.  PDFs, IP-literal hosts, external
     identity-provider redirects, and non-HTML responses are rejected.
+
+    A redirect to a sibling host on the same registrable root (a portal
+    load-balancing across nodes) is followed; one to another organisation is
+    not.  ``shared_platform_roots`` names multi-tenant vendor roots, where
+    sibling hosts are different institutions and the redirect is still
+    rejected.  After an accepted cross-host redirect the returned URL is the
+    requested entry point, not the node that happened to answer.
     """
     allowed, reason = portal_url_allowed(url_path)
     if not allowed:
@@ -548,6 +597,7 @@ async def verify_student_login_surface(
     body = b""
     content_type = ""
     final_url = url
+    host_changed = False
     async with aiohttp.ClientSession(timeout=timeout) as sess:
         for index, (provider, proxy_url) in enumerate(routes):
             try:
@@ -557,7 +607,10 @@ async def verify_student_login_surface(
                     final_allowed, final_reason = portal_url_allowed(final_url)
                     if not final_allowed:
                         return False, f"final URL: {final_reason}", final_url
-                    if _normalised_host(final_url) != _normalised_host(url):
+                    host_changed = (_normalised_host(final_url)
+                                    != _normalised_host(url))
+                    if host_changed and not _same_organisation_redirect(
+                            url, final_url, shared_platform_roots):
                         return False, "redirected to another host", final_url
                     content_type = (resp.headers.get("Content-Type") or "").lower()
                     if "pdf" in content_type:
@@ -590,10 +643,16 @@ async def verify_student_login_surface(
         text, final_url)
     if not accepted and not control_ok:
         return False, f"{evidence}; {control_evidence}", final_url
-    audience_ok, audience_reason = _student_audience_evidence(text, final_url)
+    # After a same-organisation hop the requested entry point is still part of
+    # the evidence (as in the rendered verifier): the node that answered may
+    # have a name that says nothing about the service.
+    audience_ok, audience_reason = _student_audience_evidence(
+        text, f"{url} {final_url}" if host_changed else final_url)
     if not audience_ok:
         return False, audience_reason, final_url
-    stable_url = final_url
+    # Publish the stable entry point rather than one node of a rotating pool.
+    stable_url = (_stable_verified_url(url, final_url) if host_changed
+                  else final_url)
     if not accepted and control_target:
         target_allowed, _target_reason = portal_url_allowed(control_target)
         if target_allowed and not _has_volatile_auth_state(control_target):
