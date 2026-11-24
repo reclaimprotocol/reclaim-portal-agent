@@ -481,3 +481,18 @@ def test_gate_can_be_switched_off(monkeypatch) -> None:
         orch.verify_portals(row, [_portal(home)]))
     assert [p.exact_url for p, _ in live] == [home]
     assert rejected == []
+
+
+def test_batch_never_publishes_a_plain_http_replacement(monkeypatch) -> None:
+    """An https page whose Login link leads to an http form: the verified
+    https page is published, never the clear-text one."""
+    home = "https://www.example.ac.in/"
+    _patch_pipeline(monkeypatch, {
+        home: (True, "rendered login/SSO authorisation control; login link opened "
+                     "and confirmed", "http://erp.example.ac.in/login"),
+    })
+    row = orch.UniversityRow(1, "1", "X", "example.ac.in")
+    live, _dead, _insecure, rejected = asyncio.run(
+        orch.verify_portals(row, [_portal(home)]))
+    assert [p.exact_url for p, _ in live] == [home]
+    assert rejected == []

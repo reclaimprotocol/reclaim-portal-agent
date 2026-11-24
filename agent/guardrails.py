@@ -548,6 +548,14 @@ def _has_volatile_auth_state(url: str) -> bool:
         return False
 
 
+def _navigates(href: str) -> bool:
+    """Whether an href leads to another page: absolute, root-relative or plain
+    relative ("login.php"). Fragments and non-web schemes act on this page."""
+    href = (href or "").strip()
+    return bool(href) and not href.startswith("#") and not re.match(
+        r"(?:javascript|mailto|tel|sms|data|about|whatsapp):", href, re.I)
+
+
 def _rendered_auth_control_target(
     html: str, base_url: str = "",
 ) -> tuple[bool, str, str]:
@@ -572,8 +580,7 @@ def _rendered_auth_control_target(
         if not _has_login_word(descriptor):
             continue
         if (control.name in {"button", "input"} or kind in {"submit", "button"}
-                or href.lower().startswith(("http://", "https://", "/"))
-                or onclick):
+                or _navigates(href) or onclick):
             target = ""
             if control.name == "a" and href:
                 target = urljoin(base_url, href) if base_url else href
@@ -636,8 +643,7 @@ def _login_links(html: str, base_url: str = "") -> tuple[bool, list[tuple[str, s
         kind = (control.get("type") or "").lower()
         if not _has_login_word(f"{text} {href} {onclick}"):
             continue
-        is_link = control.name == "a" and href.lower().startswith(
-            ("http://", "https://", "/"))
+        is_link = control.name == "a" and _navigates(href)
         if not is_link:
             if control.name in {"button", "input"} or kind in {"submit", "button"} or onclick:
                 has_button = True
@@ -873,7 +879,6 @@ async def _resolve_login_target(
     timeout_seconds: int,
     country_hint: str = "",
     use_proxy: bool = True,
-    render_timeout_seconds: int = 0,
 ) -> tuple[str, str, str]:
     """Open a page's Login links and find the one that is the student login.
 
@@ -886,15 +891,16 @@ async def _resolve_login_target(
                      (or could not be reached just now); nothing is known.
     ``wrong``        every link leads somewhere that is not a student login.
 
-    With ``render_timeout_seconds`` set, the first link whose form is not in
-    the plain HTML is rendered once in Chromium before giving up on it.
+    A link whose form is drawn by script stays ``unconfirmed`` here. Plain
+    HTTP is the only thing this function fetches, so every redirect hop is
+    checked; the hybrid verifier's click-through, whose browser blocks
+    non-public addresses on every request, is what opens such links.
     """
     reasons: list[str] = []
     pending: list[str] = []
     # Each entry is a URL or a ``(url, label)`` pair from `_login_links`.
     pairs = [(t, "") if isinstance(t, str) else (t[0], t[1]) for t in targets]
-    labels = dict(pairs)
-
+    
     def publishable(target: str, final_url: str) -> str:
         return canonical_portal_url(_stable_verified_url(target, final_url))
 
@@ -939,22 +945,6 @@ async def _resolve_login_target(
         else:
             pending.append(target)
 
-    to_render = next((t for t in pending if t), "")
-    if to_render and await _safe_target(to_render):
-        to_render = ""                    # never render an unsafe address
-    if to_render and render_timeout_seconds:
-        html, final_url, _error = await _render_html(
-            to_render, render_timeout_seconds, country_hint)
-        if html:
-            verdict, reason = _classify_login_target(
-                to_render, final_url, html, entry_url, labels.get(to_render, ""))
-            if verdict == "student":
-                return "confirmed", publishable(to_render, final_url), reason
-            if verdict == "wrong":
-                reasons.append(reason)
-                pending.remove(to_render)
-            elif verdict == "unsure":
-                pending[pending.index(to_render)] = ""
     if pending:
         return "unconfirmed", "", LINK_UNCONFIRMED_NOTE
     return "wrong", "", "; ".join(dict.fromkeys(reasons)) or "no usable login link"
@@ -1066,8 +1056,7 @@ async def verify_student_login_surface_rendered(
             outcome, target_url, why = await _resolve_login_target(
                 targets, entry_url=final_url,
                 timeout_seconds=min(timeout_seconds, 15),
-                country_hint=country_hint,
-                render_timeout_seconds=timeout_seconds)
+                country_hint=country_hint)
             if outcome == "confirmed":
                 stable = target_url
                 link_note = "; login link opened and confirmed"

@@ -419,6 +419,16 @@ async def verify_portals(
             accepted, why = portal_url_allowed(final)
             if not accepted:
                 note = f"final URL: {why}"
+            elif not transport_ok(final):
+                # The login check may hand back a different page (a Login link
+                # it followed, a form it clicked to). The original already
+                # passed the https policy; a replacement that would send
+                # passwords in clear text is not published. Fall back to the
+                # page that was verified.
+                logger.info("v3: org %s — %s resolved to non-https %s; "
+                            "publishing the verified page instead",
+                            row.org_id, original, final)
+                final = canonical_portal_url(original)
         if not accepted:
             rejected.append((original, note))
             logger.warning("[NOT A STUDENT LOGIN] org %s — %s (%s) — discarded",

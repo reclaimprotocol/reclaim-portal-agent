@@ -610,3 +610,46 @@ def test_click_through_browser_aborts_internal_requests(fake_dns) -> None:
         "continue https://erp.example.ac.in/login",
         "continue data:text/html,hi",
     ]
+
+
+# --------------------------------------------------------------------------- #
+#  third review: relative links, no render of link targets                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_plain_relative_login_links_are_followed() -> None:
+    base = "https://www.example.ac.in/portal/"
+    has_button, links = G._login_links(
+        '<a href="login.php">Login</a><a href="../student/signin">Student Login</a>'
+        '<a href="#login">Login</a><a href="javascript:void(0)">Login</a>'
+        '<a href="mailto:help@example.ac.in">Login help</a>', base)
+    assert has_button is False
+    assert [t for t, _l in links] == ["https://www.example.ac.in/student/signin",
+                                      "https://www.example.ac.in/portal/login.php"]
+
+
+def test_relative_link_is_opened_and_published(monkeypatch) -> None:
+    login = "https://www.example.ac.in/login.php"
+    _site(monkeypatch, {HOME: _home('<a href="login.php">Login</a>'), login: FORM})
+    accepted, note, url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert accepted is True and url == login
+    assert "login link opened and confirmed" in note
+
+
+def test_link_whose_redirect_was_blocked_is_never_rendered(monkeypatch) -> None:
+    """The fetch refuses an internal redirect; nothing may then load the link
+    in a browser that would follow that redirect unchecked."""
+    link = "https://www.example.ac.in/login"
+
+    async def fetch(*_a, **_k):
+        return 0, "http://169.254.169.254/", "", "redirect: address is not on the public internet"
+
+    async def render(*_a, **_k):
+        raise AssertionError("a link target must never be rendered")
+
+    _site(monkeypatch, {HOME: _home(f'<a href="{link}">Student Login</a>')})
+    monkeypatch.setattr(G, "_fetch_html", fetch)
+    monkeypatch.setattr(G, "_render_html", render)
+    accepted, note, _url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert accepted is False
+    assert G.NON_PUBLIC_NOTE in note
