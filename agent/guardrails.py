@@ -610,20 +610,26 @@ _MAX_LOGIN_TARGETS = 3
 
 
 def _login_controls(html: str, base_url: str = "") -> tuple[bool, list[str]]:
-    """Every sign-in control on a page: ``(has_button, link_targets)``.
+    """`_login_links` without the labels: ``(has_button, link_targets)``."""
+    has_button, links = _login_links(html, base_url)
+    return has_button, [target for target, _label in links]
+
+
+def _login_links(html: str, base_url: str = "") -> tuple[bool, list[tuple[str, str]]]:
+    """Every sign-in control on a page: ``(has_button, [(target, label), ...])``.
 
     ``has_button`` is true when a control signs in without a link of its own (a
     button, a submit input, a scripted element): the login then opens on this
-    page. ``link_targets`` are the absolute addresses the Login links point to,
-    student-labelled links first. A link labelled for another audience ("Staff
-    login", "Recruiter login") is left out, as is a link back to the page
-    itself.
+    page. The links are the absolute addresses the Login links point to, each
+    with the text the page shows for it, student-labelled links first. A link
+    labelled for another audience ("Staff login", "Recruiter login") is left
+    out, as is a link back to the page itself.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     here = portal_dedupe_key(base_url) if base_url else ""
     has_button = False
-    student_first: list[str] = []
-    others: list[str] = []
+    student_first: list[tuple[str, str]] = []
+    others: list[tuple[str, str]] = []
     seen: set[str] = set()
     for control in soup.find_all(["button", "input", "a"]):
         text = " ".join([
@@ -658,12 +664,12 @@ def _login_controls(html: str, base_url: str = "") -> tuple[bool, list[str]]:
         if key == here or key in seen:
             continue
         seen.add(key)
-        (student_first if for_students else others).append(target)
+        (student_first if for_students else others).append((target, text))
     return has_button, student_first + others
 
 
 def _classify_login_target(
-    target: str, final_url: str, html: str, entry_url: str = "",
+    target: str, final_url: str, html: str, entry_url: str = "", label: str = "",
 ) -> tuple[str, str]:
     """Judge the page a Login link opened.
 
@@ -675,7 +681,8 @@ def _classify_login_target(
     ``unsure``   a sign-in form on another site that does not say who it is
                  for. Rendering will not change that.
 
-    ``entry_url`` is the page that carried the link.
+    ``entry_url`` is the page that carried the link and ``label`` the text it
+    showed for it ("Student Login").
     """
     allowed, reason = portal_url_allowed(final_url)
     if not allowed:
@@ -686,17 +693,22 @@ def _classify_login_target(
     form_ok, form_reason = _login_form_evidence(html)
     if not form_ok:
         return "unknown", form_reason
+    # What the institution calls the link is evidence too: "Student Login"
+    # says who the sign-in is for even when the form behind it says nothing.
     audience_ok, audience_reason = _student_audience_evidence(
-        html, f"{target} {final_url}")
+        html, f"{label} {target} {final_url}")
     if audience_reason == "non-student audience only":
         return "wrong", audience_reason
     # On the institution's own site the linking page already vouched for the
-    # audience, so a sparse "Username / Password" screen is fine. A link that
-    # leaves the site gets no such credit: `samarth.ac.in` (staff) and
-    # `samarth.edu.in` (students) look the same from a university homepage,
-    # and only the student one says so.
-    same_site = bool(entry_url) and (
-        registrable_root(entry_url) == registrable_root(target))
+    # audience, so a sparse "Username / Password" screen is fine. A login that
+    # is served from another site gets no such credit: `samarth.ac.in` (staff)
+    # and `samarth.edu.in` (students) look the same from a university homepage,
+    # and only the student one says so. "Served from" is where the request
+    # LANDED: an on-site `/login` that redirects to an outside identity
+    # provider is an off-site login, however local the link looked.
+    entry_root = registrable_root(entry_url) if entry_url else ""
+    same_site = bool(entry_root) and (
+        entry_root == registrable_root(target) == registrable_root(final_url))
     if not audience_ok and not same_site:
         # Not proof of anything: plenty of real student portals are a vendor's
         # bare login screen. It is only not enough to PUBLISH the link.
@@ -785,7 +797,7 @@ async def _render_html(
 
 
 async def _resolve_login_target(
-    targets: Sequence[str],
+    targets: Sequence[Any],
     *,
     entry_url: str = "",
     timeout_seconds: int,
@@ -809,11 +821,14 @@ async def _resolve_login_target(
     """
     reasons: list[str] = []
     pending: list[str] = []
+    # Each entry is a URL or a ``(url, label)`` pair from `_login_links`.
+    pairs = [(t, "") if isinstance(t, str) else (t[0], t[1]) for t in targets]
+    labels = dict(pairs)
 
     def publishable(target: str, final_url: str) -> str:
         return canonical_portal_url(_stable_verified_url(target, final_url))
 
-    for target in list(targets)[:_MAX_LOGIN_TARGETS]:
+    for target, label in pairs[:_MAX_LOGIN_TARGETS]:
         allowed, reason = portal_url_allowed(target)
         if not allowed:
             if reason in _UNPUBLISHABLE_NOT_WRONG:
@@ -841,7 +856,7 @@ async def _resolve_login_target(
             pending.append(target)        # timeout, WAF wall: not a verdict
             continue
         verdict, reason = _classify_login_target(
-            target, final_url, html, entry_url)
+            target, final_url, html, entry_url, label)
         if verdict == "student":
             return "confirmed", publishable(target, final_url), reason
         if verdict == "wrong":
@@ -857,7 +872,7 @@ async def _resolve_login_target(
             to_render, render_timeout_seconds, country_hint)
         if html:
             verdict, reason = _classify_login_target(
-                to_render, final_url, html, entry_url)
+                to_render, final_url, html, entry_url, labels.get(to_render, ""))
             if verdict == "student":
                 return "confirmed", publishable(to_render, final_url), reason
             if verdict == "wrong":
@@ -969,7 +984,7 @@ async def verify_student_login_surface_rendered(
     stable = _stable_verified_url(published, final_url)
     link_note = ""
     if not form_ok:
-        has_button, targets = _login_controls(html, final_url)
+        has_button, targets = _login_links(html, final_url)
         if not has_button and not targets:
             return False, NO_STUDENT_CONTROL_NOTE, final_url
         if targets:
@@ -1191,7 +1206,7 @@ async def verify_student_login_surface(
         # publish it when it is the student login, publish this page when the
         # link cannot be judged, and reject the page when its only way in
         # leads somewhere else.
-        has_button, targets = _login_controls(text, final_url)
+        has_button, targets = _login_links(text, final_url)
         if not has_button and not targets:
             return False, NO_STUDENT_CONTROL_NOTE, final_url
         if targets:

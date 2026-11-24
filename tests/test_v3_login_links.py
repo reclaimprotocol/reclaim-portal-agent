@@ -334,6 +334,85 @@ def test_link_that_redirects_to_another_host_publishes_the_link(monkeypatch) -> 
 
 
 # --------------------------------------------------------------------------- #
+#  "same site" is judged by where the link LANDS                               #
+# --------------------------------------------------------------------------- #
+
+IDP = "https://sso.identity-host.net/signin"
+
+
+def _redirecting(monkeypatch, link: str, lands_on: str, html: str, label: str) -> None:
+    """HOME carries one Login link; opening it redirects to ``lands_on``."""
+    async def fetch(url, *_args, **_kwargs):
+        assert url == link
+        return 200, lands_on, html, ""
+
+    _site(monkeypatch, {HOME: _home(f'<a href="{link}">{label}</a>')})
+    monkeypatch.setattr(G, "_fetch_html", fetch)
+
+
+def test_classifier_gives_no_same_site_credit_after_an_off_site_redirect() -> None:
+    link = "https://www.example.ac.in/login"
+    # Stays on the institution's site: the linking page vouches for it.
+    assert G._classify_login_target(link, link, FORM, HOME)[0] == "student"
+    assert G._classify_login_target(
+        link, "https://erp.example.ac.in/login", FORM, HOME)[0] == "student"
+    # Lands on another site with a form that says nothing: no credit.
+    verdict, reason = G._classify_login_target(link, IDP, FORM, HOME)
+    assert verdict == "unsure"
+    assert reason == "off-site login with no student or academic audience evidence"
+    # ...unless the institution itself labelled the link for students,
+    assert G._classify_login_target(link, IDP, FORM, HOME, "Student Login")[0] == "student"
+    # or the page it lands on says so.
+    student_form = FORM.replace("<form>", "<h1>Student Portal</h1><form>")
+    assert G._classify_login_target(link, IDP, student_form, HOME)[0] == "student"
+    # A page that names another audience is wrong wherever it is served from.
+    assert G._classify_login_target(link, IDP, EMPLOYEE, HOME, "Login")[0] == "wrong"
+
+
+def test_on_site_link_that_redirects_to_a_bare_outside_login_is_not_published(
+        monkeypatch) -> None:
+    """The reviewed case: `/login` on the institution's site hands off to an
+    outside identity provider whose form never says who it is for."""
+    link = "https://www.example.ac.in/login"
+    _redirecting(monkeypatch, link, IDP, FORM, "Login")
+    accepted, note, url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert accepted is True and url == HOME     # the page is kept ...
+    assert LINK_UNCONFIRMED_NOTE in note        # ... the unverified link is not published
+
+
+def test_student_labelled_link_through_an_outside_provider_is_published(monkeypatch) -> None:
+    """Using Google, Microsoft or a vendor to sign in is not held against a portal."""
+    link = "https://www.example.ac.in/login"
+    _redirecting(monkeypatch, link, IDP + "?SAMLRequest=abc", FORM, "Student Login")
+    accepted, note, url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert accepted is True and url == link     # the stable entry, not the transaction
+    assert "login link opened and confirmed" in note
+
+
+def test_on_site_link_that_redirects_to_an_outside_staff_login_rejects_the_page(
+        monkeypatch) -> None:
+    link = "https://www.example.ac.in/login"
+    _redirecting(monkeypatch, link, IDP, EMPLOYEE, "Login")
+    accepted, note, _url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert accepted is False
+    assert note == "login link is not a student login: non-student audience only"
+
+
+def test_redirect_to_a_sibling_host_is_still_the_same_site(monkeypatch) -> None:
+    link = "https://www.example.ac.in/login"
+    landed = "https://auth.example.ac.in/Account/Login"
+    _redirecting(monkeypatch, link, landed, FORM, "Login")
+    accepted, _note, url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert accepted is True and url == link
+
+
+def test_login_links_carry_the_text_the_page_shows() -> None:
+    _has_button, links = G._login_links(
+        '<a href="/a">Login</a><a href="/b">Student Login</a>', HOME)
+    assert links == [(HOME + "b", "Student Login"), (HOME + "a", "Login")]
+
+
+# --------------------------------------------------------------------------- #
 #  hybrid: render only when the link could not be read                         #
 # --------------------------------------------------------------------------- #
 

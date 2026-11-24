@@ -233,6 +233,7 @@ def pick_sections(controls: Sequence[dict], base_url: str) -> list[str]:
     """Same-site "Students" pages worth a second look when the homepage has no login."""
     host = (urlsplit(base_url).hostname or "").lower()
     found: list[tuple[int, str]] = []
+    seen: set[str] = set()
     for control in controls:
         href = (control.get("href") or "").split("#")[0]
         text = (control.get("text") or "").strip()
@@ -248,7 +249,8 @@ def pick_sections(controls: Sequence[dict], base_url: str) -> list[str]:
             continue
         if not G.portal_url_allowed(href)[0] or is_admission_url(href)[0]:
             continue
-        if href not in [h for _n, h in found]:
+        if href not in seen:
+            seen.add(href)
             found.append((len(text), href))
     return [href for _n, href in sorted(found, key=lambda f: f[0])][:_MAX_SECTIONS]
 
@@ -448,13 +450,7 @@ async def _follow(context: Any, page: Any, control: dict, base_url: str) -> dict
         if href.startswith("http") and not is_toggle(control, base_url):
             tab = await context.new_page()
             try:
-                try:
-                    await tab.goto(href, wait_until="domcontentloaded",
-                                   timeout=_NAV_TIMEOUT_MS)
-                except Exception:  # noqa: BLE001
-                    # Slow is not dead: one more try, settling for the first
-                    # byte, since `_settled_html` waits for the form anyway.
-                    await tab.goto(href, wait_until="commit", timeout=_NAV_TIMEOUT_MS)
+                await tab.goto(href, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
                 html = await _settled_html(tab)
                 dest = tab.url
             finally:
@@ -500,7 +496,8 @@ async def _explore(context: Any, page: Any, base_url: str, credit_url: str,
         html = click.pop("html", "")
         if "verdict" not in click:
             verdict, reason = G._classify_login_target(
-                click["href"] or click["dest"], click["dest"], html, credit_url)
+                click["href"] or click["dest"], click["dest"], html, credit_url,
+                str(click.get("control") or ""))
             click.update(verdict=verdict, reason=reason)
         clicks.append(click)
     return clicks

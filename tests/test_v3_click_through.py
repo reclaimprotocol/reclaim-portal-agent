@@ -225,6 +225,42 @@ def test_no_student_login_behind_any_control() -> None:
     assert decide([], HOME).note == "no login control to click"
 
 
+def test_click_passes_the_control_label_to_the_classifier(monkeypatch) -> None:
+    """The label is what lets "Student Login" -> outside provider count."""
+    from agent import click_through as CT
+    seen: list[tuple] = []
+
+    def classify(target, final, html, entry, label=""):
+        seen.append((target, final, entry, label))
+        return "student", "form"
+
+    async def follow(_context, _page, control, _base):
+        return {"control": control["text"], "href": control["href"],
+                "dest": "https://sso.identity-host.net/signin", "html": "<html/>",
+                "url_changed": True, "for_students": True}
+
+    async def collect(_page):
+        return [_c(1, "Student Login", "https://www.example.ac.in/login")]
+
+    async def nothing(*_a, **_k):
+        return None
+
+    class Page:
+        url = HOME
+
+        async def wait_for_load_state(self, *_a, **_k):
+            return None
+
+    monkeypatch.setattr(G, "_classify_login_target", classify)
+    monkeypatch.setattr(CT, "_follow", follow)
+    monkeypatch.setattr(CT, "_collect", collect)
+    monkeypatch.setattr(CT, "_open_menus", nothing)
+    clicks = asyncio.run(CT._explore(None, Page(), HOME, HOME, 4))
+    assert seen == [("https://www.example.ac.in/login",
+                     "https://sso.identity-host.net/signin", HOME, "Student Login")]
+    assert clicks[0]["verdict"] == "student" and "html" not in clicks[0]
+
+
 def test_one_time_sso_address_is_never_published() -> None:
     sso = "https://lms.example.ac.in/sso/login"
     idp = "https://idp.example.net/login?SAMLRequest=abc&RelayState=x"
