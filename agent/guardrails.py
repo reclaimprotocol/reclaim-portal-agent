@@ -47,7 +47,9 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from agent import proxy as _proxy
+from agent.admission import is_admission_portal, is_admission_url
 from agent.graph_matcher import registrable_root
+from agent.languages import LOGIN_WORD_RE as _NATIVE_LOGIN_WORD_RE
 from agent.languages import STUDENT_AUDIENCE_RE as _NATIVE_STUDENT_AUDIENCE_RE
 from agent.regions import student_platform_fingerprint
 
@@ -95,6 +97,51 @@ _NON_PORTAL_CONTENT_PATH_RE = re.compile(
     r"(?:\.[a-z0-9]+)?(?:/|$)",
     re.I,
 )
+# Login screens that are real but never a student portal: CMS and hosting
+# control panels. A WordPress or Plesk login has a perfect username/password
+# form, so the form check alone cannot reject it.
+_NON_PORTAL_LOGIN_PATH_RE = re.compile(
+    r"(?:^|/)(?:wp-login\.php|wp-admin|login_up\.php|administrator)(?:/|$)|"
+    r"(?:^|/)(?:nextcloud|owncloud|roundcube|zimbra|webmail|owa)(?:/|$)",
+    re.I,
+)
+# Hosts whose first label names a service that is not a student academic
+# portal: mail, file storage, careers and complaints. Libraries are NOT listed;
+# the audience check deliberately accepts library systems as student services.
+_NON_PORTAL_HOST_LABELS = frozenset({
+    "webmail", "mail", "email", "owa", "roundcube", "zimbra",
+    "nextcloud", "owncloud",
+    "career", "careers", "placement", "placements", "jobs",
+    "recruit", "recruitment", "alumni", "alum",
+    "grievance", "grievances", "complaint", "complaints", "redressal",
+})
+# A path that names another audience outright (`/staff/login`,
+# `recruiter_login.php`, `/faculty-portal`). The word must stand alone or be
+# joined to a login word, so `/transparent/` and `/shr/` do not match.
+_NON_STUDENT_PATH_RE = re.compile(
+    r"(?:^|[/_.-])(?:staff|faculty|employees?|teachers?|payroll|alumni|parents?|"
+    r"vendors?|recruiters?|recruitment|employers?|grievances?|placements?|hr)"
+    r"(?:[-_]?(?:login|signin|sign-in|portal|panel|area))?"
+    r"(?:\.[a-z0-9]{2,5})?(?:[/_.-]|$)|"
+    r"(?:^|[/_.-])admin[-_]?(?:login|panel|portal)(?:\.[a-z0-9]{2,5})?(?:[/_.-]|$)|"
+    # A path that ends at `/admin` or `/admin/login` is a back-office console.
+    # Deeper `/admin/...` routes are left to the content rules above.
+    r"(?:^|/)admin(?:/(?:login|signin)(?:\.[a-z0-9]{2,5})?)?/?$",
+    re.I,
+)
+_STUDENT_PATH_WORD_RE = re.compile(
+    r"student|learner|alun[oa]|estudiante|alumn[oa]s?(?![a-z])|mahasiswa|"
+    r"ogrenci|etudiant", re.I)
+#: Click-tracking query keys. They identify the visitor's ad click, never the
+#: page, so two URLs differing only in these are the same portal.
+_TRACKING_PARAMS = frozenset({
+    "_gl", "_ga", "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "dclid",
+    "mc_cid", "mc_eid", "yclid", "igshid",
+})
+_TRACKING_PARAM_PREFIXES = ("utm_", "gad_")
+_JSESSIONID_RE = re.compile(r";jsessionid=[^/?#;]*", re.I)
+_INDEX_DOCUMENT_RE = re.compile(
+    r"/(?:index|default)\.(?:php|html?|aspx?|jsp|do)$", re.I)
 _LOGIN_WORD_RE = re.compile(
     r"\b(?:log\s*in|login|sign\s*in|signin|authenticate|authori[sz]e|"
     r"student\s+access|access\s+account)\b|"
@@ -123,11 +170,23 @@ _ACADEMIC_PLATFORM_RE = re.compile(
 _OFFICIAL_STUDENT_SERVICE_URL_RE = re.compile(
     r"(?:^|[./_-])(?:student|campus|portal|lms|moodle|canvas|library|"
     r"my)(?:[./_-]|$)", re.I)
+#: Prefix of the rejection note for an admission portal. Callers match on it to
+#: tell "this is the wrong kind of login" from "no login was found".
+ADMISSION_NOTE = "admission portal"
 _MAX_LOGIN_PAGE_BYTES = 512 * 1024
 _VOLATILE_AUTH_PARAMS = frozenset({
     "sessid", "session", "sessionid", "samlrequest", "samlresponse",
     "relaystate", "signature", "sigalg", "state", "nonce", "code",
 })
+
+
+def _has_login_word(text: str) -> bool:
+    """Whether ``text`` carries sign-in wording in English or the page's language."""
+    if not text:
+        return False
+    if _LOGIN_WORD_RE.search(text):
+        return True
+    return bool(_NATIVE_LOGIN_WORD_RE.search(unicodedata.normalize("NFC", text)))
 
 
 def _is_volatile_auth_param(key: str) -> bool:
@@ -199,6 +258,11 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
         return False, "bad url"
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         return False, "not an http(s) URL"
+    # `https://support@example.edu` is an e-mail address someone typed as a
+    # URL. urlsplit reads `support` as the username and `example.edu` as the
+    # host, so without this the address would be verified as the homepage.
+    if parsed.username is not None or "@" in parsed.netloc:
+        return False, "e-mail address or credentials in URL"
     host = parsed.hostname.lower().rstrip(".")
     # Search/model output can turn a non-navigation href such as
     # `javascript:void(0)` into `https://javascript:void(0);`.  urlsplit sees
@@ -219,6 +283,16 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
         return False, "document URL"
     if _NON_PORTAL_CONTENT_PATH_RE.search(parsed.path or ""):
         return False, "informational/content route"
+    labels = host.removeprefix("www.").split(".")
+    if len(labels) > 2 and labels[0] in _NON_PORTAL_HOST_LABELS:
+        return False, "non-portal service host (mail/storage/careers/complaints)"
+    if _NON_PORTAL_LOGIN_PATH_RE.search(parsed.path or ""):
+        return False, "CMS, hosting-panel, mail or file-storage login"
+    # `/student-staff/login` is a shared sign-in, which stays valid; only a
+    # path that names another audience and no student one is rejected.
+    if (_NON_STUDENT_PATH_RE.search(parsed.path or "")
+            and not _STUDENT_PATH_WORD_RE.search(parsed.path or "")):
+        return False, "non-student audience path"
     return True, "ok"
 
 
@@ -229,19 +303,112 @@ def canonical_portal_url(url: str) -> str:
     query = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         lower = key.lower()
-        if lower.startswith("utm_") or lower in {"lang", "changelangcd"}:
+        if (lower in _TRACKING_PARAMS or lower in {"lang", "changelangcd"}
+                or lower.startswith(_TRACKING_PARAM_PREFIXES)):
             continue
         query.append((key, value))
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+    # A servlet session id in the path belongs to one visit, not to the portal.
+    path = _JSESSIONID_RE.sub("", parsed.path or "")
+    return urlunsplit((parsed.scheme, parsed.netloc, path,
                        urlencode(query, doseq=True), ""))
 
 
 def portal_dedupe_key(url: str) -> str:
-    """Canonical key used immediately before writing verified portal rows."""
+    """Key that is equal for two addresses of the same portal page.
+
+    Used only to compare, never to publish. It ignores what does not change the
+    page a student lands on: http vs https, a leading ``www.``, a trailing
+    slash, letter case in the path, and an explicit index document
+    (``/login/index.php`` and ``/login/``).
+    """
     parsed = urlsplit(canonical_portal_url(url))
-    path = (parsed.path or "/").rstrip("/") or "/"
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path,
-                       parsed.query, ""))
+    host = (parsed.hostname or "").lower().rstrip(".").removeprefix("www.")
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port and port not in (80, 443):
+        host = f"{host}:{port}"
+    path = _INDEX_DOCUMENT_RE.sub("", (parsed.path or "/").rstrip("/"))
+    path = path.rstrip("/").lower() or "/"
+    return f"{host}{path}" + (f"?{parsed.query}" if parsed.query else "")
+
+
+#: Evidence note for a sign-in page that asks for the username on its own.
+IDENTIFIER_FIRST_NOTE = "username-first sign-in step (password asked on the next screen)"
+# The account field of an identity provider's first screen. Deliberately
+# narrower than `_IDENTIFIER_RE`: a bare "id" or "number" field also describes
+# a search box or a tracking form.
+_SSO_IDENTIFIER_FIELD_RE = re.compile(
+    r"user(?:name|id|principalname)?|login(?:fmt|id|name)?|e-?mail|identifier|"
+    r"account|j_username|netid|matric|usuario|utilisateur|kullanici", re.I)
+# Single-field forms that are not a sign-in: search, newsletter sign-up,
+# password recovery and account creation.
+_NOT_SIGN_IN_FORM_RE = re.compile(
+    r"search|buscar|pesquis|recherch|newsletter|subscri|suscri|inscrev|"
+    r"forgot|forgotten|reset|recover|recuperar|esquec|olvid|oubli[eé]|"
+    r"create\s+(?:an?\s+)?account|sign\s*up|register|registr|cadastr", re.I)
+# Products whose sign-in really is split across two screens.
+_SSO_PRODUCT_RE = re.compile(
+    r"/adfs/ls|microsoftonline|kc-form-login|/realms/[^/\s\"']+/|okta-sign-in|"
+    r"identifierid|shibboleth|/idp/profile|/cas/login|simplesaml", re.I)
+
+
+def _identifier_first_step(soup: BeautifulSoup) -> bool:
+    """Whether the page is the first screen of a two-step sign-in.
+
+    ADFS, Keycloak, Okta and Google ask for the username alone and show the
+    password field only after it is submitted, so there is no password input to
+    find. Accept the page when one form holds exactly one visible account field
+    and a submit control, and something says it is a sign-in: the control or
+    the page title uses sign-in wording, or the markup is a known identity
+    provider's. A search box, a newsletter form and a "forgot password" form
+    have the same shape and are excluded by their own wording.
+    """
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    headings = " ".join(h.get_text(" ", strip=True) for h in soup.find_all(["h1", "h2"])[:4])
+    page_says_sign_in = _has_login_word(f"{title} {headings}")
+    product = bool(_SSO_PRODUCT_RE.search(str(soup)[:200_000]))
+    for form in soup.find_all("form"):
+        if (form.get("role") or "").lower() == "search":
+            continue
+        fields = []
+        for field in form.find_all("input"):
+            kind = (field.get("type") or "text").lower()
+            if kind in {"hidden", "submit", "button", "reset", "checkbox", "radio", "image"}:
+                continue
+            fields.append((kind, " ".join(str(field.get(k) or "") for k in
+                                          ("name", "id", "placeholder", "autocomplete",
+                                           "aria-label"))))
+        if len(fields) != 1:
+            continue
+        kind, descriptor = fields[0]
+        if kind not in {"text", "email", "tel", "number"}:
+            continue
+        if not _SSO_IDENTIFIER_FIELD_RE.search(descriptor):
+            continue
+        controls = form.find_all(["button", "input"])
+        control_text = " ".join(
+            " ".join([c.get_text(" ", strip=True), str(c.get("value") or ""),
+                      str(c.get("aria-label") or "")])
+            for c in controls
+            if c.name == "button" or (c.get("type") or "").lower() in {"submit", "button"})
+        if not control_text.strip() and not any(
+                (c.get("type") or "").lower() == "submit" or c.name == "button"
+                for c in controls):
+            continue
+        form_text = f"{form.get_text(' ', strip=True)} {descriptor} {form.get('action') or ''}"
+        if _NOT_SIGN_IN_FORM_RE.search(f"{control_text} {descriptor} {form.get('action') or ''}"):
+            continue
+        if _has_login_word(control_text) or page_says_sign_in or product:
+            # "Forgot your password?" is a normal link INSIDE a sign-in form,
+            # so recovery wording is only disqualifying when the form has no
+            # sign-in wording of its own.
+            if (not _has_login_word(control_text) and not product
+                    and _NOT_SIGN_IN_FORM_RE.search(form_text)):
+                continue
+            return True
+    return False
 
 
 def _login_form_evidence(html: str) -> tuple[bool, str]:
@@ -256,6 +423,8 @@ def _login_form_evidence(html: str) -> tuple[bool, str]:
     soup = BeautifulSoup(html or "", "html.parser")
     password = soup.find("input", attrs={"type": re.compile(r"^password$", re.I)})
     if password is None:
+        if _identifier_first_step(soup):
+            return True, IDENTIFIER_FIRST_NOTE
         return False, "no password input"
 
     identifier = False
@@ -280,7 +449,7 @@ def _login_form_evidence(html: str) -> tuple[bool, str]:
             str(control.get("title") or ""),
         ])
         kind = (control.get("type") or "").lower()
-        if _LOGIN_WORD_RE.search(text) or kind == "submit":
+        if _has_login_word(text) or kind == "submit":
             return True, "password, identifier, and sign-in control"
         # Some institutional LMS pages use an icon-only <a> or <div> whose
         # click handler submits the surrounding form.  It is still a genuine
@@ -352,9 +521,24 @@ def _same_organisation_redirect(
 
 
 def _official_host(url: str, official_domain: str) -> bool:
+    """Whether ``url`` is on one of the organisation's own domains.
+
+    ``official_domain`` may list several domains separated by commas,
+    semicolons or spaces; an organisation with two sites owns both.
+    """
     host = _normalised_host(url)
-    root = _normalised_host(official_domain)
-    return bool(host and root and (host == root or host.endswith("." + root)))
+    if not host:
+        return False
+    for domain in re.split(r"[,;\s]+", official_domain or ""):
+        if not domain.strip():
+            continue
+        try:
+            root = _normalised_host(domain)
+        except ValueError:
+            continue
+        if root and (host == root or host.endswith("." + root)):
+            return True
+    return False
 
 
 def _has_volatile_auth_state(url: str) -> bool:
@@ -386,7 +570,7 @@ def _rendered_auth_control_target(
         onclick = str(control.get("onclick") or "").strip()
         kind = (control.get("type") or "").lower()
         descriptor = f"{text} {href} {onclick}"
-        if not _LOGIN_WORD_RE.search(descriptor):
+        if not _has_login_word(descriptor):
             continue
         if (control.name in {"button", "input"} or kind in {"submit", "button"}
                 or href.lower().startswith(("http://", "https://", "/"))
@@ -402,6 +586,288 @@ def _rendered_auth_control(html: str) -> tuple[bool, str]:
     """Compatibility wrapper used by focused unit tests."""
     accepted, reason, _target = _rendered_auth_control_target(html)
     return accepted, reason
+
+
+#: Note added when a page's Login link could not be opened and checked, so the
+#: page itself is published instead. `verify_student_login_surface_hybrid`
+#: reads it to decide that a Chromium pass is worth its cost.
+LINK_UNCONFIRMED_NOTE = "login link not confirmed"
+#: Note added when a page is accepted on a Login BUTTON alone: the form it
+#: opens was never seen. The hybrid verifier clicks it to find out.
+BUTTON_UNOPENED_NOTE = "login button not opened"
+#: The page's only sign-in links are labelled for another audience, or point
+#: back to the page itself, which has no form.
+NO_STUDENT_CONTROL_NOTE = "no student login control on the page"
+# Link labels for audiences `_NON_STUDENT_AUDIENCE_RE` does not name.
+_NON_STUDENT_LINK_LABEL_RE = re.compile(
+    r"\b(?:recruiters?|employers?|teachers?|placements?|college|institute)\s+"
+    r"(?:log\s*in|login|sign\s*in)\b", re.I)
+#: `portal_url_allowed` reasons that are about the ADDRESS, not the page behind
+#: it. A Login link to such an address is unverifiable rather than wrong.
+_UNPUBLISHABLE_NOT_WRONG = frozenset({"literal IP host", "not a public DNS hostname"})
+#: How many Login links of one page are opened before giving up.
+_MAX_LOGIN_TARGETS = 3
+
+
+def _login_controls(html: str, base_url: str = "") -> tuple[bool, list[str]]:
+    """Every sign-in control on a page: ``(has_button, link_targets)``.
+
+    ``has_button`` is true when a control signs in without a link of its own (a
+    button, a submit input, a scripted element): the login then opens on this
+    page. ``link_targets`` are the absolute addresses the Login links point to,
+    student-labelled links first. A link labelled for another audience ("Staff
+    login", "Recruiter login") is left out, as is a link back to the page
+    itself.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    here = portal_dedupe_key(base_url) if base_url else ""
+    has_button = False
+    student_first: list[str] = []
+    others: list[str] = []
+    seen: set[str] = set()
+    for control in soup.find_all(["button", "input", "a"]):
+        text = " ".join([
+            control.get_text(" ", strip=True),
+            str(control.get("value") or ""),
+            str(control.get("aria-label") or ""),
+            str(control.get("title") or ""),
+        ]).strip()
+        href = str(control.get("href") or "").strip()
+        onclick = str(control.get("onclick") or "").strip()
+        kind = (control.get("type") or "").lower()
+        if not _has_login_word(f"{text} {href} {onclick}"):
+            continue
+        is_link = control.name == "a" and href.lower().startswith(
+            ("http://", "https://", "/"))
+        if not is_link:
+            if control.name in {"button", "input"} or kind in {"submit", "button"} or onclick:
+                has_button = True
+            continue
+        label = unicodedata.normalize("NFC", f"{text} {href}")
+        for_students = bool(_STUDENT_AUDIENCE_RE.search(label)
+                            or _NATIVE_STUDENT_AUDIENCE_RE.search(label))
+        other_audience = (_NON_STUDENT_AUDIENCE_RE.search(text)
+                          or _NON_STUDENT_LINK_LABEL_RE.search(text))
+        if other_audience and not for_students:
+            continue
+        target = urljoin(base_url, href) if base_url else href
+        try:
+            key = portal_dedupe_key(target)
+        except ValueError:
+            continue
+        if key == here or key in seen:
+            continue
+        seen.add(key)
+        (student_first if for_students else others).append(target)
+    return has_button, student_first + others
+
+
+def _classify_login_target(
+    target: str, final_url: str, html: str, entry_url: str = "",
+) -> tuple[str, str]:
+    """Judge the page a Login link opened.
+
+    ``student``  a student sign-in: publish it.
+    ``wrong``    known to be something else (admissions, staff, a dead or
+                 disallowed page).
+    ``unknown``  loaded, but no sign-in form in this HTML. That is what a
+                 JavaScript-built login looks like before it is rendered.
+    ``unsure``   a sign-in form on another site that does not say who it is
+                 for. Rendering will not change that.
+
+    ``entry_url`` is the page that carried the link.
+    """
+    allowed, reason = portal_url_allowed(final_url)
+    if not allowed:
+        return "wrong", reason
+    admission, admission_reason = is_admission_portal(f"{target} {final_url}", html)
+    if admission:
+        return "wrong", f"{ADMISSION_NOTE}: {admission_reason}"
+    form_ok, form_reason = _login_form_evidence(html)
+    if not form_ok:
+        return "unknown", form_reason
+    audience_ok, audience_reason = _student_audience_evidence(
+        html, f"{target} {final_url}")
+    if audience_reason == "non-student audience only":
+        return "wrong", audience_reason
+    # On the institution's own site the linking page already vouched for the
+    # audience, so a sparse "Username / Password" screen is fine. A link that
+    # leaves the site gets no such credit: `samarth.ac.in` (staff) and
+    # `samarth.edu.in` (students) look the same from a university homepage,
+    # and only the student one says so.
+    same_site = bool(entry_url) and (
+        registrable_root(entry_url) == registrable_root(target))
+    if not audience_ok and not same_site:
+        # Not proof of anything: plenty of real student portals are a vendor's
+        # bare login screen. It is only not enough to PUBLISH the link.
+        return "unsure", f"off-site login with {audience_reason}"
+    return "student", form_reason
+
+
+async def _fetch_html(
+    url: str, timeout_seconds: int, country_hint: str, use_proxy: bool,
+) -> tuple[int, str, str, str]:
+    """GET ``url``: ``(status, final_url, html, error)``. Never raises."""
+    routes = (_proxy_urls(url, country_hint) if use_proxy else []) or [("direct", None)]
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        for index, (_provider, proxy_url) in enumerate(routes):
+            try:
+                async with sess.get(url, allow_redirects=True,
+                                    headers={"User-Agent": USER_AGENT},
+                                    proxy=proxy_url, ssl=_SSL_CONTEXT) as resp:
+                    body = await resp.content.read(_MAX_LOGIN_PAGE_BYTES)
+                    return (resp.status, str(resp.url),
+                            body.decode("utf-8", errors="ignore"), "")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                if index + 1 < len(routes) and _proxy_transport_failure(exc, proxy_url):
+                    continue
+                return 0, url, "", type(exc).__name__
+    return 0, url, "", "no route"
+
+
+async def _render_html(
+    url: str, timeout_seconds: int, country_hint: str,
+) -> tuple[str, str, str]:
+    """Render ``url`` in Chromium: ``(html, final_url, error)``. Never raises.
+
+    Tries each proxy route in turn; a transport failure or timeout on one moves
+    on to the next.
+    """
+    from crawl4ai import AsyncWebCrawler
+    from agent.crawler import (_browser_config, _run_config, WAIT_FOR_JS,
+                               proxy_candidates_for)
+    routes = proxy_candidates_for(url, country_hint) or [("direct", None)]
+    result = None
+    for index, (provider, proxy_cfg) in enumerate(routes):
+        try:
+            async with _get_render_sem():
+                async with AsyncWebCrawler(config=_browser_config(proxy_cfg)) as crawler:
+                    result = await crawler.arun(
+                        url=url,
+                        config=_run_config(timeout_seconds * 1000, WAIT_FOR_JS),
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            if (index + 1 < len(routes)
+                    and (_proxy.is_proxy_failure(exc)
+                         or isinstance(exc, asyncio.TimeoutError))):
+                logger.info(
+                    "guardrails: rendered login %s failed via %s; retrying via %s",
+                    url, provider, routes[index + 1][0],
+                )
+                continue
+            return "", url, f"render {type(exc).__name__}"
+
+        html = getattr(result, "html", "") or ""
+        error = str(getattr(result, "error_message", "") or "")
+        if (not html and index + 1 < len(routes)
+                and _proxy.is_proxy_failure(error)):
+            logger.info(
+                "guardrails: rendered login %s failed via %s; retrying via %s",
+                url, provider, routes[index + 1][0],
+            )
+            continue
+        break
+
+    if result is None:
+        return "", url, "render returned no result"
+    html = getattr(result, "html", "") or ""
+    final_url = (getattr(result, "redirected_url", None)
+                 or getattr(result, "url", None) or url)
+    if not html:
+        return "", final_url, str(
+            getattr(result, "error_message", "") or "render returned no HTML")[:180]
+    return html, final_url, ""
+
+
+async def _resolve_login_target(
+    targets: Sequence[str],
+    *,
+    entry_url: str = "",
+    timeout_seconds: int,
+    country_hint: str = "",
+    use_proxy: bool = True,
+    render_timeout_seconds: int = 0,
+) -> tuple[str, str, str]:
+    """Open a page's Login links and find the one that is the student login.
+
+    A Login link is a claim, not evidence: it can lead to a staff console, an
+    admission site, a help page or a dead address. Returns
+    ``(outcome, url, reason)``:
+
+    ``confirmed``    a link opened a student sign-in; ``url`` is what to publish.
+    ``unconfirmed``  at least one link loaded but its form could not be seen
+                     (or could not be reached just now); nothing is known.
+    ``wrong``        every link leads somewhere that is not a student login.
+
+    With ``render_timeout_seconds`` set, the first link whose form is not in
+    the plain HTML is rendered once in Chromium before giving up on it.
+    """
+    reasons: list[str] = []
+    pending: list[str] = []
+
+    def publishable(target: str, final_url: str) -> str:
+        return canonical_portal_url(_stable_verified_url(target, final_url))
+
+    for target in list(targets)[:_MAX_LOGIN_TARGETS]:
+        allowed, reason = portal_url_allowed(target)
+        if not allowed:
+            if reason in _UNPUBLISHABLE_NOT_WRONG:
+                # The address is one this workflow will not publish or fetch,
+                # which says nothing about what is behind it.
+                pending.append("")
+            else:
+                reasons.append(reason)
+            continue
+        if _has_volatile_auth_state(target):
+            # A one-time SSO transaction: it may well be right, but it cannot
+            # be published or replayed.
+            pending.append("")
+            continue
+        admission, admission_reason = is_admission_url(target)
+        if admission:
+            reasons.append(f"{ADMISSION_NOTE}: {admission_reason}")
+            continue
+        status, final_url, html, error = await _fetch_html(
+            target, timeout_seconds, country_hint, use_proxy)
+        if status in (404, 410) or status >= 500:
+            reasons.append(f"HTTP {status}")
+            continue
+        if error or not html or status >= 400:
+            pending.append(target)        # timeout, WAF wall: not a verdict
+            continue
+        verdict, reason = _classify_login_target(
+            target, final_url, html, entry_url)
+        if verdict == "student":
+            return "confirmed", publishable(target, final_url), reason
+        if verdict == "wrong":
+            reasons.append(reason)
+        elif verdict == "unsure":
+            pending.append("")            # nothing a render would add
+        else:
+            pending.append(target)
+
+    to_render = next((t for t in pending if t), "")
+    if to_render and render_timeout_seconds:
+        html, final_url, _error = await _render_html(
+            to_render, render_timeout_seconds, country_hint)
+        if html:
+            verdict, reason = _classify_login_target(
+                to_render, final_url, html, entry_url)
+            if verdict == "student":
+                return "confirmed", publishable(to_render, final_url), reason
+            if verdict == "wrong":
+                reasons.append(reason)
+                pending.remove(to_render)
+            elif verdict == "unsure":
+                pending[pending.index(to_render)] = ""
+    if pending:
+        return "unconfirmed", "", LINK_UNCONFIRMED_NOTE
+    return "wrong", "", "; ".join(dict.fromkeys(reasons)) or "no usable login link"
 
 
 def _stable_verified_url(published_url: str, rendered_final_url: str) -> str:
@@ -458,50 +924,13 @@ async def verify_student_login_surface_rendered(
     if not allowed:
         return False, reason, url_path
     published = _as_url(url_path)
-    from crawl4ai import AsyncWebCrawler
-    from agent.crawler import (_browser_config, _run_config, WAIT_FOR_JS,
-                               proxy_candidates_for)
-    routes = proxy_candidates_for(published, country_hint) or [("direct", None)]
-    result = None
-    for index, (provider, proxy_cfg) in enumerate(routes):
-        try:
-            async with _get_render_sem():
-                async with AsyncWebCrawler(config=_browser_config(proxy_cfg)) as crawler:
-                    result = await crawler.arun(
-                        url=published,
-                        config=_run_config(timeout_seconds * 1000, WAIT_FOR_JS),
-                    )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            if (index + 1 < len(routes)
-                    and (_proxy.is_proxy_failure(exc)
-                         or isinstance(exc, asyncio.TimeoutError))):
-                logger.info(
-                    "guardrails: rendered login %s failed via %s; retrying via %s",
-                    published, provider, routes[index + 1][0],
-                )
-                continue
-            return False, f"render {type(exc).__name__}", published
-
-        html = getattr(result, "html", "") or ""
-        error = str(getattr(result, "error_message", "") or "")
-        if (not html and index + 1 < len(routes)
-                and _proxy.is_proxy_failure(error)):
-            logger.info(
-                "guardrails: rendered login %s failed via %s; retrying via %s",
-                published, provider, routes[index + 1][0],
-            )
-            continue
-        break
-
-    html = getattr(result, "html", "") or "" if result is not None else ""
-    final_url = (getattr(result, "redirected_url", None)
-                 or getattr(result, "url", None) or published) if result is not None else published
+    admission, admission_reason = is_admission_url(published)
+    if admission:
+        return False, f"{ADMISSION_NOTE}: {admission_reason}", published
+    html, final_url, render_error = await _render_html(
+        published, timeout_seconds, country_hint)
     if not html:
-        error = str(getattr(result, "error_message", "") or "render returned no HTML") \
-            if result is not None else "render returned no result"
-        return False, error[:180], final_url
+        return False, render_error, final_url
 
     form_ok, form_reason = _login_form_evidence(html)
     control_ok, control_reason, control_target = _rendered_auth_control_target(
@@ -524,6 +953,11 @@ async def verify_student_login_surface_rendered(
     )
     if not audience_ok and not official_student_entry:
         return False, audience_reason, final_url
+    # The audience check passes any page that mentions students, and an
+    # admission page does ("Applicant Login ... for students applying to").
+    admission, admission_reason = is_admission_portal(final_url, html)
+    if admission:
+        return False, f"{ADMISSION_NOTE}: {admission_reason}", final_url
 
     evidence = form_reason if form_ok else control_reason
     binding = (audience_reason if audience_ok
@@ -533,11 +967,49 @@ async def verify_student_login_surface_rendered(
     # actionable target rather than the page containing the link.  Volatile
     # SAML/OIDC transactions are deliberately not published.
     stable = _stable_verified_url(published, final_url)
-    if not form_ok and control_target:
-        target_allowed, _target_reason = portal_url_allowed(control_target)
-        if target_allowed and not _has_volatile_auth_state(control_target):
-            stable = canonical_portal_url(control_target)
-    return True, f"{evidence}; {binding}; Chromium-rendered", stable
+    link_note = ""
+    if not form_ok:
+        has_button, targets = _login_controls(html, final_url)
+        if not has_button and not targets:
+            return False, NO_STUDENT_CONTROL_NOTE, final_url
+        if targets:
+            outcome, target_url, why = await _resolve_login_target(
+                targets, entry_url=final_url,
+                timeout_seconds=min(timeout_seconds, 15),
+                country_hint=country_hint,
+                render_timeout_seconds=timeout_seconds)
+            if outcome == "confirmed":
+                stable = target_url
+                link_note = "; login link opened and confirmed"
+            elif outcome == "wrong" and not has_button:
+                return False, f"login link is not a student login: {why}", final_url
+            elif outcome == "unconfirmed":
+                link_note = f"; {LINK_UNCONFIRMED_NOTE}"
+        if has_button and "confirmed" not in link_note:
+            link_note += f"; {BUTTON_UNOPENED_NOTE}"
+    return True, f"{evidence}; {binding}{link_note}; Chromium-rendered", stable
+
+
+def _click_could_settle(note: str) -> bool:
+    """Whether a REJECTION is the kind a click can overturn.
+
+    Only "this page shows no way to sign in" qualifies: the way in may be
+    inside a closed menu or on the Students page. A page rejected for what it
+    is (an admission site, a staff console, a disallowed address) or one that
+    never loaded stays rejected.
+    """
+    if ADMISSION_NOTE in note or "audience" in note and "off-site" not in note:
+        return False
+    return ("no password input" in note or NO_STUDENT_CONTROL_NOTE in note
+            or "login link is not a student login" in note)
+
+
+async def _click_through(url: str, country_hint: str):
+    """Run the click-through, or return ``None`` when it is switched off."""
+    from agent import click_through
+    if not click_through.ENABLED:
+        return None
+    return await click_through.find_login_by_clicking(url, country_hint=country_hint)
 
 
 async def verify_student_login_surface_hybrid(
@@ -549,18 +1021,72 @@ async def verify_student_login_surface_hybrid(
     render_timeout_seconds: int = 25,
     shared_platform_roots: Iterable[str] = (),
 ) -> tuple[bool, str, str]:
-    """Fast static verification followed by Chromium on any ambiguity."""
+    """Cheapest check first: plain HTML, then Chromium, then real clicks.
+
+    Each later step runs only when the earlier one left a question open:
+    Chromium when the HTML shows no form (or a Login link that could not be
+    read), and the click-through when the page offers a Login button whose form
+    was never seen, or no visible way to sign in at all.
+    """
     static = await verify_student_login_surface(
         url_path, timeout_seconds, country_hint=country_hint,
         shared_platform_roots=shared_platform_roots)
     if static[0]:
-        return static[0], static[1], _stable_verified_url(_as_url(url_path), static[2])
+        best = (static[0], static[1],
+                _stable_verified_url(_as_url(url_path), static[2]))
+        if LINK_UNCONFIRMED_NOTE in best[1]:
+            # A student page with a Login link whose target could not be read
+            # as plain HTML. Chromium can render that target; keep the static
+            # answer (the page itself) if the render adds nothing.
+            rendered = await verify_student_login_surface_rendered(
+                url_path, render_timeout_seconds, country_hint=country_hint,
+                official_domain=official_domain)
+            if rendered[0]:
+                best = rendered
+        return await _settle_by_clicking(best, country_hint)
+    if static[1].startswith(ADMISSION_NOTE):
+        return static
     rendered = await verify_student_login_surface_rendered(
         url_path, render_timeout_seconds, country_hint=country_hint,
         official_domain=official_domain)
     if rendered[0]:
-        return rendered
-    return False, f"static: {static[1]}; rendered: {rendered[1]}", rendered[2]
+        return await _settle_by_clicking(rendered, country_hint)
+    failure = (False, f"static: {static[1]}; rendered: {rendered[1]}", rendered[2])
+    # When Chromium could not load the page at all, the plain-HTML verdict is
+    # the one to go by: the click-through has its own browser and routes.
+    render_failed = rendered[1].startswith(("render ", "Unexpected error")) \
+        or "Page.goto" in rendered[1]
+    if not (_click_could_settle(rendered[1])
+            or (render_failed and _click_could_settle(static[1]))):
+        return failure
+    found = await _click_through(_as_url(url_path), country_hint)
+    if found is None or found.outcome == "none":
+        if found is not None:
+            failure = (False, f"{failure[1]}; click-through: {found.note}", failure[2])
+        return failure
+    page = found.page or canonical_portal_url(rendered[2] or _as_url(url_path))
+    published = found.url if found.outcome == "one" else page
+    return True, f"{found.note}; click-through", published
+
+
+async def _settle_by_clicking(
+    accepted: tuple[bool, str, str], country_hint: str,
+) -> tuple[bool, str, str]:
+    """Upgrade an accepted page whose login was never actually seen.
+
+    The page stays accepted whatever the click finds: a button that could not
+    be clicked today is not evidence against it. A click that reaches exactly
+    one student login replaces the page's address with that login's.
+    """
+    note = accepted[1]
+    if BUTTON_UNOPENED_NOTE not in note and LINK_UNCONFIRMED_NOTE not in note:
+        return accepted
+    found = await _click_through(accepted[2], country_hint)
+    if found is None or found.outcome == "none":
+        return accepted
+    if found.outcome == "one":
+        return True, f"{note}; {found.note}; click-through", found.url
+    return True, f"{note}; {found.note}; click-through", found.page or accepted[2]
 
 
 async def verify_student_login_surface(
@@ -590,6 +1116,9 @@ async def verify_student_login_surface(
         return False, reason, url_path
 
     url = _as_url(url_path)
+    admission, admission_reason = is_admission_url(url)
+    if admission:
+        return False, f"{ADMISSION_NOTE}: {admission_reason}", url
     proxy_candidates = _proxy_urls(url, country_hint) if use_proxy else []
     routes = proxy_candidates or [("direct", None)]
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
@@ -650,15 +1179,36 @@ async def verify_student_login_surface(
         text, f"{url} {final_url}" if host_changed else final_url)
     if not audience_ok:
         return False, audience_reason, final_url
+    admission, admission_reason = is_admission_portal(final_url, text)
+    if admission:
+        return False, f"{ADMISSION_NOTE}: {admission_reason}", final_url
     # Publish the stable entry point rather than one node of a rotating pool.
     stable_url = (_stable_verified_url(url, final_url) if host_changed
                   else final_url)
-    if not accepted and control_target:
-        target_allowed, _target_reason = portal_url_allowed(control_target)
-        if target_allowed and not _has_volatile_auth_state(control_target):
-            stable_url = canonical_portal_url(control_target)
+    link_note = ""
+    if not accepted:
+        # The page has no form of its own, only a Login link. Open the link:
+        # publish it when it is the student login, publish this page when the
+        # link cannot be judged, and reject the page when its only way in
+        # leads somewhere else.
+        has_button, targets = _login_controls(text, final_url)
+        if not has_button and not targets:
+            return False, NO_STUDENT_CONTROL_NOTE, final_url
+        if targets:
+            outcome, target_url, why = await _resolve_login_target(
+                targets, entry_url=final_url, timeout_seconds=timeout_seconds,
+                country_hint=country_hint, use_proxy=use_proxy)
+            if outcome == "confirmed":
+                stable_url = target_url
+                link_note = "; login link opened and confirmed"
+            elif outcome == "wrong" and not has_button:
+                return False, f"login link is not a student login: {why}", final_url
+            elif outcome == "unconfirmed":
+                link_note = f"; {LINK_UNCONFIRMED_NOTE}"
+        if has_button and "confirmed" not in link_note:
+            link_note += f"; {BUTTON_UNOPENED_NOTE}"
     auth_evidence = evidence if accepted else control_evidence
-    return True, f"{auth_evidence}; {audience_reason}", stable_url
+    return True, f"{auth_evidence}; {audience_reason}{link_note}", stable_url
 
 
 def _proxy_url(url: str, country_hint: str = "") -> str | None:

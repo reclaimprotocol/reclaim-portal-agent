@@ -129,3 +129,53 @@ STUDENT_AUDIENCE_RE = re.compile(
     re.I,
 )
 
+
+# --------------------------------------------------------------------------- #
+#  Sign-in wording                                                             #
+# --------------------------------------------------------------------------- #
+# The words a page puts ON its sign-in control, per language. The gate uses
+# them to recognise a Login link or button on a page that has no password form
+# of its own. English and Japanese live in `agent.guardrails._LOGIN_WORD_RE`.
+#
+# Only verbs and nouns that mean "sign in" belong here. Words for "access" or
+# "entry" in general are left out or fenced, because the same word names
+# things that are not a login:
+#   * Portuguese "acesso" heads "Acesso à informação" on every public site.
+#   * Spanish "ingreso" and Indonesian "jalur masuk" mean ADMISSION intake.
+#   * Turkish "girişim(cilik)" is entrepreneurship; `\b` keeps "giriş" apart.
+LOGIN_WORD_PATTERNS: tuple[str, ...] = (
+    # Portuguese
+    r"\bentrar\b",                      # also Spanish
+    r"\bacessar\b",
+    r"iniciar\s+sess[aã]o",
+    r"fazer\s+login",
+    # Spanish
+    r"inici(?:ar|o\s+de)\s+sesi[oó]n",
+    r"\bingresar\b",
+    r"\bacceder\b",
+    r"\bidentificarse\b",
+    # French
+    r"\bconnexion\b", r"se\s+connecter", r"s['’]identifier",
+    # Turkish
+    r"\bgiri[şs]i?\b",                  # giriş · girişi · giris
+    r"oturum\s+a[cç]",
+    # Indonesian and Malay
+    r"log\s+masuk",
+    r"(?<!jalur\s)(?<!seleksi\s)(?<!ujian\s)(?<!tes\s)\bmasuk\b",
+    # Vietnamese
+    r"đăng\s+nhập", r"\bdang\s*nhap\b",
+    # Russian
+    r"\bвойти\b", r"\bвход\b", r"авторизаци[яи]",
+    # Hindi and Nepali
+    "लॉगिन", "लॉग इन", "साइन इन",
+    # Arabic
+    "تسجيل الدخول", "دخول",
+    # Chinese
+    "登录", "登入", "登錄",
+)
+
+#: One alternation over every language above. Match against NFC-normalised text.
+LOGIN_WORD_RE = re.compile(
+    "|".join(f"(?:{fragment})" for fragment in LOGIN_WORD_PATTERNS),
+    re.I,
+)

@@ -103,21 +103,35 @@ def test_rendered_sso_gate_requires_an_actionable_control() -> None:
 
 
 def test_static_verifier_accepts_actionable_academic_sso(monkeypatch) -> None:
-    """A real LMS login button should not require Chromium to be accepted."""
-    html = b"""
-        <html><h1>Student learning management system</h1>
-        <a href="/sso/login">Student SSO Login</a></html>
-    """
+    """A real LMS login button should not require Chromium to be accepted.
 
-    class Content:
-        async def read(self, _limit):
-            return html
+    The link is opened before it is published: here it leads to the sign-in
+    form, so the form's address is what comes back.
+    """
+    pages = {
+        "https://lms.example.edu/": b"""
+            <html><h1>Student learning management system</h1>
+            <a href="/sso/login">Student SSO Login</a></html>
+        """,
+        "https://lms.example.edu/sso/login": b"""
+            <html><form><input name="username"><input type="password">
+            <button type="submit">Sign in</button></form></html>
+        """,
+    }
 
     class Response:
         status = 200
-        url = "https://lms.example.edu/"
         headers = {"Content-Type": "text/html; charset=utf-8"}
-        content = Content()
+
+        def __init__(self, url):
+            self.url = url
+            body = pages[url]
+
+            class Content:
+                async def read(self, _limit):
+                    return body
+
+            self.content = Content()
 
         async def __aenter__(self):
             return self
@@ -132,8 +146,8 @@ def test_static_verifier_accepts_actionable_academic_sso(monkeypatch) -> None:
         async def __aexit__(self, *_args):
             return None
 
-        def get(self, *_args, **_kwargs):
-            return Response()
+        def get(self, url, *_args, **_kwargs):
+            return Response(url)
 
     monkeypatch.setattr("agent.guardrails.aiohttp.ClientSession",
                         lambda **_kwargs: Session())
@@ -142,6 +156,7 @@ def test_static_verifier_accepts_actionable_academic_sso(monkeypatch) -> None:
     ))
     assert accepted is True
     assert "login/SSO" in note
+    assert "login link opened and confirmed" in note
     assert stable == "https://lms.example.edu/sso/login"
 
 

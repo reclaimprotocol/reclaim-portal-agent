@@ -69,7 +69,10 @@ from agent.filters import LocalKnowledgeMatrixFilter                # noqa: E402
 from agent.graph_matcher import (GraphComplianceMatcher,            # noqa: E402
                                  DISTANCE_NATIVE_CRAWL, DISTANCE_SEARCH_FALLBACK)
 from agent.guardrails import (verify_portal_endpoint_final,          # noqa: E402
-                              verify_portal_endpoint_detailed, transport_ok)
+                              verify_portal_endpoint_detailed, transport_ok,
+                              verify_student_login_surface_hybrid,
+                              canonical_portal_url, portal_dedupe_key,
+                              portal_url_allowed)
 from agent.memory_cache import MemoryCache, signature               # noqa: E402
 from agent.openai_cascade import execute_model_cascade              # noqa: E402
 from agent.schemas import IntegratedDiscoveryOutput                 # noqa: E402
@@ -213,6 +216,29 @@ class UniversityRow:
     name: str
     domain: str
     country: str = ""
+    #: Every domain the sheet lists for the organisation, `domain` first. The
+    #: crawl starts from `domain`; ownership checks accept any of them.
+    domains: tuple[str, ...] = ()
+
+    @property
+    def official_domains(self) -> str:
+        """All of the organisation's domains as one comma-separated string."""
+        return ",".join(self.domains or (self.domain,))
+
+
+def split_domains(cell: str) -> list[str]:
+    """Split a sheet cell holding one or several domains.
+
+    SheerID stores an organisation with several sites as a single
+    comma-separated value (``mgmcri.ac.in, sbvu.ac.in``). Semicolons, spaces
+    and new lines are accepted too; order is kept and repeats are dropped.
+    """
+    out: list[str] = []
+    for part in re.split(r"[,;\s]+", cell or ""):
+        part = part.strip().strip(".")
+        if part and part.lower() not in {p.lower() for p in out}:
+            out.append(part)
+    return out
 
 
 @dataclass
@@ -284,15 +310,17 @@ def _fetch_rows_sync(sheet_id: str, tab: str, start_row: int, count: int,
             continue
         if only_org_ids is not None and oid not in only_org_ids:
             continue
-        primary = dom.replace(",", " ").split()[0].strip() if dom.strip() else ""
-        if not primary:
+        domains = split_domains(dom)
+        if not domains:
             continue
+        primary = domains[0]
         out.append(UniversityRow(
             row=start_row + off,
             org_id=oid,
             name=(str(r[c_nm]).strip() if c_nm is not None and c_nm < len(r) else ""),
             domain=primary,
             country=(str(r[c_cy]).strip() if c_cy is not None and c_cy < len(r) else ""),
+            domains=tuple(domains),
         ))
     return out
 
@@ -312,6 +340,99 @@ async def fetch_rows(sheet_id: str, tab: str, start_row: int, count: int,
 #: would otherwise have been dropped from a delivery.
 GUARDRAIL_TIMEOUT_S = int(os.getenv("GENIE_GUARDRAIL_TIMEOUT", "5"))
 GUARDRAIL_RETRY_S = int(os.getenv("GENIE_GUARDRAIL_RETRY", "20"))
+#: "It answers" is not "it is a student login". With the gate on, every
+#: reachable portal must also show a sign-in surface for students: a homepage,
+#: an admissions site or a staff console answers HTTP just as well as a portal
+#: does. Set GENIE_V3_LOGIN_GATE=0 to fall back to the reachability check alone.
+LOGIN_GATE = os.getenv("GENIE_V3_LOGIN_GATE", "1").strip().lower() \
+    not in {"0", "false", "no", "off"}
+#: Ceiling for one portal's login check: fetch, Chromium render and click-through.
+LOGIN_GATE_TIMEOUT_S = int(os.getenv("GENIE_V3_LOGIN_GATE_TIMEOUT", "240"))
+
+
+async def verify_portals(
+    row: "UniversityRow",
+    portals: Sequence[Any],
+    shared_platform_roots: Any = (),
+) -> tuple[list, int, list[str], list[tuple[str, str]]]:
+    """Layer 3 for one organisation: reachable -> https -> student login.
+
+    Returns ``(live, dead, insecure_dropped, rejected)``. ``live`` is the list
+    of ``(portal, endpoint_check)`` pairs to publish, with each portal's
+    ``exact_url`` rewritten to its stable, cleaned address and duplicates of
+    the same page removed. ``rejected`` holds ``(url, reason)`` for portals
+    that answered but are not a student login.
+    """
+    rejected: list[tuple[str, str]] = []
+    if LOGIN_GATE:
+        # Judge the address the model returned before anything follows a
+        # redirect from it: `https://support@host` redirects to a clean
+        # `https://host/`, which would hide that it was an e-mail address.
+        candidates = []
+        for p in portals:
+            allowed, why = portal_url_allowed(p.exact_url)
+            if allowed:
+                candidates.append(p)
+            else:
+                rejected.append((p.exact_url, why))
+                logger.warning("[NOT A STUDENT LOGIN] org %s — %s (%s) — discarded",
+                               row.org_id, p.exact_url, why)
+        portals = candidates
+    checks = await asyncio.gather(*(
+        verify_portal_endpoint_final(
+            p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
+            retry_timeout_seconds=GUARDRAIL_RETRY_S)
+        for p in portals))
+    reachable = [(p, c) for p, c in zip(portals, checks) if c[0]]
+    dead = len(portals) - len(reachable)
+    for p, (live, code, note, _landed) in zip(portals, checks):
+        if not live:
+            logger.warning("[DEAD ENDPOINT DETECTED] org %s — %s "
+                           "(http=%s, %s) — discarded",
+                           row.org_id, p.exact_url, code, note)
+    live_portals, insecure_dropped = _apply_transport_policy(row.org_id, reachable)
+    if not LOGIN_GATE or not live_portals:
+        return live_portals, dead, insecure_dropped, rejected
+
+    async def _gate(url: str) -> tuple[bool, str, str]:
+        try:
+            return await asyncio.wait_for(
+                verify_student_login_surface_hybrid(
+                    url, country_hint=row.country,
+                    official_domain=row.official_domains,
+                    shared_platform_roots=shared_platform_roots),
+                timeout=LOGIN_GATE_TIMEOUT_S)
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            return False, f"login check timed out at {LOGIN_GATE_TIMEOUT_S}s", url
+        except Exception as exc:  # noqa: BLE001 — one portal must not fail the row
+            return False, f"login check {type(exc).__name__}", url
+
+    verdicts = await asyncio.gather(*(_gate(p.exact_url) for p, _ in live_portals))
+    kept: list = []
+    seen: set[str] = set()
+    for (portal, check), (accepted, note, stable_url) in zip(live_portals, verdicts):
+        original = portal.exact_url
+        if accepted:
+            final = canonical_portal_url(stable_url or original)
+            accepted, why = portal_url_allowed(final)
+            if not accepted:
+                note = f"final URL: {why}"
+        if not accepted:
+            rejected.append((original, note))
+            logger.warning("[NOT A STUDENT LOGIN] org %s — %s (%s) — discarded",
+                           row.org_id, original, note)
+            continue
+        key = portal_dedupe_key(final)
+        if key in seen:
+            logger.info("v3: org %s — %s is the same page as an earlier portal, "
+                        "dropped", row.org_id, original)
+            continue
+        seen.add(key)
+        portal.exact_url = final
+        kept.append((portal, check))
+    return kept, dead, insecure_dropped, rejected
 
 
 # --------------------------------------------------------------------------- #
@@ -873,46 +994,34 @@ async def process_university(
                         ) + list(exp_result.harvested_legal_links)
 
             # -- 4. GUARDRAIL --------------------------------------------
-            checks = await asyncio.gather(*(
-                verify_portal_endpoint_final(
-                    p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
-                    retry_timeout_seconds=GUARDRAIL_RETRY_S)
-                for p in result.discovered_portals))
-
-            reachable = [(p, c) for p, c in zip(result.discovered_portals, checks) if c[0]]
-            dead = len(result.discovered_portals) - len(reachable)
-            live_portals, insecure_dropped = _apply_transport_policy(row.org_id, reachable)
-            for p, (live, code, note, _landed) in zip(result.discovered_portals, checks):
-                if not live:
-                    logger.warning("[DEAD ENDPOINT DETECTED] org %s — %s "
-                                   "(http=%s, %s) — discarded",
-                                   row.org_id, p.exact_url, code, note)
+            live_portals, dead, insecure_dropped, rejected = await verify_portals(
+                row, result.discovered_portals, matcher.saas_roots)
 
             if not live_portals:
                 if not used_search:
                     logger.warning("[FALLBACK TRIGGER] org %s — all %d portal(s) failed "
-                                   "verification, routing to OpenAI web-search rescue",
-                                   row.org_id, dead)
+                                   "verification (%d dead, %d not a student login), "
+                                   "routing to OpenAI web-search rescue",
+                                   row.org_id, len(result.discovered_portals),
+                                   dead, len(rejected))
                     hits = await search_rescue(row, lkm)
                     if hits:
                         used_search = True
                         result, _t2 = await cascade_with_pacing(row, hits)
-                        checks = await asyncio.gather(*(
-                            verify_portal_endpoint_final(
-                                p.exact_url, GUARDRAIL_TIMEOUT_S, country_hint=row.country,
-                                retry_timeout_seconds=GUARDRAIL_RETRY_S)
-                            for p in result.discovered_portals))
-                        reachable = [(p, c) for p, c in
-                                     zip(result.discovered_portals, checks) if c[0]]
-                        live_portals, dropped2 = _apply_transport_policy(row.org_id, reachable)
+                        live_portals, dead2, dropped2, rejected2 = await verify_portals(
+                            row, result.discovered_portals, matcher.saas_roots)
+                        dead += dead2
                         insecure_dropped += dropped2
+                        rejected += rejected2
                 if not live_portals:
-                    note = (f"all portals dead ({dead})" if not insecure_dropped
-                            else f"all portals dead ({dead}) / "
-                                 f"{len(insecure_dropped)} dropped not-https")
+                    parts = [f"all portals dead ({dead})"] if dead or not rejected else []
+                    if rejected:
+                        parts.append(f"{len(rejected)} not a student login")
+                    if insecure_dropped:
+                        parts.append(f"{len(insecure_dropped)} dropped not-https")
                     return RowOutcome(row.org_id, False, portals=len(result.discovered_portals),
                                       seconds=round(time.monotonic() - t0, 1),
-                                      note=note)
+                                      note=" / ".join(parts))
 
             # -- 4b. TWO-STEP PORTAL CRAWL -------------------------------
             legal_links: list[Any] = list(result.harvested_legal_links or [])
@@ -941,7 +1050,8 @@ async def process_university(
             verified_rows, missing_rows, mem_entries, detail = [], [], [], []
             confidences: list[float] = []
             learned_now: list[str] = []
-            for p, (live, code, _note) in live_portals:
+            # The endpoint check is (alive, status, note, landed_url).
+            for p, (live, code, *_rest) in live_portals:
                 m = mapping.get(p.exact_url)
                 tnc = (m or {}).get("tnc_url") or ""
                 if not tnc:
@@ -1001,7 +1111,10 @@ async def process_university(
                               verified=len(verified_rows), missing=len(missing_rows),
                               seconds=round(time.monotonic() - t0, 1),
                               stages=[f"{c:.2f}" for c in confidences],
-                              note=f"{dead} dead" if dead else "")
+                              note=" / ".join(filter(None, [
+                                  f"{dead} dead" if dead else "",
+                                  f"{len(rejected)} not a student login"
+                                  if rejected else ""])))
 
         except asyncio.CancelledError:
             raise
