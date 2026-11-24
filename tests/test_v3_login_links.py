@@ -11,7 +11,7 @@ from agent.guardrails import (
     LINK_UNCONFIRMED_NOTE,
     NO_STUDENT_CONTROL_NOTE,
     _has_login_word,
-    _login_controls,
+    _login_links,
     _login_form_evidence,
     _rendered_auth_control,
     verify_student_login_surface,
@@ -119,7 +119,8 @@ def test_student_link_is_tried_first_and_other_audiences_are_skipped() -> None:
         <a href="/student_login.php">Student login</a>
         <a href="/">Login</a>
     """
-    has_button, targets = _login_controls(html, "https://www.telanganauniversity.ac.in/")
+    has_button, links = _login_links(html, "https://www.telanganauniversity.ac.in/")
+    targets = [target for target, _label in links]
     assert has_button is False
     assert targets == [
         "https://www.telanganauniversity.ac.in/student_login.php",
@@ -128,9 +129,9 @@ def test_student_link_is_tried_first_and_other_audiences_are_skipped() -> None:
 
 
 def test_a_button_is_a_control_without_a_link_target() -> None:
-    has_button, targets = _login_controls(
+    has_button, links = _login_links(
         '<button onclick="openLogin()">Entrar</button>', "https://example.edu/")
-    assert has_button is True and targets == []
+    assert has_button is True and links == []
 
 
 # --------------------------------------------------------------------------- #
@@ -459,3 +460,153 @@ def test_hybrid_does_not_render_a_confirmed_static_result(monkeypatch) -> None:
     monkeypatch.setattr(G, "verify_student_login_surface", static)
     monkeypatch.setattr(G, "verify_student_login_surface_rendered", rendered)
     assert asyncio.run(verify_student_login_surface_hybrid(HOME))[0] is True
+
+
+# --------------------------------------------------------------------------- #
+#  never fetch an internal address                                             #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def fake_dns(monkeypatch):
+    """Resolve the test hosts to fixed addresses, and nothing else."""
+    table = {
+        "metadata.google.internal": "169.254.169.254",
+        "intranet.example.ac.in": "10.0.0.5",
+        "evil.example.net": "127.0.0.1",
+        "erp.example.ac.in": "93.184.216.34",
+        "www.example.ac.in": "93.184.216.34",
+    }
+
+    async def resolve(host):
+        if host not in table:
+            raise OSError("no such host")
+        return [table[host]]
+
+    monkeypatch.setattr(G, "_resolve", resolve)
+    G._PUBLIC_HOST_CACHE.clear()
+    yield table
+    G._PUBLIC_HOST_CACHE.clear()
+
+
+@pytest.mark.parametrize("host, public", [
+    ("metadata.google.internal", False),     # cloud metadata, link-local
+    ("intranet.example.ac.in", False),       # private network
+    ("evil.example.net", False),             # resolves to this machine
+    ("erp.example.ac.in", True),
+    ("169.254.169.254", False), ("10.1.2.3", False), ("::1", False),
+    ("93.184.216.34", True),
+    # Internal names are refused even when they do not resolve here.
+    ("metadata.internal", False), ("printer.local", False), ("localhost", False),
+    ("nas.home.arpa", False), ("no-such-host.example.org", True),
+])
+def test_only_public_addresses_count_as_public(fake_dns, host, public) -> None:
+    assert asyncio.run(G._host_is_public(host)) is public
+
+
+def test_a_login_link_to_an_internal_address_is_never_fetched(fake_dns, monkeypatch) -> None:
+    fetched = _site(monkeypatch, {
+        HOME: _home('<a href="http://metadata.google.internal/computeMetadata/v1/">Login</a>')})
+    accepted, note, _url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
+    assert fetched == [HOME]
+    assert accepted is False
+    assert G.NON_PUBLIC_NOTE in note
+
+
+def test_a_redirect_to_an_internal_address_is_not_followed(fake_dns, monkeypatch) -> None:
+    """A public link that bounces to a private address stops at the bounce."""
+    requested: list[str] = []
+
+    class Response:
+        def __init__(self, url):
+            self.url = url
+            self.status = 302
+            self.headers = {"Location": "http://intranet.example.ac.in/login"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get(self, url, *_args, allow_redirects=True, **_kwargs):
+            assert allow_redirects is False      # every hop is ours to check
+            requested.append(url)
+            return Response(url)
+
+    monkeypatch.setattr("agent.guardrails.aiohttp.ClientSession", lambda **_k: Session())
+    status, final, html, error = asyncio.run(G._fetch_html(
+        "https://erp.example.ac.in/login", 5, "", False))
+    assert requested == ["https://erp.example.ac.in/login"]
+    assert status == 0 and html == ""
+    assert final == "http://intranet.example.ac.in/login"
+    assert error == f"redirect: {G.NON_PUBLIC_NOTE}"
+
+
+def test_public_redirects_are_followed_hop_by_hop(fake_dns, monkeypatch) -> None:
+    hops = {"https://www.example.ac.in/login": "/sso",
+            "https://www.example.ac.in/sso": "https://erp.example.ac.in/login"}
+
+    class Content:
+        async def read(self, _limit):
+            return FORM.encode()
+
+    class Response:
+        def __init__(self, url):
+            self.url = url
+            self.status = 302 if url in hops else 200
+            self.headers = {"Location": hops[url]} if url in hops else {}
+            self.content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def get(self, url, *_args, **_kwargs):
+            return Response(url)
+
+    monkeypatch.setattr("agent.guardrails.aiohttp.ClientSession", lambda **_k: Session())
+    status, final, html, error = asyncio.run(G._fetch_html(
+        "https://www.example.ac.in/login", 5, "", False))
+    assert (status, final, error) == (200, "https://erp.example.ac.in/login", "")
+    assert "password" in html
+
+
+def test_click_through_browser_aborts_internal_requests(fake_dns) -> None:
+    from agent import click_through as CT
+    calls: list[str] = []
+
+    class Route:
+        def __init__(self, url):
+            self.request = type("R", (), {"url": url})()
+
+        async def abort(self, reason):
+            calls.append(f"abort {self.request.url} {reason}")
+
+        async def continue_(self):
+            calls.append(f"continue {self.request.url}")
+
+    for url in ("http://metadata.google.internal/computeMetadata/v1/",
+                "https://erp.example.ac.in/login", "data:text/html,hi"):
+        asyncio.run(CT._only_public(Route(url)))
+    assert calls == [
+        "abort http://metadata.google.internal/computeMetadata/v1/ blockedbyclient",
+        "continue https://erp.example.ac.in/login",
+        "continue data:text/html,hi",
+    ]

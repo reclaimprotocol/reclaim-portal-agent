@@ -503,6 +503,22 @@ async def _explore(context: Any, page: Any, base_url: str, credit_url: str,
     return clicks
 
 
+async def _only_public(route: Any) -> None:
+    """Abort any browser request to an address outside the public internet.
+
+    Covers every navigation, redirect hop, pop-up and sub-resource, so a page
+    cannot use a link, a script or a redirect to reach an internal service.
+    """
+    url = route.request.url
+    if url.startswith(("http://", "https://")):
+        host = urlsplit(url).hostname or ""
+        if not await G._host_is_public(host):
+            logger.info("click-through: blocked request to non-public %s", host)
+            await route.abort("blockedbyclient")
+            return
+    await route.continue_()
+
+
 async def _run(url: str, proxy_cfg: dict | None, limit: int) -> ClickResult | None:
     """One attempt through one route. ``None`` means the page did not load."""
     from playwright.async_api import async_playwright
@@ -515,6 +531,7 @@ async def _run(url: str, proxy_cfg: dict | None, limit: int) -> ClickResult | No
                 viewport={"width": 1366, "height": 900})
             context.set_default_timeout(15_000)
             context.on("page", _dismiss_dialogs)
+            await context.route("**/*", _only_public)
             page = await context.new_page()
             try:
                 response = await page.goto(url, wait_until="domcontentloaded",
@@ -585,7 +602,7 @@ async def _run(url: str, proxy_cfg: dict | None, limit: int) -> ClickResult | No
                 # and a captcha, with no password field at all). Apply the
                 # verifier's own rule: a student page with a Login button is
                 # accepted as it stands.
-                has_button, _targets = G._login_controls(home_html, base_url)
+                has_button, _links = G._login_links(home_html, base_url)
                 if has_button and not is_admission_portal(base_url, home_html)[0]:
                     return ClickResult(
                         "modal", note="login button on the page once it finished "

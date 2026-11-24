@@ -138,7 +138,6 @@ _TRACKING_PARAMS = frozenset({
     "_gl", "_ga", "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "dclid",
     "mc_cid", "mc_eid", "yclid", "igshid",
 })
-_TRACKING_PARAM_PREFIXES = ("utm_", "gad_")
 _JSESSIONID_RE = re.compile(r";jsessionid=[^/?#;]*", re.I)
 _INDEX_DOCUMENT_RE = re.compile(
     r"/(?:index|default)\.(?:php|html?|aspx?|jsp|do)$", re.I)
@@ -304,7 +303,7 @@ def canonical_portal_url(url: str) -> str:
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         lower = key.lower()
         if (lower in _TRACKING_PARAMS or lower in {"lang", "changelangcd"}
-                or lower.startswith(_TRACKING_PARAM_PREFIXES)):
+                or lower.startswith(("utm_", "gad_"))):
             continue
         query.append((key, value))
     # A servlet session id in the path belongs to one visit, not to the portal.
@@ -609,12 +608,6 @@ _UNPUBLISHABLE_NOT_WRONG = frozenset({"literal IP host", "not a public DNS hostn
 _MAX_LOGIN_TARGETS = 3
 
 
-def _login_controls(html: str, base_url: str = "") -> tuple[bool, list[str]]:
-    """`_login_links` without the labels: ``(has_button, link_targets)``."""
-    has_button, links = _login_links(html, base_url)
-    return has_button, [target for target, _label in links]
-
-
 def _login_links(html: str, base_url: str = "") -> tuple[bool, list[tuple[str, str]]]:
     """Every sign-in control on a page: ``(has_button, [(target, label), ...])``.
 
@@ -707,8 +700,9 @@ def _classify_login_target(
     # LANDED: an on-site `/login` that redirects to an outside identity
     # provider is an off-site login, however local the link looked.
     entry_root = registrable_root(entry_url) if entry_url else ""
-    same_site = bool(entry_root) and (
-        entry_root == registrable_root(target) == registrable_root(final_url))
+    landed_root = registrable_root(final_url)        # after every redirect
+    linked_root = registrable_root(target)           # as the page wrote it
+    same_site = bool(entry_root) and entry_root == landed_root == linked_root
     if not audience_ok and not same_site:
         # Not proof of anything: plenty of real student portals are a vendor's
         # bare login screen. It is only not enough to PUBLISH the link.
@@ -716,21 +710,97 @@ def _classify_login_target(
     return "student", form_reason
 
 
+#: Hops followed when fetching a Login link. Each one is checked first.
+_MAX_REDIRECTS = 5
+#: Rejection note for an address that resolves outside the public internet.
+NON_PUBLIC_NOTE = "address is not on the public internet"
+_PUBLIC_HOST_CACHE: dict[str, bool] = {}
+#: Name suffixes reserved for private networks. A host under one is internal
+#: wherever this runs, whether or not it resolves on this machine.
+_INTERNAL_SUFFIXES = (".internal", ".local", ".localhost", ".lan", ".intranet",
+                      ".home.arpa", ".corp", ".private")
+
+
+async def _resolve(host: str) -> list[str]:
+    """Every address ``host`` resolves to. Raises OSError when it does not."""
+    infos = await asyncio.get_running_loop().getaddrinfo(host, None)
+    return [info[4][0] for info in infos]
+
+
+async def _host_is_public(host: str) -> bool:
+    """Whether every address ``host`` resolves to is a public internet address.
+
+    Login links come from pages this workflow does not control, so a link (or
+    a redirect) could point at an internal service: a cloud metadata endpoint,
+    a private network, the machine itself. Such a destination is never a
+    student portal, and is never fetched.
+    """
+    host = (host or "").strip("[]").lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(_INTERNAL_SUFFIXES):
+        return False
+    if host in _PUBLIC_HOST_CACHE:
+        return _PUBLIC_HOST_CACHE[host]
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            resolved = await _resolve(host)
+        except OSError:
+            # Unresolvable here. Through a proxy the proxy resolves it, and an
+            # internal name of OUR network does not resolve at the proxy.
+            _PUBLIC_HOST_CACHE[host] = True
+            return True
+        addresses = [ipaddress.ip_address(a.split("%")[0]) for a in resolved]
+    public = bool(addresses) and all(address.is_global for address in addresses)
+    _PUBLIC_HOST_CACHE[host] = public
+    return public
+
+
+async def _safe_target(url: str) -> str:
+    """"" when ``url`` may be fetched, else the reason it may not."""
+    allowed, reason = portal_url_allowed(url)
+    if not allowed:
+        return reason
+    if not await _host_is_public(urlsplit(url).hostname or ""):
+        return NON_PUBLIC_NOTE
+    return ""
+
+
 async def _fetch_html(
     url: str, timeout_seconds: int, country_hint: str, use_proxy: bool,
 ) -> tuple[int, str, str, str]:
-    """GET ``url``: ``(status, final_url, html, error)``. Never raises."""
+    """GET ``url``: ``(status, final_url, html, error)``. Never raises.
+
+    Redirects are followed by hand so that every hop is checked with
+    `_safe_target` before it is requested. A hop that fails the check ends the
+    fetch with status 0 and the reason as the error.
+    """
+    blocked = await _safe_target(url)
+    if blocked:
+        return 0, url, "", blocked
     routes = (_proxy_urls(url, country_hint) if use_proxy else []) or [("direct", None)]
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     async with aiohttp.ClientSession(timeout=timeout) as sess:
         for index, (_provider, proxy_url) in enumerate(routes):
+            current = url
             try:
-                async with sess.get(url, allow_redirects=True,
-                                    headers={"User-Agent": USER_AGENT},
-                                    proxy=proxy_url, ssl=_SSL_CONTEXT) as resp:
-                    body = await resp.content.read(_MAX_LOGIN_PAGE_BYTES)
-                    return (resp.status, str(resp.url),
-                            body.decode("utf-8", errors="ignore"), "")
+                for _hop in range(_MAX_REDIRECTS + 1):
+                    async with sess.get(current, allow_redirects=False,
+                                        headers={"User-Agent": USER_AGENT},
+                                        proxy=proxy_url, ssl=_SSL_CONTEXT) as resp:
+                        location = resp.headers.get("Location", "")
+                        if 300 <= resp.status < 400 and location:
+                            current = urljoin(current, location)
+                            blocked = await _safe_target(current)
+                            if blocked:
+                                return 0, current, "", f"redirect: {blocked}"
+                            continue
+                        body = await resp.content.read(_MAX_LOGIN_PAGE_BYTES)
+                        return (resp.status, str(resp.url),
+                                body.decode("utf-8", errors="ignore"), "")
+                return 0, current, "", "too many redirects"
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -849,6 +919,9 @@ async def _resolve_login_target(
             continue
         status, final_url, html, error = await _fetch_html(
             target, timeout_seconds, country_hint, use_proxy)
+        if NON_PUBLIC_NOTE in error:
+            reasons.append(error)
+            continue
         if status in (404, 410) or status >= 500:
             reasons.append(f"HTTP {status}")
             continue
@@ -867,6 +940,8 @@ async def _resolve_login_target(
             pending.append(target)
 
     to_render = next((t for t in pending if t), "")
+    if to_render and await _safe_target(to_render):
+        to_render = ""                    # never render an unsafe address
     if to_render and render_timeout_seconds:
         html, final_url, _error = await _render_html(
             to_render, render_timeout_seconds, country_hint)

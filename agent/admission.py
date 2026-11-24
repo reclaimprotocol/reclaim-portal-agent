@@ -51,8 +51,6 @@ _V3_PATH_SUBSTRINGS: tuple[str, ...] = (
     "/inscricao", "/inscricoes", "/inscripcion", "/preinscripcion",
     "/candidato", "/aspirante", "/pendaftaran",
 )
-#: `entrance.<university>` hosts serve entrance-test application forms.
-_V3_HOST_SUBSTRINGS: tuple[str, ...] = ("entrance",)
 #: Samarth gives each institution a separate admission tenant whose label ends
 #: in `adm` (`sgbauadm.samarth.edu.in`); the student tenant has no suffix.
 _SAMARTH_ADMISSION_HOST_RE = re.compile(
@@ -99,7 +97,8 @@ def _url_token(parsed) -> str:
     for kw in _V3_PATH_SUBSTRINGS:
         if kw in path:
             return f"path={kw!r}"
-    for kw in (*URL_ADMISSION_HOST_KEYWORDS, *_V3_HOST_SUBSTRINGS):
+    # `entrance.<university>` hosts serve entrance-test application forms.
+    for kw in (*URL_ADMISSION_HOST_KEYWORDS, "entrance"):
         if kw in host:
             return f"host={kw!r}"
     if _SAMARTH_ADMISSION_HOST_RE.search(host):
