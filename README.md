@@ -439,6 +439,10 @@ well as a wide IPv4 range.
 | `GENIE_SEARCH_CONCURRENCY` | global search turnstile, default 3 — quota is per account, not per code path |
 | `GENIE_CAPABILITY_EXPANSION` | `1` opts into extra searches for missing portal categories; default `0` |
 | `GENIE_GUARDRAIL_TIMEOUT` / `_RETRY` | liveness budgets, default 5s / 20s |
+| `GENIE_V3_LOGIN_GATE` | batch runs also require a student login on each reachable portal; default on, `0` restores the reachability check alone |
+| `GENIE_V3_LOGIN_GATE_TIMEOUT` | ceiling for one portal's login check, default 240s |
+| `GENIE_CLICK_THROUGH` | open menus and click Login controls when a page shows no login form; default on, `0` keeps the check read-only |
+| `GENIE_CLICK_THROUGH_BUDGET` / `_MAX_CLICKS` | per-page ceiling for the click-through, default 90s / 4 controls |
 | `GENIE_MAX_CANDIDATES` | filter cap, default 40 |
 | `USE_PROXY`, `RESIDENTIAL_PROXY_*` | residential proxy credentials |
 | `PROXY_PROVIDER` | `auto`, `brightdata`, or `grass`; auto uses the country fallback map |
