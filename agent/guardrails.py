@@ -2009,13 +2009,13 @@ def ownership_evidence(
 async def _official_page_links_to(
     url: str, official_domain: str, *, country_hint: str = "",
     timeout_seconds: int = 15, use_proxy: bool = True,
-    vendor_roots: Iterable[str] = (),
 ) -> bool:
-    """Whether the organisation's homepage links to the login at ``url``."""
-    target = urlsplit(_as_url(url))
-    host = _normalised_host(url)
-    vendor = _vendor_root_of(host, vendor_roots)
-    first_segment = (target.path or "/").strip("/").split("/")[0].lower()
+    """Whether the organisation's homepage links to the login at ``url`` itself.
+
+    Only a link to the same login counts. Sharing a host with some homepage
+    link proves nothing: a homepage that links to a vendor's or a third
+    party's front page does not vouch for every other page on that host.
+    """
     key = portal_dedupe_key(url)
     domains = [d for d in re.split(r"[,;\s]+", official_domain or "") if d.strip()][:2]
     for domain in domains:
@@ -2031,16 +2031,8 @@ async def _official_page_links_to(
             try:
                 if portal_dedupe_key(href) == key:
                     return True
-                link = urlsplit(href)
             except ValueError:
                 continue
-            if _normalised_host(href) != host:
-                continue
-            # A shared vendor host serves many tenants: the link must name the
-            # same tenant (first path segment), not just the vendor.
-            if not vendor or (first_segment and (link.path or "/").strip("/")
-                              .split("/")[0].lower() == first_segment):
-                return True
     return False
 
 
@@ -2149,7 +2141,7 @@ async def judge_student_login(
         relation, owner_note = "official_link", "reached from the organisation's own page"
     if not relation and official_domain and await _official_page_links_to(
             published, official_domain, country_hint=country_hint,
-            timeout_seconds=timeout_seconds, use_proxy=use_proxy, vendor_roots=vendors):
+            timeout_seconds=timeout_seconds, use_proxy=use_proxy):
         relation, owner_note = "official_link", "the organisation's homepage links to it"
     if not relation:
         return GateResult(REVIEW, "wrong_org", f"{note}; ownership not proven: {owner_note}",

@@ -536,3 +536,14 @@ def test_hash_routes_are_different_logins_but_anchors_are_not() -> None:
         portal_dedupe_key("https://APP.example.edu/#!/auth/login")
     assert portal_dedupe_key("https://lms.example.edu/login#top") == \
         portal_dedupe_key("https://lms.example.edu/login")
+
+
+def test_a_homepage_link_to_a_hosts_front_page_does_not_vouch_for_its_other_pages(monkeypatch) -> None:
+    """PR review: linking to `third-party.example/` proves nothing about
+    `third-party.example/another-org/login`."""
+    login = "https://third-party.example/another-org/login"
+    home = "<html><a href='https://third-party.example/'>Partner</a></html>"
+    _pages(monkeypatch, {"https://example.edu/": (200, home)})
+    assert asyncio.run(G._official_page_links_to(login, "example.edu")) is False
+    _pages(monkeypatch, {"https://example.edu/": (200, f"<a href='{login}'>Login</a>")})
+    assert asyncio.run(G._official_page_links_to(login, "example.edu")) is True

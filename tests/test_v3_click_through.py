@@ -274,7 +274,11 @@ def test_one_time_sso_address_is_never_published() -> None:
     assert publishable_destination(sso, idp) == sso
     # A button has no link to fall back on: nothing stable to publish.
     assert publishable_destination("", idp) == ""
-    assert decide([_click("Login", "", idp)], HOME).outcome == "modal"
+    # A button that LEFT the page for the IdP is not a login on the page, and
+    # has no reusable address: REVIEW, never the landing page.
+    assert decide([_click("Login", "", idp)], HOME).outcome == "unpublishable"
+    # A form that opened without leaving the page still keeps the page.
+    assert decide([_click("Login", "", HOME, changed=False)], HOME).outcome == "modal"
     assert decide([_click("Student Login", sso, idp)], HOME).url == sso
 
 
@@ -472,3 +476,12 @@ def test_static_check_marks_a_button_only_page(monkeypatch) -> None:
     accepted, note, url = asyncio.run(verify_student_login_surface(HOME, use_proxy=False))
     assert accepted is True and url == HOME
     assert BUTTON_UNOPENED_NOTE in note
+
+
+def test_a_click_that_only_reached_a_one_time_url_is_review(monkeypatch) -> None:
+    """PR review: never publish the landing page for a navigated click."""
+    _wire(monkeypatch, (False, NO_LOGIN, HOME), (False, NO_LOGIN, HOME),
+          ClickResult("unpublishable", note="1 control(s) led to a student login only "
+                                            "at a one-time or identity-provider URL"))
+    accepted, note, _url = asyncio.run(verify_student_login_surface_hybrid(HOME))
+    assert accepted is False and G.is_review_note(note)

@@ -24,6 +24,8 @@ WHAT IT RETURNS
             Publish the page; the click is how a student gets to the form.
     button  a sign-in button was seen but never opened onto a form. Not
             enough to publish: the gate sends the page to REVIEW.
+    unpublishable  a click reached a student login, but only at a one-time or
+            identity-provider URL with no reusable link to it: REVIEW.
     none    nothing the page offers leads to a student login.
 
 It is slow (a browser, several navigations), so the hybrid verifier calls it
@@ -306,11 +308,19 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
     replaced: set[str] = set()        # keys published in place of a one-time URL
     student_labelled: set[str] = set()
     on_page = False
+    unpublishable = 0                 # navigated to a login with no reusable address
     for click in good:
-        url = publishable_destination(click.get("href") or "", click.get("dest") or "") \
-            if click.get("url_changed") else ""
-        if not url or G.portal_dedupe_key(url) in (
-                here, G.portal_dedupe_key(str(click.get("found_on") or entry_url))):
+        holder = G.portal_dedupe_key(str(click.get("found_on") or entry_url))
+        if not click.get("url_changed"):
+            on_page = True            # the form opened without leaving the page
+            continue
+        url = publishable_destination(click.get("href") or "", click.get("dest") or "")
+        if not url:
+            # It left the page for a one-time or identity-provider URL and no
+            # link names a reusable address: that is not a login ON this page.
+            unpublishable += 1
+            continue
+        if G.portal_dedupe_key(url) in (here, holder):
             on_page = True
             continue
         key = G.portal_dedupe_key(url)
@@ -321,6 +331,11 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
         if click.get("for_students"):
             student_labelled.add(key)
     found = list(destinations.values())
+    if not found and not on_page:
+        return ClickResult(
+            "unpublishable", note=f"{unpublishable} control(s) led to a student login "
+                                  "only at a one-time or identity-provider URL",
+            page=keep, controls=controls)
 
     def marked(key: str, note: str) -> str:
         return f"{note}; {G.REPLACED_ONE_TIME_NOTE}" if key in replaced else note
