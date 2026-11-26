@@ -22,7 +22,8 @@ are counted apart: their old label does not apply to the new URL.
 
 Usage:
     python benchmark/replay_tier_a.py --merged <scratch>/review/merged.json \\
-        [--tier-a <scratch>/tier_a.json] [--dash <scratch>/dash_urls.json]
+        [--tier-a <scratch>/tier_a.json] [--dash <scratch>/dash_urls.json] \\
+        [--recheck <scratch>/recheck_all.json]
 
 Inputs are local review files; nothing is fetched or written. URLs are never
 printed, only counts and review ids.
@@ -106,8 +107,22 @@ def known_urls(row: dict, dash: dict[str, list[str]], org_id: str) -> list[str]:
     return cur + dash.get(org_id, [])
 
 
+RECHECK: dict[str, dict] = {}
+
+
 def reload_oracle(row: dict, url: str):
-    """The reviewer's own fresh visit of ``url``, when it visited that URL."""
+    """A fresh visit of ``url`` from the review data, when there is one: the
+    cleanup's own reload of the cleaned URL (``--recheck``) first, then the
+    reviewer's visit of the URL the gate published."""
+    hit = RECHECK.get(G.canonical_portal_url(url))
+    if hit is not None and not hit.get("error"):
+        status = int(hit.get("status") or 0)
+        if status == 0 or status >= 400:
+            return False
+        if str(hit.get("pw")) in ("True", "true", "1") or G.is_identity_provider_url(
+                hit.get("final") or ""):
+            return True
+        return None
     for ev in (row.get("evidence_final"), row.get("evidence_reported")):
         if not ev or ev.get("error"):
             continue
@@ -172,10 +187,14 @@ async def main() -> None:
     ap.add_argument("--merged", required=True, help="review/merged.json")
     ap.add_argument("--tier-a", help="tier_a.json (org x URL rows, for duplicate counts)")
     ap.add_argument("--dash", help="dash_urls.json (dashboard portal rows per org)")
+    ap.add_argument("--recheck", help="recheck_all.json (fresh reloads of cleaned URLs)")
     ap.add_argument("--json", help="write per-row results here")
     args = ap.parse_args()
 
     rows = json.load(open(args.merged))
+    if args.recheck:
+        for url, hit in json.load(open(args.recheck)).items():
+            RECHECK[G.canonical_portal_url(url)] = hit
     dash: dict[str, list[str]] = collections.defaultdict(list)
     if args.dash:
         for d in json.load(open(args.dash)):
