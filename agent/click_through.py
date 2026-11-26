@@ -299,6 +299,7 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
     here = G.portal_dedupe_key(entry_url)
     destinations: dict[str, str] = {}
     labels: dict[str, str] = {}
+    replaced: set[str] = set()        # keys published in place of a one-time URL
     student_labelled: set[str] = set()
     on_page = False
     for click in good:
@@ -309,23 +310,31 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
             on_page = True
             continue
         key = G.portal_dedupe_key(url)
+        if G._replaces_one_time(url, str(click.get("dest") or "")):
+            replaced.add(key)
         destinations.setdefault(key, url)
         labels.setdefault(key, str(click.get("control") or ""))
         if click.get("for_students"):
             student_labelled.add(key)
     found = list(destinations.values())
+
+    def marked(key: str, note: str) -> str:
+        return f"{note}; {G.REPLACED_ONE_TIME_NOTE}" if key in replaced else note
+
     if len(found) == 1 and not on_page:
         key = next(iter(destinations))
         return ClickResult("one", found[0],
-                           f"login reached by clicking {labels[key]!r}", found, controls)
+                           marked(key, f"login reached by clicking {labels[key]!r}"),
+                           found, controls)
     # "Student Login" beside a plain "Login": the page itself says which one is
     # for students, so that is the answer rather than a tie.
     if len(student_labelled) == 1:
         key = next(iter(student_labelled))
         return ClickResult(
             "one", destinations[key],
-            f"login reached by clicking {labels[key]!r} (the only student-labelled "
-            f"one of {len(found) + (1 if on_page else 0)})", found, controls)
+            marked(key, f"login reached by clicking {labels[key]!r} (the only "
+                        f"student-labelled one of {len(found) + (1 if on_page else 0)})"),
+            found, controls)
     if on_page:
         # A login opened on the page itself, so the page IS a login; any
         # other logins it links to are listed, not published.
@@ -340,8 +349,8 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
     best = ranked[0]
     return ClickResult(
         "one", destinations[best],
-        f"login reached by clicking {labels[best]!r} (best of {len(found)} "
-        "different student logins)", found, controls)
+        marked(best, f"login reached by clicking {labels[best]!r} (best of {len(found)} "
+                     "different student logins)"), found, controls)
 
 
 def _destination_rank(label: str, url: str, order: int) -> tuple:

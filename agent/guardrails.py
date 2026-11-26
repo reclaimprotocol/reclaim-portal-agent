@@ -989,7 +989,10 @@ async def _resolve_login_target(
         verdict, reason = _classify_login_target(
             target, final_url, html, entry_url, label)
         if verdict == "student":
-            return "confirmed", publishable(target, final_url), reason
+            url = publishable(target, final_url)
+            if _replaces_one_time(url, final_url):
+                reason = f"{reason}; {REPLACED_ONE_TIME_NOTE}"
+            return "confirmed", url, reason
         if verdict == "wrong":
             reasons.append(reason)
         elif verdict == "unsure":
@@ -1101,7 +1104,7 @@ async def verify_student_login_surface_rendered(
     # actionable target rather than the page containing the link.  Volatile
     # SAML/OIDC transactions are deliberately not published.
     stable = _stable_verified_url(published, final_url)
-    link_note = ""
+    link_note = f"; {REPLACED_ONE_TIME_NOTE}" if _replaces_one_time(stable, final_url) else ""
     if not form_ok:
         has_button, targets = _login_links(html, final_url)
         if not has_button and not targets:
@@ -1114,6 +1117,8 @@ async def verify_student_login_surface_rendered(
             if outcome == "confirmed":
                 stable = target_url
                 link_note = "; login link opened and confirmed"
+                if REPLACED_ONE_TIME_NOTE in why:
+                    link_note += f"; {REPLACED_ONE_TIME_NOTE}"
             elif outcome == "wrong" and not has_button:
                 return False, f"login link is not a student login: {why}", final_url
             elif outcome == "unconfirmed":
@@ -1171,7 +1176,10 @@ async def verify_student_login_surface_hybrid(
         # another host.
         published = (canonical_portal_url(static[2]) if _LINK_CONFIRMED in static[1]
                      else _stable_verified_url(_as_url(url_path), static[2]))
-        best = (static[0], static[1], published)
+        note = static[1]
+        if _replaces_one_time(published, static[2]) and REPLACED_ONE_TIME_NOTE not in note:
+            note = f"{note}; {REPLACED_ONE_TIME_NOTE}"
+        best = (static[0], note, published)
         if LINK_UNCONFIRMED_NOTE in best[1]:
             # A student page with a Login link whose target could not be read
             # as plain HTML. Chromium can render that target; keep the static
@@ -1218,6 +1226,24 @@ REVIEW_PREFIX = "needs review: "
 #: The page offers a way to sign in, but no login form was ever seen behind it.
 UNSEEN_LOGIN_NOTE = "login never seen"
 _LINK_CONFIRMED = "login link opened and confirmed"
+#: Note marker: the URL handed back is not the one the browser was on, which
+#: was a one-time sign-in URL (an IdP transaction, a session id). Nobody has
+#: loaded the replacement in a fresh session yet, so `judge_student_login`
+#: reloads it before publishing.
+REPLACED_ONE_TIME_NOTE = "stands in for a one-time sign-in URL"
+
+
+def _replaces_one_time(published: str, seen: str) -> bool:
+    """Whether ``published`` replaces a one-time URL ``seen`` by the verifier."""
+    if not published or not seen:
+        return False
+    try:
+        seen_raw = _as_url(seen)
+        if not (_carries_session(seen_raw) or is_identity_provider_url(seen_raw)):
+            return False
+        return canonical_portal_url(published) != canonical_portal_url(seen_raw)
+    except ValueError:
+        return False
 
 
 def is_review_note(note: str) -> bool:
@@ -1344,7 +1370,8 @@ async def verify_student_login_surface(
     # Publish the stable entry point rather than one node of a rotating pool.
     stable_url = (_stable_verified_url(url, final_url) if host_changed
                   else final_url)
-    link_note = ""
+    link_note = (f"; {REPLACED_ONE_TIME_NOTE}"
+                 if _replaces_one_time(stable_url, final_url) else "")
     if not accepted:
         # The page has no form of its own, only a Login link. Open the link:
         # publish it when it is the student login, publish this page when the
@@ -1360,6 +1387,8 @@ async def verify_student_login_surface(
             if outcome == "confirmed":
                 stable_url = target_url
                 link_note = "; login link opened and confirmed"
+                if REPLACED_ONE_TIME_NOTE in why:
+                    link_note += f"; {REPLACED_ONE_TIME_NOTE}"
             elif outcome == "wrong" and not has_button:
                 return False, f"login link is not a student login: {why}", final_url
             elif outcome == "unconfirmed":
@@ -1738,7 +1767,7 @@ async def _reloads_as_login(
 
 async def publishable_login_url(
     requested_url: str, found_url: str, *, country_hint: str = "",
-    timeout_seconds: int = 15, use_proxy: bool = True,
+    timeout_seconds: int = 15, use_proxy: bool = True, must_reload: bool = False,
 ) -> tuple[str, str]:
     """The address to publish for a login found at ``found_url``.
 
@@ -1765,13 +1794,15 @@ async def publishable_login_url(
         if not entry or is_identity_provider_url(entry) \
                 or portal_dedupe_key(entry) == portal_dedupe_key(found):
             return "", "only an identity-provider sign-in URL was seen"
-        if not _carries_session(raw_entry):
+        if not _carries_session(raw_entry) and not must_reload:
             return entry, "identity-provider sign-in; published the portal URL that leads to it"
         raw_found, found = raw_entry, entry
     # Only what was seen is proven. When the URL carried a session or one-time
     # part, even one `canonical_portal_url` already dropped, every address
     # published in its place must pass a fresh, cookie-less reload first.
-    if not _carries_session(raw_found):
+    # ``must_reload``: the verifier already swapped a one-time URL it was on
+    # for this one, which nobody has loaded in a fresh session yet.
+    if not _carries_session(raw_found) and not must_reload:
         return found, ""
 
     # Every candidate is published only after a fresh, cookie-less reload
@@ -2060,7 +2091,8 @@ async def judge_student_login(
 
     published, publish_note = await publishable_login_url(
         requested, found or requested, country_hint=country_hint,
-        timeout_seconds=timeout_seconds, use_proxy=use_proxy)
+        timeout_seconds=timeout_seconds, use_proxy=use_proxy,
+        must_reload=REPLACED_ONE_TIME_NOTE in note)
     if not published:
         return GateResult(REVIEW, "volatile", f"{note}; {publish_note}", "", requested)
     allowed, why = portal_url_allowed(published)

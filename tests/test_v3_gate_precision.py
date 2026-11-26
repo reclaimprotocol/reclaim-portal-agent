@@ -450,3 +450,35 @@ def test_a_confirmed_link_with_a_session_id_is_reload_tested_end_to_end(monkeypa
     _pages(monkeypatch, {clean: (200, FORM)})
     result = asyncio.run(judge_student_login(landing, official_domain="example.edu"))
     assert result.decision == ACCEPT and result.url == clean
+
+
+def test_a_link_published_in_place_of_a_one_time_destination_is_reload_tested(monkeypatch) -> None:
+    """PR review: a clean `/sso` link whose click landed on `?state=...` is
+    published instead of that one-time URL, so it must pass a fresh reload."""
+    from agent.click_through import decide
+    sso = "https://lms.example.edu/sso"
+    landed = "https://lms.example.edu/oidc/callback?state=txn-123&code=abc"
+    found = decide([{"control": "Student Login", "href": sso, "dest": landed,
+                     "verdict": "student", "reason": "form", "url_changed": True}],
+                   "https://www.example.edu/")
+    assert found.outcome == "one" and found.url == sso
+    assert G.REPLACED_ONE_TIME_NOTE in found.note
+
+    verdict = (True, f"{found.note}; click-through", sso)
+    _pages(monkeypatch, {sso: (200, "<p>Bad request: invalid state</p>")})
+    result = judge("https://www.example.edu/", verdict, official_domain="example.edu")
+    assert result.decision == REVIEW and result.reason == "volatile"
+
+    _pages(monkeypatch, {sso: (200, FORM)})
+    result = judge("https://www.example.edu/", verdict, official_domain="example.edu")
+    assert result.decision == ACCEPT and result.url == sso
+
+
+def test_a_url_seen_as_it_is_needs_no_reload(monkeypatch) -> None:
+    _no_network(monkeypatch)
+    assert not G._replaces_one_time("https://lms.example.edu/login",
+                                    "https://lms.example.edu/login")
+    assert not G._replaces_one_time("https://lms.example.edu/sso",
+                                    "https://lms.example.edu/login")
+    assert G._replaces_one_time("https://lms.example.edu/sso",
+                                "https://login.microsoftonline.com/t/oauth2/authorize")
