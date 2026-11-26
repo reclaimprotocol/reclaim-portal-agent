@@ -334,7 +334,18 @@ def canonical_portal_url(url: str) -> str:
             continue
         query.append((key, value))
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "",
-                       urlencode(query, doseq=True), ""))
+                       urlencode(query, doseq=True), _route_fragment(parsed.fragment)))
+
+
+# A hash-routed single-page app selects its login screen in the fragment
+# (`https://app.example.edu/#/auth/login`); the root alone may be a landing
+# page. Such route fragments are kept; any other fragment (an in-page anchor,
+# an OAuth `#access_token=` hand-off) is dropped.
+_ROUTE_FRAGMENT_RE = re.compile(r"^!?/[^=&]*$")
+
+
+def _route_fragment(fragment: str) -> str:
+    return fragment if _ROUTE_FRAGMENT_RE.match(fragment or "") else ""
 
 
 # MasterSoft ERP encodes the session into a path segment that starts `iitms`
@@ -379,7 +390,9 @@ def portal_dedupe_key(url: str) -> str:
         (key.lower(), value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
         if not _is_volatile_auth_param(key) and key.lower() not in _NOISE_PARAMS)
-    return f"{host}{path}" + (f"?{urlencode(query)}" if query else "")
+    route = parsed.fragment.lstrip("!").rstrip("/").lower()
+    return (f"{host}{path}" + (f"?{urlencode(query)}" if query else "")
+            + (f"#{route}" if route else ""))
 
 
 
@@ -1872,12 +1885,9 @@ def student_system_vendor_roots() -> frozenset[str]:
     return _VENDOR_ROOTS
 
 
-def _host_under(host: str, root: str) -> bool:
-    return bool(root) and (host == root or host.endswith("." + root))
-
-
 def _vendor_root_of(host: str, vendor_roots: Iterable[str]) -> str:
-    return next((r for r in vendor_roots if _host_under(host, r)), "")
+    return next((r for r in vendor_roots
+                 if r and (host == r or host.endswith("." + r))), "")
 
 
 def _fold(text: str) -> str:

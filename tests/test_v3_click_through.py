@@ -214,7 +214,8 @@ def test_the_students_page_is_kept_when_its_buttons_are_the_way_in() -> None:
                   "https://virtual.central.edu.py/auth"), "found_on": section},
     ]
     result = decide(clicks, home)
-    assert result.outcome == "one" and result.url == "https://app.central.edu.py/#/auth/login".split("#")[0]
+    # A hash-routed login keeps its route: the bare root may not be a login.
+    assert result.outcome == "one" and result.url == "https://app.central.edu.py/#/auth/login"
     # A pop-up on the section page keeps the section page too.
     modal = decide([{**_click("Ingresar", "", section, changed=False),
                      "found_on": section}], home)

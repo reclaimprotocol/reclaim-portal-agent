@@ -516,3 +516,23 @@ def test_a_click_landing_on_a_parameter_less_idp_screen_publishes_the_link(monke
     _pages(monkeypatch, {login: (200, FORM)})
     result = judge("https://www.example.edu/", verdict, official_domain="example.edu")
     assert result.decision == ACCEPT and result.url == login
+
+
+@pytest.mark.parametrize("url, expected", [
+    ("https://app.central.edu.py/#/auth/login", "https://app.central.edu.py/#/auth/login"),
+    ("https://portal.example.edu/#!/login", "https://portal.example.edu/#!/login"),
+    ("https://portal.example.edu/login#main-content", "https://portal.example.edu/login"),
+    ("https://portal.example.edu/cb#access_token=abc&state=x", "https://portal.example.edu/cb"),
+])
+def test_hash_routes_are_kept_other_fragments_dropped(url, expected) -> None:
+    """PR review: a hash-routed SPA login must not be published as its root."""
+    assert canonical_portal_url(url) == expected
+
+
+def test_hash_routes_are_different_logins_but_anchors_are_not() -> None:
+    assert portal_dedupe_key("https://app.example.edu/#/auth/login") != \
+        portal_dedupe_key("https://app.example.edu/")
+    assert portal_dedupe_key("https://app.example.edu/#/auth/login/") == \
+        portal_dedupe_key("https://APP.example.edu/#!/auth/login")
+    assert portal_dedupe_key("https://lms.example.edu/login#top") == \
+        portal_dedupe_key("https://lms.example.edu/login")
