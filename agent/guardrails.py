@@ -39,6 +39,7 @@ import re
 import ssl
 import unicodedata
 import weakref
+from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 from urllib.parse import (parse_qsl, quote, urlencode, urljoin, urlsplit,
                           urlunsplit)
@@ -173,10 +174,29 @@ _OFFICIAL_STUDENT_SERVICE_URL_RE = re.compile(
 #: tell "this is the wrong kind of login" from "no login was found".
 ADMISSION_NOTE = "admission portal"
 _MAX_LOGIN_PAGE_BYTES = 512 * 1024
+#: Query keys that belong to one sign-in transaction or one visit. A URL that
+#: carries one may not work for the next student, so it is published only after
+#: a fresh, cookie-less reload proves it still shows the login
+#: (`publishable_login_url`); a regex alone cannot tell (Mysore's `uauth?code=`
+#: is a static client blob, a Moodle `sesskey` is not).
 _VOLATILE_AUTH_PARAMS = frozenset({
     "sessid", "session", "sessionid", "samlrequest", "samlresponse",
     "relaystate", "signature", "sigalg", "state", "nonce", "code",
+    "sesskey", "sid", "token", "jwt", "ticket", "authstate", "jacamsysid",
+    "jsessionid", "phpsessid", "aspsessionid", "cookietime", "access_token",
+    "id_token", "session_state", "code_challenge", "auth_token", "logintoken",
 })
+#: Query keys that never change which login a student sees: where to go after
+#: signing in, where the click came from, and per-visit session ids. They are
+#: dropped from every published URL and from the same-login key.
+_NOISE_PARAMS = frozenset({
+    "ref", "returnurl", "return_url", "returnto", "return_to", "redirect",
+    "redirect_url", "redirecturl", "next", "loginredirect", "logout",
+    "sesskey", "sid", "jsessionid", "phpsessid", "aspsessionid", "cookietime",
+    "sessionexpired", "session_expired", "aspxautodetectcookiesupport",
+})
+# Servlet and Jacad/ULICORI session ids written into the path.
+_PATH_SESSION_RE = re.compile(r";(?:jsessionid|jacamsysid)=[^/?#;]*", re.I)
 
 
 def _has_login_word(text: str) -> bool:
@@ -296,29 +316,53 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
 
 
 def canonical_portal_url(url: str) -> str:
-    """Return a reusable output URL, removing presentation-only variants."""
+    """Return a reusable output URL, removing presentation-only variants.
+
+    Drops click tracking, language switches, post-login return targets
+    (``ReturnUrl``, ``next``, ``redirect``, ...) and per-visit session ids
+    (``sesskey``, ``sid``, ``;jsessionid=``, ``;jacamsysid=``). One-time
+    sign-in parameters (``code``, ``state``, ``token``, ...) are left in place:
+    whether they can be dropped is decided by `publishable_login_url`.
+    """
     cleaned = _as_url(url)
     parsed = urlsplit(cleaned)
     query = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         lower = key.lower()
         if (lower in _TRACKING_PARAMS or lower in {"lang", "changelangcd"}
+                or lower in _NOISE_PARAMS
                 or lower.startswith(("utm_", "gad_"))):
             continue
         query.append((key, value))
-    # A servlet session id in the path belongs to one visit, not to the portal.
-    path = _JSESSIONID_RE.sub("", parsed.path or "")
+    # A session id in the path belongs to one visit, not to the portal.
+    path = _PATH_SESSION_RE.sub("", parsed.path or "")
     return urlunsplit((parsed.scheme, parsed.netloc, path,
                        urlencode(query, doseq=True), ""))
 
 
+# MasterSoft ERP encodes the session into a path segment that starts `iitms`
+# (`/iitmsv4eGq0Ru...=`); every such segment on a host is the same login.
+_MASTERSOFT_IITMS_RE = re.compile(r"^/iitms[^/]*/?$", re.I)
+# Path endings that show the same page as their parent folder.
+_SAME_AS_PARENT_RE = re.compile(
+    r"/(?:index(?:\.(?:php|html?|aspx?|jsp|do))?|default\.aspx?|home)$", re.I)
+# SIU Guaraní serves its login at `/acceso`; `/acceso/login` is the same form.
+_ACCESO_LOGIN_RE = re.compile(r"(/acceso)/login$", re.I)
+
+
 def portal_dedupe_key(url: str) -> str:
-    """Key that is equal for two addresses of the same portal page.
+    """Key that is equal for two addresses of the same login page.
 
     Used only to compare, never to publish. It ignores what does not change the
     page a student lands on: http vs https, a leading ``www.``, a trailing
-    slash, letter case in the path, and an explicit index document
-    (``/login/index.php`` and ``/login/``).
+    slash, letter case in the path and in query keys, the order of query
+    parameters, an explicit index or home document (``/login/index.php``,
+    ``/remstudent/index``, ``/portal/default.aspx``, ``/student/home``),
+    SIU Guaraní's ``/acceso/login``, return targets, session ids and one-time
+    sign-in parameters, and the per-session MasterSoft ``/iitms...`` segment.
+
+    Compare keys only within one organisation: one shared platform URL can be
+    the login of several organisations, and each keeps its own row.
     """
     parsed = urlsplit(canonical_portal_url(url))
     host = (parsed.hostname or "").lower().rstrip(".").removeprefix("www.")
@@ -328,9 +372,40 @@ def portal_dedupe_key(url: str) -> str:
         port = None
     if port and port not in (80, 443):
         host = f"{host}:{port}"
-    path = _INDEX_DOCUMENT_RE.sub("", (parsed.path or "/").rstrip("/"))
+    if _MASTERSOFT_IITMS_RE.match(parsed.path or ""):
+        return f"{host}/iitms"
+    path = (parsed.path or "/").rstrip("/")
+    path = _ACCESO_LOGIN_RE.sub(r"\1", _SAME_AS_PARENT_RE.sub("", path))
     path = path.rstrip("/").lower() or "/"
-    return f"{host}{path}" + (f"?{parsed.query}" if parsed.query else "")
+    query = sorted(
+        (key.lower(), value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not _is_volatile_auth_param(key))
+    return f"{host}{path}" + (f"?{urlencode(query)}" if query else "")
+
+
+def dedupe_within_org(
+    rows: Iterable[Any], *, org_of=lambda r: r[0], url_of=lambda r: r[1],
+) -> list[Any]:
+    """Keep the first row of each (organisation, same login) pair.
+
+    A URL shared by several organisations (one Guaraní or Afya platform used
+    by many) stays once per organisation: duplicates are only ever merged
+    inside one organisation.
+    """
+    seen: set[tuple[str, str]] = set()
+    kept = []
+    for row in rows:
+        try:
+            key = (str(org_of(row)), portal_dedupe_key(url_of(row)))
+        except ValueError:
+            kept.append(row)
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(row)
+    return kept
 
 
 #: Evidence note for a sign-in page that asks for the username on its own.
@@ -952,14 +1027,16 @@ async def _resolve_login_target(
 
 def _stable_verified_url(published_url: str, rendered_final_url: str) -> str:
     """Prefer a reusable entry point over an ephemeral IdP transaction URL."""
+    raw_published = _as_url(published_url)
     published_url = canonical_portal_url(published_url)
     rendered_final_url = canonical_portal_url(rendered_final_url)
     # Search engines sometimes publish a currently active SSO transaction
     # rather than its stable entry point.  Recover a reusable `back`/
     # `returnUrl` destination when present; otherwise at least remove volatile
-    # transaction parameters before the row reaches Sheets.
-    if _has_volatile_auth_state(published_url):
-        parsed = urlsplit(published_url)
+    # transaction parameters before the row reaches Sheets. The return target
+    # is read from the raw URL: canonicalising drops it as noise.
+    if _has_volatile_auth_state(raw_published):
+        parsed = urlsplit(raw_published)
         pairs = parse_qsl(parsed.query, keep_blank_values=True)
         for key, value in pairs:
             if key.lower() in {
@@ -976,10 +1053,10 @@ def _stable_verified_url(published_url: str, rendered_final_url: str) -> str:
                 (key, value) for key, value in pairs
                 if not _is_volatile_auth_param(key)
             ]
-            published_url = urlunsplit((
+            published_url = canonical_portal_url(urlunsplit((
                 parsed.scheme, parsed.netloc, parsed.path,
                 urlencode(stable_pairs, doseq=True), "",
-            ))
+            )))
     if (_normalised_host(published_url) != _normalised_host(rendered_final_url)
             or _has_volatile_auth_state(rendered_final_url)):
         return published_url
@@ -1111,8 +1188,13 @@ async def verify_student_login_surface_hybrid(
         url_path, timeout_seconds, country_hint=country_hint,
         shared_platform_roots=shared_platform_roots)
     if static[0]:
-        best = (static[0], static[1],
-                _stable_verified_url(_as_url(url_path), static[2]))
+        # A Login link that was opened and confirmed already names the login
+        # to publish, wherever it is hosted. Re-deriving it from the entry
+        # page would publish the landing page whenever the login lives on
+        # another host.
+        published = (canonical_portal_url(static[2]) if _LINK_CONFIRMED in static[1]
+                     else _stable_verified_url(_as_url(url_path), static[2]))
+        best = (static[0], static[1], published)
         if LINK_UNCONFIRMED_NOTE in best[1]:
             # A student page with a Login link whose target could not be read
             # as plain HTML. Chromium can render that target; keep the static
@@ -1144,28 +1226,49 @@ async def verify_student_login_surface_hybrid(
             failure = (False, f"{failure[1]}; click-through: {found.note}", failure[2])
         return failure
     page = found.page or canonical_portal_url(rendered[2] or _as_url(url_path))
-    published = found.url if found.outcome == "one" else page
-    return True, f"{found.note}; click-through", published
+    if found.outcome == "one":
+        return True, f"{found.note}; click-through", found.url
+    if found.outcome == "modal":
+        return True, f"{found.note}; click-through", page
+    # A sign-in button was seen but never opened onto a form.
+    return False, (f"{REVIEW_PREFIX}{UNSEEN_LOGIN_NOTE} "
+                   f"({failure[1]}; click-through: {found.note})"), page
+
+
+#: Prefix of the note of a non-accept that a person should look at: the page
+#: may well be right, but nothing the gate saw proves it. It is never published.
+REVIEW_PREFIX = "needs review: "
+#: The page offers a way to sign in, but no login form was ever seen behind it.
+UNSEEN_LOGIN_NOTE = "login never seen"
+_LINK_CONFIRMED = "login link opened and confirmed"
+
+
+def is_review_note(note: str) -> bool:
+    """Whether a gate note is a REVIEW (not proven either way) rather than a REJECT."""
+    return (note or "").startswith(REVIEW_PREFIX)
 
 
 async def _settle_by_clicking(
     accepted: tuple[bool, str, str], country_hint: str,
 ) -> tuple[bool, str, str]:
-    """Upgrade an accepted page whose login was never actually seen.
+    """Open the login of a page whose login was never actually seen.
 
-    The page stays accepted whatever the click finds: a button that could not
-    be clicked today is not evidence against it. A click that reaches exactly
-    one student login replaces the page's address with that login's.
+    Nothing is accepted on a Login link or button alone: the page is accepted
+    only when the click reaches a student login, either at a new address
+    (published instead of the page) or on the page itself. Otherwise it goes
+    to REVIEW, never to ACCEPT: a button that could not be clicked today is not
+    evidence against the page, but it is not evidence for it either.
     """
     note = accepted[1]
     if BUTTON_UNOPENED_NOTE not in note and LINK_UNCONFIRMED_NOTE not in note:
         return accepted
     found = await _click_through(accepted[2], country_hint)
-    if found is None or found.outcome == "none":
-        return accepted
-    if found.outcome == "one":
+    if found is not None and found.outcome == "one":
         return True, f"{note}; {found.note}; click-through", found.url
-    return True, f"{note}; {found.note}; click-through", found.page or accepted[2]
+    if found is not None and found.outcome == "modal":
+        return True, f"{note}; {found.note}; click-through", found.page or accepted[2]
+    why = "click-through off" if found is None else f"click-through: {found.note}"
+    return False, f"{REVIEW_PREFIX}{UNSEEN_LOGIN_NOTE} ({note}; {why})", accepted[2]
 
 
 async def verify_student_login_surface(
@@ -1554,3 +1657,444 @@ async def verify_portal_endpoint(
         country_hint=country_hint, retry_timeout_seconds=retry_timeout_seconds,
     )
     return alive
+
+
+# --------------------------------------------------------------------------- #
+#  What to publish, whose it is, and whether we already have it               #
+# --------------------------------------------------------------------------- #
+#
+# `verify_student_login_surface_hybrid` answers "is there a student login
+# here?". `judge_student_login` turns that into a publishable decision for one
+# organisation: the reusable login URL (never a one-time or identity-provider
+# address), proof that the login belongs to the organisation, and whether the
+# organisation already has it.
+
+#: Final decisions of `judge_student_login`.
+ACCEPT, ALREADY_HAVE, REVIEW, REJECT = "ACCEPT", "ALREADY_HAVE", "REVIEW", "REJECT"
+
+# Hosted identity providers. A login that lands on one is published as the
+# portal URL that redirected there.
+_IDP_HOST_RE = re.compile(
+    r"(?:^|\.)(?:login\.microsoftonline\.com|login\.microsoft\.com|"
+    r"login\.live\.com|login\.windows\.net|b2clogin\.com|accounts\.google\.com|"
+    r"okta\.com|oktapreview\.com|okta-emea\.com|auth0\.com|onelogin\.com)$", re.I)
+# Self-hosted identity-provider transactions: SimpleSAML `AuthState`, Keycloak
+# `openid-connect`, WSO2 `authenticationendpoint`, OAuth2 hand-offs.
+_IDP_URL_RE = re.compile(
+    r"[?&]authstate=|/protocol/openid-connect/|/authenticationendpoint/|"
+    r"/oauth2/|/oauth2(?:[?#]|$)", re.I)
+
+
+def is_identity_provider_url(url: str) -> bool:
+    """Whether ``url`` is an identity provider's screen, not the portal itself."""
+    try:
+        host = urlsplit(_as_url(url)).hostname or ""
+    except ValueError:
+        return False
+    return bool(_IDP_HOST_RE.search(host) or _IDP_URL_RE.search(url or ""))
+
+
+def _strip_volatile_params(url: str) -> str:
+    parsed = urlsplit(canonical_portal_url(url))
+    pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+             if not _is_volatile_auth_param(k)]
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+                       urlencode(pairs, doseq=True), ""))
+
+
+# Addresses that belong to one person or sign one person in: FAVENI's
+# `/membros/<cpf>/`, auto-login links, APEX session ids in `f?p=`.
+_PER_PERSON_URL_RE = re.compile(
+    r"/membros/\d{6,}(?:/|$)|login-automatico|autologin|"
+    r"/f\?p=\d+(?:%3A|:)[^&]*?(?:%3A|:)\d{8,}", re.I)
+#: Body text of a page that only says the session is gone.
+_EXPIRED_RE = re.compile(
+    r"session\s+(?:has\s+)?expired|sess[aã]o\s+expirad|sesi[oó]n\s+(?:ha\s+)?"
+    r"expirad|invalid\s+(?:token|session|request)|token\s+(?:expired|inv[aá]lid)|"
+    r"\b404\b|not\s+found|bad\s+request", re.I)
+
+
+async def _reloads_as_login(
+    url: str, *, country_hint: str = "", timeout_seconds: int = 15,
+    use_proxy: bool = True,
+) -> bool | None:
+    """Load ``url`` once more in a fresh, cookie-less session.
+
+    ``True``  it still opens a sign-in (a form, or a redirect to an identity
+              provider), so the address can be handed to the next student.
+    ``False`` it is dead, an error, or a "session expired" page.
+    ``None``  unknown: the fetch failed or the page is drawn by script.
+    """
+    status, final_url, html, error = await _fetch_html(
+        url, timeout_seconds, country_hint, use_proxy)
+    if error:
+        return False if (NON_PUBLIC_NOTE in error or error.startswith("redirect:")) else None
+    if status in (404, 410) or status >= 500 or status == 400:
+        return False
+    if status >= 400:
+        return None
+    if is_identity_provider_url(final_url):
+        return True
+    if _login_form_evidence(html)[0]:
+        return True
+    soup = BeautifulSoup(html or "", "html.parser")
+    head = " ".join([soup.title.get_text(" ", strip=True) if soup.title else "",
+                     soup.get_text(" ", strip=True)[:600]])
+    return False if _EXPIRED_RE.search(head) else None
+
+
+async def publishable_login_url(
+    requested_url: str, found_url: str, *, country_hint: str = "",
+    timeout_seconds: int = 15, use_proxy: bool = True,
+) -> tuple[str, str]:
+    """The address to publish for a login found at ``found_url``.
+
+    Returns ``(url, note)``; ``url`` is "" when nothing reusable was seen.
+
+    * Return targets and session ids are always dropped (`canonical_portal_url`).
+    * An identity-provider screen is replaced by the portal URL that sent the
+      student there (``requested_url``).
+    * A URL with one-time-looking parameters is kept as it is only when a
+      fresh, cookie-less reload still shows the login; otherwise the same URL
+      without them, then the requested URL, each only after the same test.
+    """
+    found = canonical_portal_url(found_url or requested_url)
+    entry = canonical_portal_url(requested_url)
+    if _PER_PERSON_URL_RE.search(found):
+        if entry and not _PER_PERSON_URL_RE.search(entry) and not is_identity_provider_url(entry) \
+                and await _reloads_as_login(entry, country_hint=country_hint,
+                                            timeout_seconds=timeout_seconds, use_proxy=use_proxy):
+            return entry, "personal or auto-login URL; published the URL that leads to it"
+        return "", "only a personal or auto-login URL was seen"
+    if is_identity_provider_url(found):
+        if not entry or is_identity_provider_url(entry) \
+                or portal_dedupe_key(entry) == portal_dedupe_key(found):
+            return "", "only an identity-provider sign-in URL was seen"
+        if not _has_volatile_auth_state(entry):
+            return entry, "identity-provider sign-in; published the portal URL that leads to it"
+        found = entry
+    if not _has_volatile_auth_state(found):
+        return found, ""
+
+    async def reload(url: str) -> bool | None:
+        return await _reloads_as_login(url, country_hint=country_hint,
+                                       timeout_seconds=timeout_seconds,
+                                       use_proxy=use_proxy)
+
+    if await reload(found):
+        return found, "one-time-looking parameters, but a fresh reload still shows the login"
+    tried = {found}
+    for candidate, why in ((_strip_volatile_params(found), "one-time parameters removed"),
+                           (entry, "published the portal URL that leads to it")):
+        if not candidate or is_identity_provider_url(candidate) \
+                or _has_volatile_auth_state(candidate) or candidate in tried:
+            continue
+        tried.add(candidate)
+        if await reload(candidate):
+            return candidate, f"{why}; a fresh reload shows the login"
+    return "", "only a one-time sign-in URL was seen; no reusable address reloaded"
+
+
+# ---- ownership ----------------------------------------------------------- #
+
+_KB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "agent_knowledge_base.json")
+_VENDOR_ROOTS: frozenset[str] | None = None
+
+
+def student_system_vendor_roots() -> frozenset[str]:
+    """Roots of multi-tenant student systems: the knowledge base's curated
+    ``student_system_vendors`` plus its ``saas_infra_whitelist``."""
+    global _VENDOR_ROOTS
+    if _VENDOR_ROOTS is None:
+        import json
+        try:
+            with open(_KB_PATH, encoding="utf-8") as fh:
+                kb = json.load(fh)
+        except (OSError, ValueError):
+            kb = {}
+        roots = {str(e.get("root") or "").lower()
+                 for e in ((kb.get("student_system_vendors") or {}).get("roots") or [])}
+        roots |= {str(e.get("root") or "").lower()
+                  for e in (kb.get("saas_infra_whitelist") or [])}
+        _VENDOR_ROOTS = frozenset(r for r in roots if r)
+    return _VENDOR_ROOTS
+
+
+def _host_under(host: str, root: str) -> bool:
+    return bool(root) and (host == root or host.endswith("." + root))
+
+
+def _vendor_root_of(host: str, vendor_roots: Iterable[str]) -> str:
+    return next((r for r in vendor_roots if _host_under(host, r)), "")
+
+
+def _fold(text: str) -> str:
+    """Lower case without accents, so "Anáhuac" matches "anahuac"."""
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
+# Words in an institution's name that do not tell one institution from another.
+_NAME_STOPWORDS = frozenset("""
+university universidad universidade universite universita universitas
+universitaria universitario college colegio faculdade facultad faculty institute
+instituto institut institution school escola escuela academy academia centre
+center centro technology technological tecnologia tecnologica tecnologico
+science sciences ciencias engineering management studies education educacion
+educational national nacional federal state estadual estatal regional private
+public government autonomous autonoma polytechnic politecnica politecnico
+international catholic catolica pontificia pontifical sciences arts commerce
+campus higher superior superiore advanced research medical medicine
+""".split())
+_ACRONYM_SKIP = frozenset("of the and for de da do das dos del la las los y e et "
+                          "und fur at in on a an".split())
+
+
+def _name_tokens(org_name: str, official_domain: str) -> tuple[set[str], str, list[str]]:
+    """``(domain labels, acronym, distinctive name words)`` for branding checks."""
+    labels: set[str] = set()
+    for domain in re.split(r"[,;\s]+", official_domain or ""):
+        if not domain.strip():
+            continue
+        root = registrable_root(domain.strip().lower())
+        label = root.split(".")[0] if root else ""
+        if len(label) >= 3:
+            labels.add(label)
+    words = re.findall(r"[a-z0-9]+", _fold(org_name))
+    initials = "".join(w[0] for w in words if w not in _ACRONYM_SKIP)
+    acronym = initials if len(initials) >= 3 else ""
+    distinctive = [w for w in dict.fromkeys(words)
+                   if len(w) >= 4 and w not in _NAME_STOPWORDS and not w.isdigit()]
+    return labels, acronym, distinctive
+
+
+def org_branded(
+    url: str, page_text: str, *, org_name: str = "", official_domain: str = "",
+) -> tuple[bool, str]:
+    """Whether a vendor-hosted login is the organisation's tenant.
+
+    Branded means the tenant address or the page names the organisation: its
+    domain label (``pucpr.instructure.com``), its acronym, or the distinctive
+    words of its name (two of them, or its only one).
+    """
+    labels, acronym, distinctive = _name_tokens(org_name, official_domain)
+    parsed = urlsplit(_as_url(url))
+    url_tokens = set(re.findall(r"[a-z0-9]+", _fold(
+        f"{parsed.hostname or ''} {parsed.path} {parsed.query}")))
+    text = _fold(page_text)
+    text_tokens = set(re.findall(r"[a-z0-9]+", text))
+    host_labels = (parsed.hostname or "").lower().split(".")
+    for label in sorted(labels):
+        if label in url_tokens or label in text_tokens or (
+                len(label) >= 4 and any(h.startswith(label) for h in host_labels)):
+            return True, f"names the organisation ({label})"
+    if acronym and (acronym in url_tokens or acronym in text_tokens):
+        return True, f"names the organisation ({acronym.upper()})"
+    present = [w for w in distinctive if w in text_tokens or w in url_tokens]
+    if len(distinctive) >= 2 and len(present) >= 2:
+        return True, f"names the organisation ({' '.join(present[:3])})"
+    # An organisation with one distinctive word ("IIMT University"): the
+    # tenant address may carry it at any length, page text only when it is
+    # long enough not to be a common word.
+    if len(distinctive) == 1 and (distinctive[0] in url_tokens
+                                  or (len(distinctive[0]) >= 5 and present)):
+        return True, f"names the organisation ({distinctive[0]})"
+    return False, "page does not name the organisation"
+
+
+def ownership_evidence(
+    url: str, *, official_domain: str = "", known_urls: Iterable[str] = (),
+    org_name: str = "", page_text: str = "",
+    vendor_roots: Iterable[str] | None = None,
+) -> tuple[str, str]:
+    """Why ``url`` belongs to the organisation: ``(relation, reason)``.
+
+    ``relation`` is ``official`` (the organisation's own domain), ``known``
+    (the domain of one of its current provider or dashboard portals) or
+    ``vendor`` (a known student-system vendor, branded for it); "" when none
+    holds. The "an official page links to it" proof needs the network and is
+    added by `judge_student_login`.
+    """
+    vendors = frozenset(vendor_roots) if vendor_roots is not None \
+        else student_system_vendor_roots()
+    host = _normalised_host(url)
+    root = registrable_root(host)
+    if _official_host(url, official_domain):
+        return "official", "on the organisation's own domain"
+    for known in known_urls:
+        try:
+            known_host = _normalised_host(known)
+        except ValueError:
+            continue
+        if not known_host:
+            continue
+        # A known portal on a vendor proves that tenant, not the whole vendor.
+        if _vendor_root_of(known_host, vendors):
+            if known_host == host:
+                return "known", "same host as one of the organisation's current portals"
+        elif registrable_root(known_host) == root:
+            return "known", "same domain as one of the organisation's current portals"
+    vendor = _vendor_root_of(host, vendors)
+    if vendor:
+        branded, why = org_branded(url, page_text, org_name=org_name,
+                                   official_domain=official_domain)
+        if branded:
+            return "vendor", f"student-system vendor {vendor}, {why}"
+        return "", f"student-system vendor {vendor}, but {why}"
+    return "", "domain is neither the organisation's nor a known student-system vendor"
+
+
+async def _official_page_links_to(
+    url: str, official_domain: str, *, country_hint: str = "",
+    timeout_seconds: int = 15, use_proxy: bool = True,
+    vendor_roots: Iterable[str] = (),
+) -> bool:
+    """Whether the organisation's homepage links to the login at ``url``."""
+    target = urlsplit(_as_url(url))
+    host = _normalised_host(url)
+    vendor = _vendor_root_of(host, vendor_roots)
+    first_segment = (target.path or "/").strip("/").split("/")[0].lower()
+    key = portal_dedupe_key(url)
+    domains = [d for d in re.split(r"[,;\s]+", official_domain or "") if d.strip()][:2]
+    for domain in domains:
+        status, final, html, error = await _fetch_html(
+            f"https://{domain.strip().strip('/')}/", timeout_seconds, country_hint, use_proxy)
+        if error or not html or status >= 400:
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        for anchor in soup.find_all("a", href=True):
+            href = urljoin(final, str(anchor.get("href") or "").strip())
+            if not href.startswith("http"):
+                continue
+            try:
+                if portal_dedupe_key(href) == key:
+                    return True
+                link = urlsplit(href)
+            except ValueError:
+                continue
+            if _normalised_host(href) != host:
+                continue
+            # A shared vendor host serves many tenants: the link must name the
+            # same tenant (first path segment), not just the vendor.
+            if not vendor or (first_segment and (link.path or "/").strip("/")
+                              .split("/")[0].lower() == first_segment):
+                return True
+    return False
+
+
+def _page_text(html: str) -> str:
+    soup = BeautifulSoup(html or "", "html.parser")
+    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    return f"{title} {soup.get_text(' ', strip=True)[:4000]}"
+
+
+@dataclass
+class GateResult:
+    """One organisation's verdict on one candidate URL."""
+
+    decision: str                 # ACCEPT | ALREADY_HAVE | REVIEW | REJECT
+    reason: str                   # short code: login, already_have, wrong_org, ...
+    note: str                     # the evidence, for people
+    url: str = ""                 # the login to publish ("" unless accepted)
+    requested_url: str = ""
+    ownership: str = ""           # official | known | vendor | official_link
+
+    @property
+    def accepted(self) -> bool:
+        return self.decision in (ACCEPT, ALREADY_HAVE)
+
+    def as_tuple(self) -> tuple[bool, str, str]:
+        """The ``(accepted, note, url)`` shape of the verifiers."""
+        if self.accepted:
+            return True, self.note, self.url
+        prefix = REVIEW_PREFIX if self.decision == REVIEW and not is_review_note(self.note) else ""
+        return False, f"{prefix}{self.note}", self.url or self.requested_url
+
+
+async def judge_student_login(
+    url: str,
+    *,
+    org_name: str = "",
+    official_domain: str = "",
+    known_urls: Iterable[str] = (),
+    country_hint: str = "",
+    shared_platform_roots: Iterable[str] = (),
+    vendor_roots: Iterable[str] | None = None,
+    verifier=None,
+    timeout_seconds: int = 15,
+    use_proxy: bool = True,
+) -> GateResult:
+    """Decide whether ``url`` gives one organisation a new student login.
+
+    1. A student login must actually be seen (`verify_student_login_surface_hybrid`).
+       A page whose login was never opened is REVIEW, not ACCEPT.
+    2. The published URL is the login itself, never an identity-provider or
+       one-time address (`publishable_login_url`).
+    3. It must belong to the organisation: its own domain, the domain of a
+       current portal (``known_urls``), a known student-system vendor branded
+       for it, or a page the organisation's homepage (or the page the URL was
+       reported on, when that is the organisation's) links to. Otherwise REVIEW.
+    4. When it is the same login as one in ``known_urls`` (its current provider
+       and dashboard URLs) the decision is ALREADY_HAVE.
+
+    ``verifier`` replaces the hybrid verifier (tests, offline replays).
+    """
+    requested = _as_url(url)
+    verify = verifier or verify_student_login_surface_hybrid
+    accepted, note, found = await verify(
+        requested, country_hint=country_hint, official_domain=official_domain,
+        shared_platform_roots=shared_platform_roots)
+    if not accepted:
+        if is_review_note(note):
+            return GateResult(REVIEW, "login_unseen", note, "", requested)
+        return GateResult(REJECT, "not_login", note, "", requested)
+
+    published, publish_note = await publishable_login_url(
+        requested, found or requested, country_hint=country_hint,
+        timeout_seconds=timeout_seconds, use_proxy=use_proxy)
+    if not published:
+        return GateResult(REVIEW, "volatile", f"{note}; {publish_note}", "", requested)
+    allowed, why = portal_url_allowed(published)
+    if not allowed:
+        return GateResult(REJECT, "not_login", f"final URL: {why}", "", requested)
+    if publish_note:
+        note = f"{note}; {publish_note}"
+
+    known = [k for k in known_urls if k]
+    known_keys = set()
+    for k in known:
+        try:
+            known_keys.add(portal_dedupe_key(k))
+        except ValueError:
+            continue
+    vendors = frozenset(vendor_roots) if vendor_roots is not None \
+        else student_system_vendor_roots()
+
+    page_text = ""
+    if _vendor_root_of(_normalised_host(published), vendors) \
+            and not _official_host(published, official_domain):
+        _status, _final, html, _error = await _fetch_html(
+            published, timeout_seconds, country_hint, use_proxy)
+        page_text = _page_text(html)
+    relation, owner_note = ownership_evidence(
+        published, official_domain=official_domain, known_urls=known,
+        org_name=org_name, page_text=page_text, vendor_roots=vendors)
+    if not relation and ownership_evidence(
+            requested, official_domain=official_domain, known_urls=known,
+            vendor_roots=vendors)[0] in ("official", "known") \
+            and portal_dedupe_key(requested) != portal_dedupe_key(published):
+        relation, owner_note = "official_link", "reached from the organisation's own page"
+    if not relation and official_domain and await _official_page_links_to(
+            published, official_domain, country_hint=country_hint,
+            timeout_seconds=timeout_seconds, use_proxy=use_proxy, vendor_roots=vendors):
+        relation, owner_note = "official_link", "the organisation's homepage links to it"
+    if not relation:
+        return GateResult(REVIEW, "wrong_org", f"{note}; ownership not proven: {owner_note}",
+                          published, requested)
+    note = f"{note}; {owner_note}"
+    if portal_dedupe_key(published) in known_keys:
+        return GateResult(ALREADY_HAVE, "already_have",
+                          f"{note}; same login as a current portal", published,
+                          requested, relation)
+    return GateResult(ACCEPT, "login", note, published, requested, relation)

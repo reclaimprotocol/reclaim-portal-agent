@@ -17,10 +17,13 @@ WHAT IT RETURNS
 ---------------
     one     exactly one student login was reached at a new address.
             Publish that address.
-    multi   several different student logins were reached (student portal and
-            LMS, say). There is no single right answer, so publish the page.
+            When several different logins were reached (student portal and
+            LMS, say), the best one is published: student-labelled first,
+            then a student system over a library, then the first offered.
     modal   a student login appeared without the address changing.
             Publish the page; the click is how a student gets to the form.
+    button  a sign-in button was seen but never opened onto a form. Not
+            enough to publish: the gate sends the page to REVIEW.
     none    nothing the page offers leads to a student login.
 
 It is slow (a browser, several navigations), so the hybrid verifier calls it
@@ -70,6 +73,7 @@ _NOT_A_STUDENT_SECTION_RE = re.compile(
     r"former|alumni|ex-|outstanding|achiev|outcome|scholarship|admission|"
     r"prospective|testimonial|placement|grievance|feedback|union|council|"
     r"egresad|egress|antig[uo]os?", re.I)
+_LIBRARY_RE = re.compile(r"librar|biblioteca|bibliot|koha|opac|knimbus|ezproxy", re.I)
 _LOGIN_PATH_RE = re.compile(r"log[-_]?in|sign[-_]?in|logon|auth|sso|entrar|acesso|giris", re.I)
 _MENU_TOGGLE_RE = re.compile(
     r"menu|navigation|navbar|toggler|hamburger|men[uú]|navega", re.I)
@@ -107,12 +111,12 @@ _JS_COLLECT = r"""
 class ClickResult:
     """What clicking through one page found."""
 
-    outcome: str                      # one | multi | modal | none
+    outcome: str                      # one | modal | button | none
     url: str = ""                     # the address to publish when outcome == "one"
     note: str = ""
     destinations: list[str] = field(default_factory=list)
     controls: list[str] = field(default_factory=list)
-    page: str = ""                    # for multi/modal: the page that holds the controls
+    page: str = ""                    # for modal/button: the page that holds the controls
 
 
 # --------------------------------------------------------------------------- #
@@ -322,13 +326,31 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
             "one", destinations[key],
             f"login reached by clicking {labels[key]!r} (the only student-labelled "
             f"one of {len(found) + (1 if on_page else 0)})", found, controls)
-    if len(found) + (1 if on_page else 0) > 1:
-        return ClickResult(
-            "multi", note=f"{len(found) + (1 if on_page else 0)} different student "
-                          "logins reachable from the page; page kept",
-            page=keep, destinations=found, controls=controls)
-    return ClickResult("modal", note="login opens on the page after a click; page kept",
-                       page=keep, controls=controls)
+    if on_page:
+        # A login opened on the page itself, so the page IS a login; any
+        # other logins it links to are listed, not published.
+        extra = f"; {len(found)} other login(s) linked" if found else ""
+        return ClickResult("modal", note=f"login opens on the page after a click{extra}",
+                           page=keep, destinations=found, controls=controls)
+    # Several logins at different addresses and none on the page: publish the
+    # best of them (a student system over a library, then the first offered),
+    # never the page that only links to them.
+    ranked = sorted(destinations, key=lambda k: _destination_rank(
+        labels[k], destinations[k], list(destinations).index(k)))
+    best = ranked[0]
+    return ClickResult(
+        "one", destinations[best],
+        f"login reached by clicking {labels[best]!r} (best of {len(found)} "
+        "different student logins)", found, controls)
+
+
+def _destination_rank(label: str, url: str, order: int) -> tuple:
+    """Sort key for logins reached from one page: lower is better."""
+    blob = f"{label} {url}"
+    return (0 if _student_wording(label) else 1,
+            0 if _STUDENT_SYSTEM_RE.search(blob) or _SERVICE_WORD_RE.search(blob) else 1,
+            1 if _LIBRARY_RE.search(blob) else 0,
+            order)
 
 
 # --------------------------------------------------------------------------- #
@@ -604,9 +626,10 @@ async def _run(url: str, proxy_cfg: dict | None, limit: int) -> ClickResult | No
                 # accepted as it stands.
                 has_button, _links = G._login_links(home_html, base_url)
                 if has_button and not is_admission_portal(base_url, home_html)[0]:
+                    # Seen, but never opened onto a form: a person decides.
                     return ClickResult(
-                        "modal", note="login button on the page once it finished "
-                                      "drawing; page kept",
+                        "button", note="login button on the page once it finished "
+                                       "drawing, but no form seen behind it",
                         controls=result.controls, page=G.canonical_portal_url(base_url))
             return result
         finally:

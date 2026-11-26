@@ -436,18 +436,23 @@ def test_hybrid_renders_when_the_static_link_is_unconfirmed(monkeypatch) -> None
     assert result[0] is True and result[2] == app
 
 
-def test_hybrid_keeps_the_static_answer_when_the_render_fails(monkeypatch) -> None:
+def test_hybrid_sends_an_unread_link_to_review_when_nothing_confirms_it(monkeypatch) -> None:
+    """Item 1.1: "login link not confirmed" is never an ACCEPT."""
     async def static(url, *_a, **_k):
         return True, f"control; {LINK_UNCONFIRMED_NOTE}", url
 
     async def rendered(url, *_a, **_k):
         return False, "render TimeoutError", url
 
+    async def no_click(*_a, **_k):
+        return None
+
     monkeypatch.setattr(G, "verify_student_login_surface", static)
     monkeypatch.setattr(G, "verify_student_login_surface_rendered", rendered)
+    monkeypatch.setattr(G, "_click_through", no_click)
     accepted, note, url = asyncio.run(verify_student_login_surface_hybrid(HOME))
-    assert accepted is True and url == HOME
-    assert LINK_UNCONFIRMED_NOTE in note
+    assert accepted is False and url == HOME
+    assert G.is_review_note(note) and LINK_UNCONFIRMED_NOTE in note
 
 
 def test_hybrid_does_not_render_a_confirmed_static_result(monkeypatch) -> None:

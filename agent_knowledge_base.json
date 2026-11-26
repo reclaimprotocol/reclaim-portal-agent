@@ -22,7 +22,8 @@
   "categories": 10,
   "blacklist_groups": 16,
   "learned_legal_keywords": 28,
-  "compliance_exclusion_blacklist_terms": 278
+  "compliance_exclusion_blacklist_terms": 278,
+  "student_system_vendors": 38
  },
  "saas_infra_whitelist": [
   {
@@ -4939,5 +4940,162 @@
   "politica-privacidade",
   "Terma & Syarat",
   "Términos y condiciones"
- ]
+ ],
+ "student_system_vendors": {
+  "_doc": "Hosts of multi-tenant student systems. A login on one of these roots belongs to an organisation only when the page or tenant is branded for it (guardrails.ownership_evidence). saas_infra_whitelist roots count as vendors too. Seeded from the Tier A review (build_verified.py VENDORS), 2026-11.",
+  "roots": [
+   {
+    "root": "instructure.com",
+    "name": "Instructure Canvas"
+   },
+   {
+    "root": "samarth.ac.in",
+    "name": "Samarth (MoE India)"
+   },
+   {
+    "root": "samarth.edu.in",
+    "name": "Samarth (MoE India)"
+   },
+   {
+    "root": "ucanassess.in",
+    "name": ""
+   },
+   {
+    "root": "managebac.com",
+    "name": "ManageBac"
+   },
+   {
+    "root": "q10.com",
+    "name": "Q10"
+   },
+   {
+    "root": "eshiksaems.com",
+    "name": ""
+   },
+   {
+    "root": "brightspace.com",
+    "name": "D2L Brightspace"
+   },
+   {
+    "root": "jacad.com.br",
+    "name": "Jacad"
+   },
+   {
+    "root": "linways.com",
+    "name": "Linways"
+   },
+   {
+    "root": "orangeapps.ph",
+    "name": "OrangeApps"
+   },
+   {
+    "root": "orangeapps.com.ph",
+    "name": "OrangeApps"
+   },
+   {
+    "root": "acamsys.com",
+    "name": "acamsys"
+   },
+   {
+    "root": "ivyeduerp.com",
+    "name": "ivyEduERP"
+   },
+   {
+    "root": "tcsion.com",
+    "name": "TCS iON"
+   },
+   {
+    "root": "servoescolar.mx",
+    "name": "ServoEscolar"
+   },
+   {
+    "root": "studentscenter.in",
+    "name": ""
+   },
+   {
+    "root": "platosedu.io",
+    "name": ""
+   },
+   {
+    "root": "portaldoaluno.ai",
+    "name": ""
+   },
+   {
+    "root": "effii.app",
+    "name": ""
+   },
+   {
+    "root": "eduerp.ai",
+    "name": ""
+   },
+   {
+    "root": "cloudtotvs.com.br",
+    "name": "TOTVS cloud"
+   },
+   {
+    "root": "wccscas.in",
+    "name": ""
+   },
+   {
+    "root": "sonecyber.co.in",
+    "name": ""
+   },
+   {
+    "root": "edusite.mx",
+    "name": ""
+   },
+   {
+    "root": "niatrosistemas.com.br",
+    "name": ""
+   },
+   {
+    "root": "ems.com.my",
+    "name": "EMS (PLUTO)"
+   },
+   {
+    "root": "intelliexams.com",
+    "name": ""
+   },
+   {
+    "root": "grupoa.education",
+    "name": "Grupo A"
+   },
+   {
+    "root": "agencianx.com.br",
+    "name": ""
+   },
+   {
+    "root": "academic.lat",
+    "name": ""
+   },
+   {
+    "root": "univexam.info",
+    "name": ""
+   },
+   {
+    "root": "webprosindia.com",
+    "name": ""
+   },
+   {
+    "root": "clariens.com.br",
+    "name": ""
+   },
+   {
+    "root": "icloudph.com",
+    "name": "icloudph SIAS"
+   },
+   {
+    "root": "mannesoftprime.com.br",
+    "name": "Mannesoft Prime"
+   },
+   {
+    "root": "mastersofterp.in",
+    "name": "MasterSoft ERP"
+   },
+   {
+    "root": "moodlecloud.com",
+    "name": "MoodleCloud"
+   }
+  ]
+ }
 }

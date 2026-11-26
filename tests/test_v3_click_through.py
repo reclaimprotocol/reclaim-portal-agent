@@ -153,14 +153,18 @@ def test_two_controls_reaching_the_same_login_count_once() -> None:
     assert result.outcome == "one"
 
 
-def test_several_different_logins_keep_the_page() -> None:
+def test_several_different_logins_publish_the_best_one() -> None:
+    """Never the landing page: the best login reached is published."""
     result = decide([
+        _click("Library login", "https://opac.example.ac.in/login",
+               "https://opac.example.ac.in/login"),
         _click("Student Portal", "https://erp.example.ac.in/login", "https://erp.example.ac.in/login"),
         _click("LMS", "https://lms.example.ac.in/login/index.php",
                "https://lms.example.ac.in/login/index.php"),
     ], HOME)
-    assert result.outcome == "multi" and result.url == ""
-    assert len(result.destinations) == 2
+    assert result.outcome == "one" and result.url == "https://erp.example.ac.in/login"
+    assert "best of 3" in result.note
+    assert len(result.destinations) == 3
 
 
 def test_the_one_student_labelled_login_wins_over_a_plain_login() -> None:
@@ -175,14 +179,14 @@ def test_the_one_student_labelled_login_wins_over_a_plain_login() -> None:
     assert "only student-labelled" in result.note
 
 
-def test_two_student_labelled_logins_are_still_a_tie() -> None:
+def test_two_student_labelled_logins_publish_the_first_offered() -> None:
     result = decide([
         _click("Student Portal", "https://erp.example.ac.in/login",
                "https://erp.example.ac.in/login", for_students=True),
         _click("Student LMS", "https://lms.example.ac.in/login/index.php",
                "https://lms.example.ac.in/login/index.php", for_students=True),
     ], HOME)
-    assert result.outcome == "multi"
+    assert result.outcome == "one" and result.url == "https://erp.example.ac.in/login"
 
 
 def test_login_that_opens_without_changing_the_address_keeps_the_page() -> None:
@@ -191,11 +195,13 @@ def test_login_that_opens_without_changing_the_address_keeps_the_page() -> None:
 
 
 def test_a_pop_up_login_beside_a_linked_login_keeps_the_page() -> None:
+    """The page has a login of its own, so the page itself is a login."""
     result = decide([
         _click("Login", "", HOME, changed=False),
         _click("LMS", "https://lms.example.ac.in/login", "https://lms.example.ac.in/login"),
     ], HOME)
-    assert result.outcome == "multi"
+    assert result.outcome == "modal" and result.page == HOME
+    assert result.destinations == ["https://lms.example.ac.in/login"]
 
 
 def test_the_students_page_is_kept_when_its_buttons_are_the_way_in() -> None:
@@ -208,7 +214,7 @@ def test_the_students_page_is_kept_when_its_buttons_are_the_way_in() -> None:
                   "https://virtual.central.edu.py/auth"), "found_on": section},
     ]
     result = decide(clicks, home)
-    assert result.outcome == "multi" and result.page == section
+    assert result.outcome == "one" and result.url == "https://app.central.edu.py/#/auth/login".split("#")[0]
     # A pop-up on the section page keeps the section page too.
     modal = decide([{**_click("Ingresar", "", section, changed=False),
                      "found_on": section}], home)
@@ -323,18 +329,26 @@ def test_login_hidden_in_a_menu_is_found_by_clicking(monkeypatch) -> None:
     assert calls == ["render", f"click {HOME}"]
 
 
-@pytest.mark.parametrize("outcome", ["multi", "modal"])
-def test_page_is_kept_when_clicking_finds_no_single_address(monkeypatch, outcome) -> None:
+def test_page_is_kept_when_its_login_opens_on_the_page(monkeypatch) -> None:
     _wire(monkeypatch, (False, NO_LOGIN, HOME), (False, NO_LOGIN, HOME),
-          ClickResult(outcome, note="page kept"))
+          ClickResult("modal", note="login opens on the page after a click"))
     accepted, _note, url = asyncio.run(verify_student_login_surface_hybrid(HOME))
     assert accepted is True and url == HOME
+
+
+def test_a_button_never_opened_is_review_not_accept(monkeypatch) -> None:
+    """Item 1.1: a sign-in button whose form was never seen is not a login."""
+    _wire(monkeypatch, (False, NO_LOGIN, HOME), (False, NO_LOGIN, HOME),
+          ClickResult("button", note="login button on the page, no form seen"))
+    accepted, note, url = asyncio.run(verify_student_login_surface_hybrid(HOME))
+    assert accepted is False and G.is_review_note(note)
+    assert G.UNSEEN_LOGIN_NOTE in note
 
 
 def test_students_page_is_published_when_clicking_says_so(monkeypatch) -> None:
     section = "https://www.example.ac.in/students"
     _wire(monkeypatch, (False, NO_LOGIN, HOME), (False, NO_LOGIN, HOME),
-          ClickResult("multi", page=section, note="page kept"))
+          ClickResult("modal", page=section, note="login opens on the page after a click"))
     assert asyncio.run(verify_student_login_surface_hybrid(HOME))[2] == section
 
 
@@ -382,12 +396,14 @@ def test_button_only_page_is_upgraded_to_the_form_it_opens(monkeypatch) -> None:
     assert calls == [f"click {HOME}"]          # no render needed first
 
 
-def test_button_only_page_survives_a_click_that_finds_nothing(monkeypatch) -> None:
-    """A button that could not be clicked today is not evidence against it."""
+def test_button_only_page_goes_to_review_when_the_click_finds_nothing(monkeypatch) -> None:
+    """Item 1.1: a button that could not be clicked today is not evidence
+    against the page, but not for it either: REVIEW, never ACCEPT."""
     accepted_note = f"control; student; {BUTTON_UNOPENED_NOTE}"
     _wire(monkeypatch, (True, accepted_note, HOME), None, ClickResult("none", note="x"))
-    assert asyncio.run(verify_student_login_surface_hybrid(HOME)) == (
-        True, accepted_note, HOME)
+    accepted, note, url = asyncio.run(verify_student_login_surface_hybrid(HOME))
+    assert accepted is False and url == HOME
+    assert G.is_review_note(note) and BUTTON_UNOPENED_NOTE in note
 
 
 def test_unread_link_goes_to_chromium_then_to_a_click(monkeypatch) -> None:
