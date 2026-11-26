@@ -19,7 +19,7 @@ import pytest
 from agent import guardrails as G
 from agent.guardrails import (
     ACCEPT, ALREADY_HAVE, REJECT, REVIEW,
-    canonical_portal_url, dedupe_within_org, is_identity_provider_url,
+    canonical_portal_url, is_identity_provider_url,
     judge_student_login, org_branded, ownership_evidence, portal_dedupe_key,
     publishable_login_url,
 )
@@ -120,11 +120,11 @@ VENDORS = G.student_system_vendor_roots()
 
 
 def test_vendor_list_lives_in_the_knowledge_base() -> None:
-    for root in ("instructure.com", "q10.com", "samarth.edu.in", "tcsion.com",
-                 "jacad.com.br", "linways.com", "icloudph.com", "mannesoftprime.com.br"):
-        assert root in VENDORS
+    curated = {"instructure.com", "q10.com", "samarth.edu.in", "tcsion.com",
+               "jacad.com.br", "linways.com", "icloudph.com", "mannesoftprime.com.br"}
+    assert curated <= VENDORS
     # ... and the saas_infra_whitelist counts too.
-    assert "knimbus.com" in VENDORS
+    assert {"knimbus.com"} <= VENDORS
 
 
 @pytest.mark.parametrize("url, org, domain", [
@@ -266,14 +266,6 @@ def test_same_login_spellings_share_a_key(first, second) -> None:
 ])
 def test_different_logins_keep_different_keys(first, second) -> None:
     assert portal_dedupe_key(first) != portal_dedupe_key(second)
-
-
-def test_duplicates_merge_within_an_org_never_across_orgs() -> None:
-    """UNLP's Guaraní serves several faculties: one row per organisation."""
-    rows = [("659640", "https://g3.unsl.edu.ar/g3/acceso"),
-            ("659640", "https://g3.unsl.edu.ar/g3/acceso/login?ref=x"),
-            ("111111", "https://g3.unsl.edu.ar/g3/acceso")]
-    assert dedupe_within_org(rows) == [rows[0], rows[2]]
 
 
 def test_a_login_the_org_already_has_is_reported_as_such(monkeypatch) -> None:
@@ -423,3 +415,17 @@ def test_a_tenant_host_starting_with_the_orgs_domain_label_is_branded() -> None:
                               official_domain="hrcollege.edu, hsncu.edu.in",
                               org_name="Hassaram Rijhumal College of Commerce",
                               vendor_roots=VENDORS)[0] == "vendor"
+
+
+@pytest.mark.parametrize("seen", [
+    "https://portal.example.edu/login?sid=s3ss10n",
+    "https://portal.example.edu/login;jsessionid=0A1B2C",
+])
+def test_a_session_id_dropped_by_canonicalising_still_needs_a_reload(monkeypatch, seen) -> None:
+    """Only the session-bearing URL was seen: the cleaned one must reload too."""
+    clean = "https://portal.example.edu/login"
+    _pages(monkeypatch, {clean: (200, "<p>Your session has expired</p>")})
+    assert asyncio.run(publishable_login_url(seen, seen))[0] == ""
+    _pages(monkeypatch, {clean: (200, FORM)})
+    published, note = asyncio.run(publishable_login_url(seen, seen))
+    assert published == clean and "fresh reload" in note

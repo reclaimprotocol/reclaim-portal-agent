@@ -384,29 +384,6 @@ def portal_dedupe_key(url: str) -> str:
     return f"{host}{path}" + (f"?{urlencode(query)}" if query else "")
 
 
-def dedupe_within_org(
-    rows: Iterable[Any], *, org_of=lambda r: r[0], url_of=lambda r: r[1],
-) -> list[Any]:
-    """Keep the first row of each (organisation, same login) pair.
-
-    A URL shared by several organisations (one Guaraní or Afya platform used
-    by many) stays once per organisation: duplicates are only ever merged
-    inside one organisation.
-    """
-    seen: set[tuple[str, str]] = set()
-    kept = []
-    for row in rows:
-        try:
-            key = (str(org_of(row)), portal_dedupe_key(url_of(row)))
-        except ValueError:
-            kept.append(row)
-            continue
-        if key in seen:
-            continue
-        seen.add(key)
-        kept.append(row)
-    return kept
-
 
 #: Evidence note for a sign-in page that asks for the username on its own.
 IDENTIFIER_FIRST_NOTE = "username-first sign-in step (password asked on the next screen)"
@@ -1758,8 +1735,10 @@ async def publishable_login_url(
       fresh, cookie-less reload still shows the login; otherwise the same URL
       without them, then the requested URL, each only after the same test.
     """
-    found = canonical_portal_url(found_url or requested_url)
-    entry = canonical_portal_url(requested_url)
+    raw_found = _as_url(found_url or requested_url)
+    raw_entry = _as_url(requested_url)
+    found = canonical_portal_url(raw_found)
+    entry = canonical_portal_url(raw_entry)
     if _PER_PERSON_URL_RE.search(found):
         if entry and not _PER_PERSON_URL_RE.search(entry) and not is_identity_provider_url(entry) \
                 and await _reloads_as_login(entry, country_hint=country_hint,
@@ -1770,10 +1749,13 @@ async def publishable_login_url(
         if not entry or is_identity_provider_url(entry) \
                 or portal_dedupe_key(entry) == portal_dedupe_key(found):
             return "", "only an identity-provider sign-in URL was seen"
-        if not _has_volatile_auth_state(entry):
+        if not _carries_session(raw_entry):
             return entry, "identity-provider sign-in; published the portal URL that leads to it"
-        found = entry
-    if not _has_volatile_auth_state(found):
+        raw_found, found = raw_entry, entry
+    # Only what was seen is proven. When the URL carried a session or one-time
+    # part, even one `canonical_portal_url` already dropped, every address
+    # published in its place must pass a fresh, cookie-less reload first.
+    if not _carries_session(raw_found):
         return found, ""
 
     async def reload(url: str) -> bool | None:
@@ -1781,18 +1763,32 @@ async def publishable_login_url(
                                        timeout_seconds=timeout_seconds,
                                        use_proxy=use_proxy)
 
-    if await reload(found):
-        return found, "one-time-looking parameters, but a fresh reload still shows the login"
-    tried = {found}
-    for candidate, why in ((_strip_volatile_params(found), "one-time parameters removed"),
-                           (entry, "published the portal URL that leads to it")):
-        if not candidate or is_identity_provider_url(candidate) \
-                or _has_volatile_auth_state(candidate) or candidate in tried:
+    keep_note = ("one-time-looking parameters, but a fresh reload still shows the login"
+                 if _has_volatile_auth_state(found) else "session id removed")
+    candidates = ((found, keep_note),
+                  (_strip_volatile_params(found), "one-time parameters removed"),
+                  (entry, "published the portal URL that leads to it"))
+    tried: set[str] = set()
+    for index, (candidate, why) in enumerate(candidates):
+        if not candidate or candidate in tried or is_identity_provider_url(candidate):
             continue
         tried.add(candidate)
+        if index and _has_volatile_auth_state(candidate):
+            continue
         if await reload(candidate):
-            return candidate, f"{why}; a fresh reload shows the login"
+            return candidate, (why if index == 0 and _has_volatile_auth_state(candidate)
+                               else f"{why}; a fresh reload shows the login")
     return "", "only a one-time sign-in URL was seen; no reusable address reloaded"
+
+
+def _carries_session(raw_url: str) -> bool:
+    """Whether a URL, as seen (before canonicalising), carries one-time or
+    per-visit state: a volatile query key or a session id in the path."""
+    try:
+        path = urlsplit(raw_url).path or ""
+    except ValueError:
+        return False
+    return _has_volatile_auth_state(raw_url) or bool(_PATH_SESSION_RE.search(path))
 
 
 # ---- ownership ----------------------------------------------------------- #

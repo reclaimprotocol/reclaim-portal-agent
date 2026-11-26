@@ -120,7 +120,7 @@ def reload_oracle(row: dict, url: str):
     return None
 
 
-async def replay(row: dict, org_id: str, website: str, known: list[str]) -> tuple[str, str, str]:
+async def replay(row: dict, website: str, known: list[str]) -> tuple[str, str, str]:
     """``(decision, reason, url)`` under the new rules, offline."""
     gate = row["gate"]
     if gate["decision"] != "ACCEPT":
@@ -185,7 +185,7 @@ async def main() -> None:
     out = []
     for r in rows:
         org = str(r["orgId"])
-        decision, reason, url = await replay(r, org, r.get("website") or "",
+        decision, reason, url = await replay(r, r.get("website") or "",
                                              known_urls(r, dash, org))
         rv = r.get("review") or {}
         out.append({"id": r["id"], "orgId": org, "before": r["gate"]["decision"],
