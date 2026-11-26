@@ -283,16 +283,16 @@ def test_a_login_the_org_already_has_is_reported_as_such(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_canonical_url_drops_session_ids_and_return_targets() -> None:
+def test_canonical_url_drops_return_targets_but_leaves_session_ids_for_the_reload() -> None:
     assert canonical_portal_url(
-        "https://ulicori.acamsys.com/student/login;jacamsysid=de4a6490bc3c"
-    ) == "https://ulicori.acamsys.com/student/login"
-    assert canonical_portal_url(
-        "https://lms.example.edu/login/index.php?sesskey=x&sid=y&ReturnUrl=%2F&ref=nav&lang=es"
+        "https://lms.example.edu/login/index.php?ReturnUrl=%2F&ref=nav&next=%2Fmy&lang=es"
     ) == "https://lms.example.edu/login/index.php"
-    # One-time sign-in parameters are left for the reload test to judge.
-    assert canonical_portal_url("https://uauth.example.in/?code=abc") == \
-        "https://uauth.example.in/?code=abc"
+    # Session ids and one-time parameters stay until `publishable_login_url`
+    # has reloaded the URL without them.
+    for url in ("https://ulicori.acamsys.com/student/login;jacamsysid=de4a6490bc3c",
+                "https://lms.example.edu/login/index.php?sesskey=x",
+                "https://uauth.example.in/?code=abc"):
+        assert canonical_portal_url(url) == url
 
 
 @pytest.mark.parametrize("key", ["sesskey", "sid", "token", "jwt", "ticket", "AuthState",
@@ -429,3 +429,24 @@ def test_a_session_id_dropped_by_canonicalising_still_needs_a_reload(monkeypatch
     _pages(monkeypatch, {clean: (200, FORM)})
     published, note = asyncio.run(publishable_login_url(seen, seen))
     assert published == clean and "fresh reload" in note
+
+
+def test_a_confirmed_link_with_a_session_id_is_reload_tested_end_to_end(monkeypatch) -> None:
+    """PR review: the verifier must not drop `?sid=` before the publish step."""
+    landing = "https://www.example.edu/students/"
+    seen = "https://portal.example.edu/login?sid=per-visit-id"
+    clean = "https://portal.example.edu/login"
+
+    async def static(url, *_a, **_k):
+        return True, "x; student; login link opened and confirmed", seen
+
+    monkeypatch.setattr(G, "verify_student_login_surface", static)
+    _pages(monkeypatch, {clean: (200, "<p>Your session has expired</p>"),
+                         seen: (200, "<p>Your session has expired</p>"),
+                         landing: (200, "<p>Students</p>")})
+    result = asyncio.run(judge_student_login(landing, official_domain="example.edu"))
+    assert result.decision == REVIEW and result.reason == "volatile"
+
+    _pages(monkeypatch, {clean: (200, FORM)})
+    result = asyncio.run(judge_student_login(landing, official_domain="example.edu"))
+    assert result.decision == ACCEPT and result.url == clean

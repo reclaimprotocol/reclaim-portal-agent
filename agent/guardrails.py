@@ -139,7 +139,6 @@ _TRACKING_PARAMS = frozenset({
     "_gl", "_ga", "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "dclid",
     "mc_cid", "mc_eid", "yclid", "igshid",
 })
-_JSESSIONID_RE = re.compile(r";jsessionid=[^/?#;]*", re.I)
 _INDEX_DOCUMENT_RE = re.compile(
     r"/(?:index|default)\.(?:php|html?|aspx?|jsp|do)$", re.I)
 _LOGIN_WORD_RE = re.compile(
@@ -187,12 +186,13 @@ _VOLATILE_AUTH_PARAMS = frozenset({
     "id_token", "session_state", "code_challenge", "auth_token", "logintoken",
 })
 #: Query keys that never change which login a student sees: where to go after
-#: signing in, where the click came from, and per-visit session ids. They are
-#: dropped from every published URL and from the same-login key.
+#: signing in and where the click came from. They are dropped from every
+#: published URL and from the same-login key. Per-visit session ids are NOT
+#: here: they are volatile, and only `publishable_login_url` removes them,
+#: after a fresh reload proves the URL still works without them.
 _NOISE_PARAMS = frozenset({
     "ref", "returnurl", "return_url", "returnto", "return_to", "redirect",
     "redirect_url", "redirecturl", "next", "loginredirect", "logout",
-    "sesskey", "sid", "jsessionid", "phpsessid", "aspsessionid", "cookietime",
     "sessionexpired", "session_expired", "aspxautodetectcookiesupport",
 })
 # Servlet and Jacad/ULICORI session ids written into the path.
@@ -318,11 +318,12 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
 def canonical_portal_url(url: str) -> str:
     """Return a reusable output URL, removing presentation-only variants.
 
-    Drops click tracking, language switches, post-login return targets
-    (``ReturnUrl``, ``next``, ``redirect``, ...) and per-visit session ids
-    (``sesskey``, ``sid``, ``;jsessionid=``, ``;jacamsysid=``). One-time
-    sign-in parameters (``code``, ``state``, ``token``, ...) are left in place:
-    whether they can be dropped is decided by `publishable_login_url`.
+    Drops click tracking, language switches and post-login return targets
+    (``ReturnUrl``, ``next``, ``redirect``, ...). Session ids (``sid``,
+    ``sesskey``, ``;jsessionid=``, ``;jacamsysid=``) and one-time sign-in
+    parameters (``code``, ``state``, ``token``, ...) are left in place, so the
+    final step still sees them: whether they can be dropped is decided by
+    `publishable_login_url`, with a fresh reload.
     """
     cleaned = _as_url(url)
     parsed = urlsplit(cleaned)
@@ -334,9 +335,7 @@ def canonical_portal_url(url: str) -> str:
                 or lower.startswith(("utm_", "gad_"))):
             continue
         query.append((key, value))
-    # A session id in the path belongs to one visit, not to the portal.
-    path = _PATH_SESSION_RE.sub("", parsed.path or "")
-    return urlunsplit((parsed.scheme, parsed.netloc, path,
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "",
                        urlencode(query, doseq=True), ""))
 
 
@@ -365,6 +364,7 @@ def portal_dedupe_key(url: str) -> str:
     the login of several organisations, and each keeps its own row.
     """
     parsed = urlsplit(canonical_portal_url(url))
+    parsed = parsed._replace(path=_PATH_SESSION_RE.sub("", parsed.path or ""))
     host = (parsed.hostname or "").lower().rstrip(".").removeprefix("www.")
     try:
         port = parsed.port
@@ -1671,12 +1671,28 @@ def is_identity_provider_url(url: str) -> bool:
     return bool(_IDP_HOST_RE.search(host) or _IDP_URL_RE.search(url or ""))
 
 
-def _strip_volatile_params(url: str) -> str:
+#: Per-visit session ids: removed first, because the bare URL is the one to
+#: publish when it works. Other volatile keys (`code`, `token`, ...) may be a
+#: static part of the address (Mysore's `code`), so the URL keeps them when a
+#: reload proves it works with them.
+_SESSION_ID_PARAMS = frozenset({"sesskey", "sid", "jsessionid", "phpsessid",
+                                "aspsessionid", "cookietime"})
+
+
+def _strip_params(url: str, drop) -> str:
     parsed = urlsplit(canonical_portal_url(url))
     pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-             if not _is_volatile_auth_param(k)]
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+             if not drop(k)]
+    return urlunsplit((parsed.scheme, parsed.netloc, _PATH_SESSION_RE.sub("", parsed.path),
                        urlencode(pairs, doseq=True), ""))
+
+
+def _strip_session_ids(url: str) -> str:
+    return _strip_params(url, lambda k: k.lower() in _SESSION_ID_PARAMS)
+
+
+def _strip_volatile_params(url: str) -> str:
+    return _strip_params(url, _is_volatile_auth_param)
 
 
 # Addresses that belong to one person or sign one person in: FAVENI's
@@ -1758,26 +1774,22 @@ async def publishable_login_url(
     if not _carries_session(raw_found):
         return found, ""
 
-    async def reload(url: str) -> bool | None:
-        return await _reloads_as_login(url, country_hint=country_hint,
-                                       timeout_seconds=timeout_seconds,
-                                       use_proxy=use_proxy)
-
-    keep_note = ("one-time-looking parameters, but a fresh reload still shows the login"
-                 if _has_volatile_auth_state(found) else "session id removed")
-    candidates = ((found, keep_note),
+    # Every candidate is published only after a fresh, cookie-less reload
+    # shows the login: the session-free URL first, then the URL as seen (its
+    # remaining "one-time" parts may be static), then without any of them,
+    # then the portal URL the student started from.
+    candidates = ((_strip_session_ids(found), "session id removed"),
+                  (found, "one-time-looking parameters kept"),
                   (_strip_volatile_params(found), "one-time parameters removed"),
                   (entry, "published the portal URL that leads to it"))
     tried: set[str] = set()
-    for index, (candidate, why) in enumerate(candidates):
+    for candidate, why in candidates:
         if not candidate or candidate in tried or is_identity_provider_url(candidate):
             continue
         tried.add(candidate)
-        if index and _has_volatile_auth_state(candidate):
-            continue
-        if await reload(candidate):
-            return candidate, (why if index == 0 and _has_volatile_auth_state(candidate)
-                               else f"{why}; a fresh reload shows the login")
+        if await _reloads_as_login(candidate, country_hint=country_hint,
+                                   timeout_seconds=timeout_seconds, use_proxy=use_proxy):
+            return candidate, f"{why}; a fresh reload shows the login"
     return "", "only a one-time sign-in URL was seen; no reusable address reloaded"
 
 

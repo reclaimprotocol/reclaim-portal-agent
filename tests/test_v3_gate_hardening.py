@@ -107,9 +107,13 @@ def test_canonical_url_drops_click_tracking_and_session_ids() -> None:
     assert canonical_portal_url(
         "https://accounts.descomplica.com.br/?_gl=1*er7jev*_up*MQ..&fbclid=abc"
     ) == "https://accounts.descomplica.com.br/"
+    # A session id is left for the publish step, which drops it only after a
+    # fresh reload; the same-login key ignores it.
     assert canonical_portal_url(
         "https://portal.example.edu/login.do;jsessionid=0A1B2C3D?tenant=7"
-    ) == "https://portal.example.edu/login.do?tenant=7"
+    ) == "https://portal.example.edu/login.do;jsessionid=0A1B2C3D?tenant=7"
+    assert portal_dedupe_key("https://portal.example.edu/login.do;jsessionid=0A1B2C3D?tenant=7") \
+        == portal_dedupe_key("https://portal.example.edu/login.do?tenant=7")
 
 
 def test_canonical_url_keeps_parameters_that_select_the_page() -> None:
