@@ -185,11 +185,11 @@ _VOLATILE_AUTH_PARAMS = frozenset({
     "jsessionid", "phpsessid", "aspsessionid", "cookietime", "access_token",
     "id_token", "session_state", "code_challenge", "auth_token", "logintoken",
 })
-#: Query keys that never change which login a student sees: where to go after
-#: signing in and where the click came from. They are dropped from every
-#: published URL and from the same-login key. Per-visit session ids are NOT
-#: here: they are volatile, and only `publishable_login_url` removes them,
-#: after a fresh reload proves the URL still works without them.
+#: Query keys that should not change which login a student sees: where to go
+#: after signing in and where the click came from. The same-login key ignores
+#: them; `publishable_login_url` drops them from a published URL only after a
+#: fresh reload shows the login without them. Per-visit session ids are
+#: treated the same way, as volatile parameters.
 _NOISE_PARAMS = frozenset({
     "ref", "returnurl", "return_url", "returnto", "return_to", "redirect",
     "redirect_url", "redirecturl", "next", "loginredirect", "logout",
@@ -318,12 +318,11 @@ def portal_url_allowed(url: str) -> tuple[bool, str]:
 def canonical_portal_url(url: str) -> str:
     """Return a reusable output URL, removing presentation-only variants.
 
-    Drops click tracking, language switches and post-login return targets
-    (``ReturnUrl``, ``next``, ``redirect``, ...). Session ids (``sid``,
-    ``sesskey``, ``;jsessionid=``, ``;jacamsysid=``) and one-time sign-in
-    parameters (``code``, ``state``, ``token``, ...) are left in place, so the
-    final step still sees them: whether they can be dropped is decided by
-    `publishable_login_url`, with a fresh reload.
+    Drops click tracking and language switches only. Return targets
+    (``ReturnUrl``, ``next``, ...), session ids (``sid``, ``;jsessionid=``,
+    ...) and one-time sign-in parameters (``code``, ``state``, ...) are left in
+    place, so the final step still sees the URL as it was seen: whether they
+    can be dropped is decided by `publishable_login_url`, with a fresh reload.
     """
     cleaned = _as_url(url)
     parsed = urlsplit(cleaned)
@@ -331,7 +330,6 @@ def canonical_portal_url(url: str) -> str:
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         lower = key.lower()
         if (lower in _TRACKING_PARAMS or lower in {"lang", "changelangcd"}
-                or lower in _NOISE_PARAMS
                 or lower.startswith(("utm_", "gad_"))):
             continue
         query.append((key, value))
@@ -380,7 +378,7 @@ def portal_dedupe_key(url: str) -> str:
     query = sorted(
         (key.lower(), value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if not _is_volatile_auth_param(key))
+        if not _is_volatile_auth_param(key) and key.lower() not in _NOISE_PARAMS)
     return f"{host}{path}" + (f"?{urlencode(query)}" if query else "")
 
 
@@ -1717,11 +1715,14 @@ def _strip_params(url: str, drop) -> str:
 
 
 def _strip_session_ids(url: str) -> str:
-    return _strip_params(url, lambda k: k.lower() in _SESSION_ID_PARAMS)
+    """Without session ids and return targets: the address to publish."""
+    return _strip_params(url, lambda k: k.lower() in _SESSION_ID_PARAMS
+                         or k.lower() in _NOISE_PARAMS)
 
 
 def _strip_volatile_params(url: str) -> str:
-    return _strip_params(url, _is_volatile_auth_param)
+    return _strip_params(url, lambda k: _is_volatile_auth_param(k)
+                         or k.lower() in _NOISE_PARAMS)
 
 
 # Addresses that belong to one person or sign one person in: FAVENI's
@@ -1794,15 +1795,26 @@ async def publishable_login_url(
         if not entry or is_identity_provider_url(entry) \
                 or portal_dedupe_key(entry) == portal_dedupe_key(found):
             return "", "only an identity-provider sign-in URL was seen"
-        if not _carries_session(raw_entry) and not must_reload:
-            return entry, "identity-provider sign-in; published the portal URL that leads to it"
+        # The portal URL that sent the student to the IdP was never loaded on
+        # its own: it is published only after a fresh reload (below) shows a
+        # sign-in, its own or the IdP's.
         raw_found, found = raw_entry, entry
+        must_reload = True
     # Only what was seen is proven. When the URL carried a session or one-time
     # part, even one `canonical_portal_url` already dropped, every address
     # published in its place must pass a fresh, cookie-less reload first.
     # ``must_reload``: the verifier already swapped a one-time URL it was on
     # for this one, which nobody has loaded in a fresh session yet.
     if not _carries_session(raw_found) and not must_reload:
+        # The verifier loaded this very URL. Drop return targets only when a
+        # fresh reload shows the login without them; otherwise publish it as
+        # it was seen.
+        clean = _strip_session_ids(found)
+        if clean == found:
+            return found, ""
+        if await _reloads_as_login(clean, country_hint=country_hint,
+                                   timeout_seconds=timeout_seconds, use_proxy=use_proxy):
+            return clean, "return target removed; a fresh reload shows the login"
         return found, ""
 
     # Every candidate is published only after a fresh, cookie-less reload

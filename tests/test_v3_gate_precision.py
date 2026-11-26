@@ -283,16 +283,25 @@ def test_a_login_the_org_already_has_is_reported_as_such(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_canonical_url_drops_return_targets_but_leaves_session_ids_for_the_reload() -> None:
+def test_canonical_url_leaves_return_targets_and_session_ids_for_the_publish_step() -> None:
     assert canonical_portal_url(
-        "https://lms.example.edu/login/index.php?ReturnUrl=%2F&ref=nav&next=%2Fmy&lang=es"
-    ) == "https://lms.example.edu/login/index.php"
-    # Session ids and one-time parameters stay until `publishable_login_url`
-    # has reloaded the URL without them.
+        "https://lms.example.edu/login/index.php?ReturnUrl=%2F&utm_source=x&lang=es"
+    ) == "https://lms.example.edu/login/index.php?ReturnUrl=%2F"
     for url in ("https://ulicori.acamsys.com/student/login;jacamsysid=de4a6490bc3c",
                 "https://lms.example.edu/login/index.php?sesskey=x",
                 "https://uauth.example.in/?code=abc"):
         assert canonical_portal_url(url) == url
+
+
+def test_return_targets_are_dropped_only_when_a_fresh_reload_works(monkeypatch) -> None:
+    seen = "https://egov.uok.edu.in/eConduct/Account/Login?ReturnUrl=%2Feconduct%2Fstudent%2F"
+    clean = "https://egov.uok.edu.in/eConduct/Account/Login"
+    _pages(monkeypatch, {clean: (200, FORM)})
+    published, note = asyncio.run(publishable_login_url(seen, seen))
+    assert published == clean and "return target removed" in note
+    # No proof the bare URL works: publish the URL the verifier actually saw.
+    _pages(monkeypatch, {})
+    assert asyncio.run(publishable_login_url(seen, seen))[0] == canonical_portal_url(seen)
 
 
 @pytest.mark.parametrize("key", ["sesskey", "sid", "token", "jwt", "ticket", "AuthState",
@@ -317,18 +326,21 @@ def test_identity_provider_urls(url, expected) -> None:
 
 
 def test_simplesaml_authstate_publishes_the_portal_that_redirected(monkeypatch) -> None:
-    """A0666: UNQ's Guaraní entry redirected to a one-time SimpleSAML URL."""
-    _no_network(monkeypatch)
-    url, note = asyncio.run(publishable_login_url(
-        "https://autogestion.uvq.edu.ar/unq/",
-        "https://acceso.uvq.edu.ar/simplesaml/module.php/core/loginuserpass?AuthState=_abc"))
-    assert url == "https://autogestion.uvq.edu.ar/unq/"
-    assert "identity-provider" in note
+    """A0666: UNQ's Guaraní entry redirected to a one-time SimpleSAML URL.
+    The entry is published, after a fresh reload shows it still signs in."""
+    entry = "https://autogestion.uvq.edu.ar/unq/"
+    idp = "https://acceso.uvq.edu.ar/simplesaml/module.php/core/loginuserpass?AuthState=_abc"
+    fetched = _pages(monkeypatch, {entry: (200, FORM)})
+    url, note = asyncio.run(publishable_login_url(entry, idp))
+    assert url == entry and "fresh reload" in note
+    assert fetched == [entry]
+    _pages(monkeypatch, {entry: (404, "")})
+    assert asyncio.run(publishable_login_url(entry, idp))[0] == ""
 
 
 def test_moodle_oauth2_with_sesskey_publishes_the_portal(monkeypatch) -> None:
     """A0449: UNLP AU24 `/my/courses.php` -> `auth/oauth2/login.php?...&sesskey=`."""
-    _no_network(monkeypatch)
+    _pages(monkeypatch, {"https://www.au24-2026.econo.unlp.edu.ar/my/courses.php": (200, FORM)})
     url, _note = asyncio.run(publishable_login_url(
         "https://www.au24-2026.econo.unlp.edu.ar/my/courses.php",
         "https://www.au24-2026.econo.unlp.edu.ar/auth/oauth2/login.php?id=2&sesskey=abc"))
@@ -482,3 +494,25 @@ def test_a_url_seen_as_it_is_needs_no_reload(monkeypatch) -> None:
                                     "https://lms.example.edu/login")
     assert G._replaces_one_time("https://lms.example.edu/sso",
                                 "https://login.microsoftonline.com/t/oauth2/authorize")
+
+
+def test_a_click_landing_on_a_parameter_less_idp_screen_publishes_the_link(monkeypatch) -> None:
+    """PR review: `/login` redirects to an Okta SAML path with no one-time
+    parameters. The link is published, never the IdP or the homepage, and
+    only after a fresh reload."""
+    from agent.click_through import decide, publishable_destination
+    login = "https://www.example.edu/login"
+    okta = "https://example.okta.com/app/example_canvas/exk123/sso/saml"
+    assert publishable_destination(login, okta) == login
+    found = decide([{"control": "Login", "href": login, "dest": okta,
+                     "verdict": "student", "reason": "form", "url_changed": True}],
+                   "https://www.example.edu/")
+    assert found.url == login and G.REPLACED_ONE_TIME_NOTE in found.note
+
+    verdict = (True, f"{found.note}; click-through", login)
+    _pages(monkeypatch, {})                       # the reload proves nothing
+    assert judge("https://www.example.edu/", verdict,
+                 official_domain="example.edu").decision == REVIEW
+    _pages(monkeypatch, {login: (200, FORM)})
+    result = judge("https://www.example.edu/", verdict, official_domain="example.edu")
+    assert result.decision == ACCEPT and result.url == login

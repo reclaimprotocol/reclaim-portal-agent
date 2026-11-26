@@ -262,14 +262,18 @@ def pick_sections(controls: Sequence[dict], base_url: str) -> list[str]:
 def publishable_destination(href: str, dest: str) -> str:
     """The reusable address for a login reached from ``href`` at ``dest``.
 
-    A click can land on a one-time identity-provider transaction. That address
-    cannot be replayed, so the link that led there is published instead; with
-    no such link there is nothing stable to publish and "" is returned.
+    A click can land on a one-time transaction or on an identity provider's
+    screen. Neither is the portal, so the link that led there is published
+    instead (marked by `decide` for a fresh reload); with no such link there
+    is nothing stable to publish and "" is returned.
     """
-    if dest and not G._has_volatile_auth_state(dest) and G.portal_url_allowed(dest)[0]:
+    def portal_like(url: str) -> bool:
+        return (not G._has_volatile_auth_state(url) and not G.is_identity_provider_url(url)
+                and G.portal_url_allowed(url)[0])
+
+    if dest and portal_like(dest):
         return G.canonical_portal_url(dest)
-    if (href.startswith("http") and not G._has_volatile_auth_state(href)
-            and G.portal_url_allowed(href)[0]):
+    if href.startswith("http") and portal_like(href):
         return G.canonical_portal_url(href)
     return ""
 
@@ -344,9 +348,9 @@ def decide(clicks: Sequence[dict], entry_url: str) -> ClickResult:
     # Several logins at different addresses and none on the page: publish the
     # best of them (a student system over a library, then the first offered),
     # never the page that only links to them.
-    ranked = sorted(destinations, key=lambda k: _destination_rank(
-        labels[k], destinations[k], list(destinations).index(k)))
-    best = ranked[0]
+    order = list(destinations)
+    best = min(order, key=lambda k: _destination_rank(labels[k], destinations[k],
+                                                       order.index(k)))
     return ClickResult(
         "one", destinations[best],
         marked(best, f"login reached by clicking {labels[best]!r} (best of {len(found)} "
