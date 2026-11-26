@@ -547,3 +547,20 @@ def test_a_homepage_link_to_a_hosts_front_page_does_not_vouch_for_its_other_page
     assert asyncio.run(G._official_page_links_to(login, "example.edu")) is False
     _pages(monkeypatch, {"https://example.edu/": (200, f"<a href='{login}'>Login</a>")})
     assert asyncio.run(G._official_page_links_to(login, "example.edu")) is True
+
+
+@pytest.mark.parametrize("key", ["sessionid", "session", "sessid", "jacamsysid", "ASPSESSIONIDQAQRBCRB"])
+def test_query_session_ids_are_stripped_before_anything_is_published(monkeypatch, key) -> None:
+    """PR review: `?sessionid=` must not be published when the clean URL works."""
+    seen = f"https://portal.example.edu/login?{key}=SECRET"
+    clean = "https://portal.example.edu/login"
+    _pages(monkeypatch, {clean: (200, FORM), canonical_portal_url(seen): (200, FORM)})
+    published, note = asyncio.run(publishable_login_url(seen, seen))
+    assert published == clean and note.startswith("session id removed")
+
+
+def test_a_kept_one_time_url_is_not_labelled_as_cleaned(monkeypatch) -> None:
+    url = canonical_portal_url("https://uauth.example.in/?code=static-blob")
+    _pages(monkeypatch, {url: (200, FORM)})
+    published, note = asyncio.run(publishable_login_url(url, url))
+    assert published == url and note.startswith("one-time-looking parameters kept")

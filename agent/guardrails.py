@@ -211,7 +211,7 @@ def _has_login_word(text: str) -> bool:
 def _is_volatile_auth_param(key: str) -> bool:
     """Whether a query key belongs to a one-time authentication transaction."""
     lower = (key or "").lower()
-    return lower in _VOLATILE_AUTH_PARAMS or lower.startswith("openid.")
+    return (lower in _VOLATILE_AUTH_PARAMS or lower.startswith(("openid.", "aspsessionid")))
 _render_sems: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, asyncio.Semaphore
 ] = weakref.WeakKeyDictionary()
@@ -1715,8 +1715,15 @@ def is_identity_provider_url(url: str) -> bool:
 #: publish when it works. Other volatile keys (`code`, `token`, ...) may be a
 #: static part of the address (Mysore's `code`), so the URL keeps them when a
 #: reload proves it works with them.
-_SESSION_ID_PARAMS = frozenset({"sesskey", "sid", "jsessionid", "phpsessid",
+_SESSION_ID_PARAMS = frozenset({"sesskey", "sid", "sessid", "session", "sessionid",
+                                "jsessionid", "jacamsysid", "phpsessid",
                                 "aspsessionid", "cookietime"})
+
+
+def _is_session_id_param(key: str) -> bool:
+    lower = (key or "").lower()
+    # Classic ASP names its session cookie ASPSESSIONID<suffix>.
+    return lower in _SESSION_ID_PARAMS or lower.startswith("aspsessionid")
 
 
 def _strip_params(url: str, drop) -> str:
@@ -1729,7 +1736,7 @@ def _strip_params(url: str, drop) -> str:
 
 def _strip_session_ids(url: str) -> str:
     """Without session ids and return targets: the address to publish."""
-    return _strip_params(url, lambda k: k.lower() in _SESSION_ID_PARAMS
+    return _strip_params(url, lambda k: _is_session_id_param(k)
                          or k.lower() in _NOISE_PARAMS)
 
 
@@ -1834,7 +1841,8 @@ async def publishable_login_url(
     # shows the login: the session-free URL first, then the URL as seen (its
     # remaining "one-time" parts may be static), then without any of them,
     # then the portal URL the student started from.
-    candidates = ((_strip_session_ids(found), "session id removed"),
+    clean = _strip_session_ids(found)
+    candidates = ((clean if clean != found else "", "session id removed"),
                   (found, "one-time-looking parameters kept"),
                   (_strip_volatile_params(found), "one-time parameters removed"),
                   (entry, "published the portal URL that leads to it"))
