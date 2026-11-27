@@ -107,9 +107,13 @@ def test_canonical_url_drops_click_tracking_and_session_ids() -> None:
     assert canonical_portal_url(
         "https://accounts.descomplica.com.br/?_gl=1*er7jev*_up*MQ..&fbclid=abc"
     ) == "https://accounts.descomplica.com.br/"
+    # A session id is left for the publish step, which drops it only after a
+    # fresh reload; the same-login key ignores it.
     assert canonical_portal_url(
         "https://portal.example.edu/login.do;jsessionid=0A1B2C3D?tenant=7"
-    ) == "https://portal.example.edu/login.do?tenant=7"
+    ) == "https://portal.example.edu/login.do;jsessionid=0A1B2C3D?tenant=7"
+    assert portal_dedupe_key("https://portal.example.edu/login.do;jsessionid=0A1B2C3D?tenant=7") \
+        == portal_dedupe_key("https://portal.example.edu/login.do?tenant=7")
 
 
 def test_canonical_url_keeps_parameters_that_select_the_page() -> None:
@@ -484,8 +488,8 @@ def test_gate_can_be_switched_off(monkeypatch) -> None:
 
 
 def test_batch_never_publishes_a_plain_http_replacement(monkeypatch) -> None:
-    """An https page whose Login link leads to an http form: the verified
-    https page is published, never the clear-text one."""
+    """An https page whose Login link leads to an http form: neither the
+    clear-text login nor the page that only links to it is published."""
     home = "https://www.example.ac.in/"
     _patch_pipeline(monkeypatch, {
         home: (True, "rendered login/SSO authorisation control; login link opened "
@@ -494,5 +498,5 @@ def test_batch_never_publishes_a_plain_http_replacement(monkeypatch) -> None:
     row = orch.UniversityRow(1, "1", "X", "example.ac.in")
     live, _dead, _insecure, rejected = asyncio.run(
         orch.verify_portals(row, [_portal(home)]))
-    assert [p.exact_url for p, _ in live] == [home]
-    assert rejected == []
+    assert live == []
+    assert rejected[0][0] == home and rejected[0][1].startswith("needs review:")

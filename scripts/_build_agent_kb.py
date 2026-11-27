@@ -532,6 +532,14 @@ kb = {
 }
 
 out = ROOT / "agent_knowledge_base.json"
+# Hand-curated sections live only in the file: carry them over on a rebuild.
+if out.exists():
+    _previous = json.loads(out.read_text(encoding="utf-8"))
+    for _key in ("student_system_vendors", "learned_legal_keywords"):
+        if _key in _previous:
+            kb[_key] = _previous[_key]
+    if "student_system_vendors" in kb:
+        kb["counts"]["student_system_vendors"] = len(kb["student_system_vendors"]["roots"])
 out.write_text(json.dumps(kb, indent=2, ensure_ascii=False) + "\n")
 print(f"wrote {out}")
 print(f"  whitelist            : {len(whitelist)} "

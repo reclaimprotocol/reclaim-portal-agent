@@ -71,6 +71,7 @@ from agent.graph_matcher import (GraphComplianceMatcher,            # noqa: E402
 from agent.guardrails import (verify_portal_endpoint_final,          # noqa: E402
                               verify_portal_endpoint_detailed, transport_ok,
                               verify_student_login_surface_hybrid,
+                              judge_student_login,
                               canonical_portal_url, portal_dedupe_key,
                               portal_url_allowed)
 from agent.memory_cache import MemoryCache, signature               # noqa: E402
@@ -219,6 +220,10 @@ class UniversityRow:
     #: Every domain the sheet lists for the organisation, `domain` first. The
     #: crawl starts from `domain`; ownership checks accept any of them.
     domains: tuple[str, ...] = ()
+    #: The organisation's current provider and dashboard portal URLs, when
+    #: known. A login that matches one is reported as already had, and its
+    #: domain counts as the organisation's.
+    known_urls: tuple[str, ...] = ()
 
     @property
     def official_domains(self) -> str:
@@ -395,13 +400,18 @@ async def verify_portals(
         return live_portals, dead, insecure_dropped, rejected
 
     async def _gate(url: str) -> tuple[bool, str, str]:
+        # A student login must be seen, published as the login itself, and
+        # belong to this organisation; anything short of that is not
+        # published (REVIEW notes start with "needs review:").
         try:
-            return await asyncio.wait_for(
-                verify_student_login_surface_hybrid(
-                    url, country_hint=row.country,
-                    official_domain=row.official_domains,
-                    shared_platform_roots=shared_platform_roots),
+            result = await asyncio.wait_for(
+                judge_student_login(
+                    url, org_name=row.name, official_domain=row.official_domains,
+                    known_urls=row.known_urls, country_hint=row.country,
+                    shared_platform_roots=shared_platform_roots,
+                    verifier=verify_student_login_surface_hybrid),
                 timeout=LOGIN_GATE_TIMEOUT_S)
+            return result.as_tuple()
         except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError:
@@ -423,12 +433,11 @@ async def verify_portals(
                 # The login check may hand back a different page (a Login link
                 # it followed, a form it clicked to). The original already
                 # passed the https policy; a replacement that would send
-                # passwords in clear text is not published. Fall back to the
-                # page that was verified.
+                # passwords in clear text is not published, and neither is the
+                # page that only links to it: a person decides.
                 logger.info("v3: org %s — %s resolved to non-https %s; "
-                            "publishing the verified page instead",
-                            row.org_id, original, final)
-                final = canonical_portal_url(original)
+                            "sent to review", row.org_id, original, final)
+                accepted, note = False, f"needs review: the login found is not https ({final})"
         if not accepted:
             rejected.append((original, note))
             logger.warning("[NOT A STUDENT LOGIN] org %s — %s (%s) — discarded",
