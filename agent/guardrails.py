@@ -211,8 +211,9 @@ _CREDENTIAL_PARAMS = frozenset({
 # `/(S(abc))/` (session), `/(A(...))/` and `/(F(...))/` (anonymous id, forms
 # ticket).
 _PATH_SESSION_RE = re.compile(
-    r";(?:jsessionid|jacamsysid|phpsessid|sessionid|sessid|session|sesskey|sid|"
-    r"cookietime|asp\.net_sessionid|aspsessionid\w*)=[^/?#;]*"
+    r";(?:j?session[._-]?id|jacamsysid|php[._-]?sess[._-]?id|sess[._-]?id|session|"
+    r"sess[._-]?key|sid|cookietime|asp[._-]?net[._-]?session[._-]?id|aspsessionid\w*)"
+    r"=[^/?#;]*"
     r"|/\((?:[ASF]\([^()/]*\))+\)(?=/|$)", re.I)
 
 
@@ -1783,10 +1784,11 @@ _SESSION_ID_PARAMS = frozenset({"sesskey", "sid", "sessid", "session", "sessioni
 
 def _is_session_id_param(key: str) -> bool:
     lower = (key or "").lower()
-    # Classic ASP names its session cookie ASPSESSIONID<suffix>; ASP.NET names
-    # it ASP.NET_SessionId (matched with the dot and underscore removed).
+    # Names are compared without separators, so `session_id`, `session-id`
+    # and ASP.NET's `ASP.NET_SessionId` match too. Classic ASP names its
+    # session cookie ASPSESSIONID<suffix>.
     squeezed = re.sub(r"[._-]", "", lower)
-    return (lower in _SESSION_ID_PARAMS or lower.startswith("aspsessionid")
+    return (squeezed in _SESSION_ID_PARAMS or squeezed.startswith("aspsessionid")
             or squeezed == "aspnetsessionid")
 
 

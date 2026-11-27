@@ -651,7 +651,9 @@ def test_cleaning_a_hash_routed_url_keeps_its_route(monkeypatch) -> None:
 @pytest.mark.parametrize("part", [";PHPSESSID=SECRET", ";sessionid=SECRET", ";sid=SECRET",
                                   ";ASPSESSIONIDQAQRBCRB=SECRET", ";jsessionid=SECRET",
                                   ";ASP.NET_SessionId=SECRET", "?ASP.NET_SessionId=SECRET",
-                                  "?asp_net_sessionid=SECRET"])
+                                  "?asp_net_sessionid=SECRET", "?session_id=SECRET",
+                                  "?Session-Id=SECRET", ";session_id=SECRET",
+                                  "?php_sess_id=SECRET"])
 def test_every_path_session_id_is_caught_and_never_published(monkeypatch, part) -> None:
     """PR review: `;PHPSESSID=` in the path was neither detected nor stripped."""
     seen = f"https://portal.example.edu/login{part}"
@@ -712,6 +714,18 @@ def test_authstate_after_a_hash_is_an_identity_provider_transaction(monkeypatch)
     assert is_identity_provider_url(seen)
     _pages(monkeypatch, {seen: (200, FORM),
                          "https://idp.example.edu/simplesaml/module.php/core/loginuserpass.php": (200, FORM)})
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.url == ""
+
+
+def test_a_separated_session_name_in_a_hash_route_query_is_caught(monkeypatch) -> None:
+    """PR review: `session_id` / `session-id` were not session names."""
+    seen = "https://portal.example.edu/#/login?session_id=SECRET"
+    clean = "https://portal.example.edu/#/login"
+    assert G._has_credential(seen) and G._carries_session(seen)
+    assert G._strip_volatile_params(seen) == clean
+    _pages(monkeypatch, {seen: (200, FORM)})          # only the session URL works
     result = judge(seen, (True, "password, identifier, and sign-in control", seen),
                    official_domain="example.edu")
     assert result.decision == REVIEW and result.url == ""

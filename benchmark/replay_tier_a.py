@@ -262,7 +262,10 @@ async def main() -> None:
 
     if args.tier_a:
         print("\n== Same-org duplicates among published accepts (org x URL rows) ==")
-        by_url = {r["reportedUrl"]: r for r in rows}
+        # One review per (org, URL): a Tier A row is scored only by the review
+        # made for its own org.
+        reviewed = {(str(r["orgId"]), r["reportedUrl"]): r for r in rows}
+        reviewed_urls = {r["reportedUrl"] for r in rows}
         res = {o["id"]: o for o in out}
         tier = json.load(open(args.tier_a))
         for side, key_fn, url_field in (("before", old_dedupe_key, "beforeUrl"),
@@ -270,10 +273,8 @@ async def main() -> None:
             groups: dict = collections.defaultdict(set)
             exact: dict = collections.defaultdict(int)
             for t in tier:
-                r = by_url.get(t["url"])
-                # One review per URL, made for one org: another org's row for
-                # the same URL would borrow that org's outcome, so it is left out.
-                if not r or str(r["orgId"]) != str(t["orgId"]):
+                r = reviewed.get((str(t["orgId"]), t["url"]))
+                if not r:
                     continue
                 o = res[r["id"]]
                 if not accepted(o, side) or not o[url_field]:
@@ -285,8 +286,8 @@ async def main() -> None:
             merged = sum(n - 1 for n in exact.values())
             print(f"{side}: {sum(exact.values())} accepted org x URL rows, {merged} merged by the "
                   f"key, {slipped} same-login spellings the key misses")
-        skipped = sum(1 for t in tier if t["url"] in by_url
-                      and str(by_url[t["url"]]["orgId"]) != str(t["orgId"]))
+        skipped = sum(1 for t in tier if t["url"] in reviewed_urls
+                      and (str(t["orgId"]), t["url"]) not in reviewed)
         print(f"(left out: {skipped} org x URL rows whose URL was reviewed for another org)")
         cross = collections.Counter(t["url"] for t in tier)
         print(f"URLs reported for more than one org (kept once per org): "
