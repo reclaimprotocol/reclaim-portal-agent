@@ -212,6 +212,19 @@ _PATH_SESSION_RE = re.compile(
     r"cookietime|aspsessionid\w*)=[^/?#;]*", re.I)
 
 
+def _has_path_session(url: str) -> bool:
+    """A `;name=` session id in the path, or in a hash route's path
+    (`#/login;jsessionid=...`)."""
+    parsed = urlsplit(url)
+    route = (parsed.fragment or "").split("?", 1)[0]
+    return bool(_PATH_SESSION_RE.search(parsed.path or "")
+                or (route.lstrip("!").startswith("/") and _PATH_SESSION_RE.search(route)))
+
+
+def _without_path_session(fragment_or_path: str) -> str:
+    return _PATH_SESSION_RE.sub("", fragment_or_path or "")
+
+
 def _has_login_word(text: str) -> bool:
     """Whether ``text`` carries sign-in wording in English or the page's language."""
     if not text:
@@ -390,7 +403,8 @@ def portal_dedupe_key(url: str) -> str:
     the login of several organisations, and each keeps its own row.
     """
     parsed = urlsplit(canonical_portal_url(url))
-    parsed = parsed._replace(path=_PATH_SESSION_RE.sub("", parsed.path or ""))
+    parsed = parsed._replace(path=_without_path_session(parsed.path),
+                             fragment=_without_path_session(parsed.fragment))
     host = (parsed.hostname or "").lower().rstrip(".").removeprefix("www.")
     try:
         port = parsed.port
@@ -646,7 +660,7 @@ def _has_credential(url: str) -> bool:
     """Whether the URL carries something that must never be published: a
     bearer credential, a session id (query or path) or a password."""
     try:
-        if _PATH_SESSION_RE.search(urlsplit(url).path or ""):
+        if _has_path_session(url):
             return True
         return any(k.lower() in _CREDENTIAL_PARAMS or _is_session_id_param(k)
                    for k, _v in _url_params(url))
@@ -1775,12 +1789,12 @@ def _strip_params(url: str, drop) -> str:
     parsed = urlsplit(canonical_portal_url(url))
     pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
              if not drop(k)]
-    route = parsed.fragment
-    if "?" in route:
-        base, query = route.split("?", 1)
+    base, _, query = parsed.fragment.partition("?")
+    route = _without_path_session(base)
+    if query:
         kept = [(k, v) for k, v in parse_qsl(query, keep_blank_values=True) if not drop(k)]
-        route = base + (f"?{urlencode(kept)}" if kept else "")
-    return urlunsplit((parsed.scheme, parsed.netloc, _PATH_SESSION_RE.sub("", parsed.path),
+        route += f"?{urlencode(kept)}" if kept else ""
+    return urlunsplit((parsed.scheme, parsed.netloc, _without_path_session(parsed.path),
                        urlencode(pairs, doseq=True), route))
 
 
@@ -1924,10 +1938,9 @@ def _carries_session(raw_url: str) -> bool:
     """Whether a URL, as seen (before canonicalising), carries one-time or
     per-visit state: a volatile query or fragment key, or a path session id."""
     try:
-        path = urlsplit(raw_url).path or ""
+        return _has_volatile_auth_state(raw_url) or _has_path_session(raw_url)
     except ValueError:
         return False
-    return _has_volatile_auth_state(raw_url) or bool(_PATH_SESSION_RE.search(path))
 
 
 # ---- ownership ----------------------------------------------------------- #

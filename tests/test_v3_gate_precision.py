@@ -664,3 +664,25 @@ def test_every_path_session_id_is_caught_and_never_published(monkeypatch, part) 
 def test_path_session_names_match_the_query_session_names() -> None:
     for name in G._SESSION_ID_PARAMS:
         assert G._PATH_SESSION_RE.search(f"/login;{name}=x"), name
+
+
+
+@pytest.mark.parametrize("seen", [
+    "https://portal.example.edu/#/login;jsessionid=SECRET",
+    "https://portal.example.edu/#!/login;PHPSESSID=SECRET?next=/x",
+])
+def test_a_session_id_inside_a_hash_route_is_caught_and_never_published(monkeypatch, seen) -> None:
+    """PR review: `#/login;jsessionid=` hid a session id from the path check."""
+    clean_route = "#!/login" if "#!" in seen else "#/login"
+    clean = f"https://portal.example.edu/{clean_route}"
+    assert G._has_credential(seen) and G._carries_session(seen)
+    assert G._strip_volatile_params(seen) == clean
+    assert portal_dedupe_key(seen) == portal_dedupe_key(clean)
+    _pages(monkeypatch, {seen: (200, FORM)})          # only the session URL works
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.url == ""
+    _pages(monkeypatch, {clean: (200, FORM)})
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == ACCEPT and result.url == clean
