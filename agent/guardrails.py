@@ -205,7 +205,11 @@ _CREDENTIAL_PARAMS = frozenset({
     "pwd", "senha", "apikey", "api_key",
 })
 # Servlet and Jacad/ULICORI session ids written into the path.
-_PATH_SESSION_RE = re.compile(r";(?:jsessionid|jacamsysid)=[^/?#;]*", re.I)
+# Session ids written into the path (`;jsessionid=`, `;PHPSESSID=`, ...): the
+# same names as `_SESSION_ID_PARAMS`, plus Classic ASP's ASPSESSIONID<suffix>.
+_PATH_SESSION_RE = re.compile(
+    r";(?:jsessionid|jacamsysid|phpsessid|sessionid|sessid|session|sesskey|sid|"
+    r"cookietime|aspsessionid\w*)=[^/?#;]*", re.I)
 
 
 def _has_login_word(text: str) -> bool:
@@ -351,10 +355,13 @@ def canonical_portal_url(url: str) -> str:
 # (`https://app.example.edu/#/auth/login`); the root alone may be a landing
 # page. Such route fragments are kept; any other fragment (an in-page anchor,
 # an OAuth `#access_token=` hand-off) is dropped.
-_ROUTE_FRAGMENT_RE = re.compile(r"^!?/[^=&]*$")
+_ROUTE_FRAGMENT_RE = re.compile(r"^!?/")
 
 
 def _route_fragment(fragment: str) -> str:
+    """The fragment when it is a client-side route (`#/login?next=/x` included),
+    else "". A route carrying one-time state stays visible here, so the
+    publish step sees it and never publishes it unproven."""
     return fragment if _ROUTE_FRAGMENT_RE.match(fragment or "") else ""
 
 
@@ -400,7 +407,7 @@ def portal_dedupe_key(url: str) -> str:
         (key.lower(), value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
         if not _is_volatile_auth_param(key) and key.lower() not in _NOISE_PARAMS)
-    route = parsed.fragment.lstrip("!").rstrip("/").lower()
+    route = parsed.fragment.lstrip("!").split("?", 1)[0].rstrip("/").lower()
     return (f"{host}{path}" + (f"?{urlencode(query)}" if query else "")
             + (f"#{route}" if route else ""))
 
@@ -1763,11 +1770,18 @@ def _is_session_id_param(key: str) -> bool:
 
 
 def _strip_params(url: str, drop) -> str:
+    """``url`` without the query keys ``drop`` names and without path session
+    ids. A hash route is kept, minus the same keys in its own query."""
     parsed = urlsplit(canonical_portal_url(url))
     pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
              if not drop(k)]
+    route = parsed.fragment
+    if "?" in route:
+        base, query = route.split("?", 1)
+        kept = [(k, v) for k, v in parse_qsl(query, keep_blank_values=True) if not drop(k)]
+        route = base + (f"?{urlencode(kept)}" if kept else "")
     return urlunsplit((parsed.scheme, parsed.netloc, _PATH_SESSION_RE.sub("", parsed.path),
-                       urlencode(pairs, doseq=True), ""))
+                       urlencode(pairs, doseq=True), route))
 
 
 def _strip_session_ids(url: str) -> str:

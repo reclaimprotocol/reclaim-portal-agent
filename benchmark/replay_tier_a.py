@@ -271,7 +271,9 @@ async def main() -> None:
             exact: dict = collections.defaultdict(int)
             for t in tier:
                 r = by_url.get(t["url"])
-                if not r:
+                # One review per URL, made for one org: another org's row for
+                # the same URL would borrow that org's outcome, so it is left out.
+                if not r or str(r["orgId"]) != str(t["orgId"]):
                     continue
                 o = res[r["id"]]
                 if not accepted(o, side) or not o[url_field]:
@@ -283,6 +285,9 @@ async def main() -> None:
             merged = sum(n - 1 for n in exact.values())
             print(f"{side}: {sum(exact.values())} accepted org x URL rows, {merged} merged by the "
                   f"key, {slipped} same-login spellings the key misses")
+        skipped = sum(1 for t in tier if t["url"] in by_url
+                      and str(by_url[t["url"]]["orgId"]) != str(t["orgId"]))
+        print(f"(left out: {skipped} org x URL rows whose URL was reviewed for another org)")
         cross = collections.Counter(t["url"] for t in tier)
         print(f"URLs reported for more than one org (kept once per org): "
               f"{sum(1 for n in cross.values() if n > 1)}")

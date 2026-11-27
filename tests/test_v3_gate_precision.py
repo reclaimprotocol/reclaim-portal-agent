@@ -622,3 +622,45 @@ def test_the_publish_gate_holds_whatever_the_verifier_returns(monkeypatch) -> No
     result = judge(bad, (True, "password, identifier, and sign-in control", bad),
                    official_domain="example.edu")
     assert result.decision == REVIEW and result.url == ""
+
+
+def test_a_hash_route_with_parameters_is_kept_and_published_as_seen(monkeypatch) -> None:
+    """PR review: `#/login?next=/courses` must not collapse to the site root."""
+    url = "https://portal.example.edu/#/login?next=/courses"
+    assert canonical_portal_url(url) == url
+    # No proof the route works without `next`: publish it exactly as seen.
+    _pages(monkeypatch, {})
+    assert asyncio.run(publishable_login_url(url, url))[0] == url
+    # The route without the return target reloads as a login: publish that.
+    _pages(monkeypatch, {"https://portal.example.edu/#/login": (200, FORM)})
+    assert asyncio.run(publishable_login_url(url, url))[0] == "https://portal.example.edu/#/login"
+    # Same login as the bare route; a different route is a different login.
+    assert portal_dedupe_key(url) == portal_dedupe_key("https://portal.example.edu/#/login")
+    assert portal_dedupe_key(url) != portal_dedupe_key("https://portal.example.edu/")
+
+
+def test_cleaning_a_hash_routed_url_keeps_its_route(monkeypatch) -> None:
+    seen = "https://app.example.edu/;jsessionid=ABC#/auth/login?code=xyz"
+    clean = "https://app.example.edu/#/auth/login"
+    assert G._strip_volatile_params(seen) == clean
+    _pages(monkeypatch, {clean: (200, FORM)})
+    published, _note = asyncio.run(publishable_login_url(seen, seen))
+    assert published == clean
+
+
+@pytest.mark.parametrize("part", [";PHPSESSID=SECRET", ";sessionid=SECRET", ";sid=SECRET",
+                                  ";ASPSESSIONIDQAQRBCRB=SECRET", ";jsessionid=SECRET"])
+def test_every_path_session_id_is_caught_and_never_published(monkeypatch, part) -> None:
+    """PR review: `;PHPSESSID=` in the path was neither detected nor stripped."""
+    seen = f"https://portal.example.edu/login{part}"
+    assert G._has_credential(seen) and G._carries_session(seen)
+    _pages(monkeypatch, {seen: (200, FORM)})          # only the session URL works
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.url == ""
+    assert portal_dedupe_key(seen) == portal_dedupe_key("https://portal.example.edu/login")
+
+
+def test_path_session_names_match_the_query_session_names() -> None:
+    for name in G._SESSION_ID_PARAMS:
+        assert G._PATH_SESSION_RE.search(f"/login;{name}=x"), name
