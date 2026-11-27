@@ -195,6 +195,15 @@ _NOISE_PARAMS = frozenset({
     "redirect_url", "redirecturl", "next", "loginredirect", "logout",
     "sessionexpired", "session_expired", "aspxautodetectcookiesupport",
 })
+#: Query or fragment keys whose value is a credential: an address carrying
+#: one is never published as it is, even when it reloads, because a working
+#: reload does not make a token safe to hand out. Session ids count too
+#: (`_SESSION_ID_PARAMS`).
+_CREDENTIAL_PARAMS = frozenset({
+    "access_token", "id_token", "refresh_token", "jwt", "token", "auth_token",
+    "logintoken", "ticket", "samlresponse", "authstate", "password", "passwd",
+    "pwd", "senha", "apikey", "api_key",
+})
 # Servlet and Jacad/ULICORI session ids written into the path.
 _PATH_SESSION_RE = re.compile(r";(?:jsessionid|jacamsysid)=[^/?#;]*", re.I)
 
@@ -211,7 +220,8 @@ def _has_login_word(text: str) -> bool:
 def _is_volatile_auth_param(key: str) -> bool:
     """Whether a query key belongs to a one-time authentication transaction."""
     lower = (key or "").lower()
-    return (lower in _VOLATILE_AUTH_PARAMS or lower.startswith(("openid.", "aspsessionid")))
+    return (lower in _VOLATILE_AUTH_PARAMS or lower in _CREDENTIAL_PARAMS
+            or lower.startswith(("openid.", "aspsessionid")))
 _render_sems: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, asyncio.Semaphore
 ] = weakref.WeakKeyDictionary()
@@ -603,10 +613,36 @@ def _official_host(url: str, official_domain: str) -> bool:
     return False
 
 
+def _url_params(url: str) -> list[tuple[str, str]]:
+    """Every ``key=value`` of a URL: the query and, for OAuth-style hand-offs
+    (`#access_token=...&state=...`, `#/route?code=...`), the fragment."""
+    parsed = urlsplit(url)
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    fragment = parsed.fragment or ""
+    if "=" in fragment:
+        if fragment.lstrip("!").startswith("/"):
+            fragment = fragment.split("?", 1)[1] if "?" in fragment else ""
+        pairs += parse_qsl(fragment.lstrip("#&"), keep_blank_values=True)
+    return pairs
+
+
 def _has_volatile_auth_state(url: str) -> bool:
+    """Whether the URL carries one-time or per-visit state in its query or
+    its fragment. This is the one test every publish decision uses."""
     try:
-        return any(_is_volatile_auth_param(k)
-                   for k, _v in parse_qsl(urlsplit(url).query, keep_blank_values=True))
+        return any(_is_volatile_auth_param(k) for k, _v in _url_params(url))
+    except ValueError:
+        return False
+
+
+def _has_credential(url: str) -> bool:
+    """Whether the URL carries something that must never be published: a
+    bearer credential, a session id (query or path) or a password."""
+    try:
+        if _PATH_SESSION_RE.search(urlsplit(url).path or ""):
+            return True
+        return any(k.lower() in _CREDENTIAL_PARAMS or _is_session_id_param(k)
+                   for k, _v in _url_params(url))
     except ValueError:
         return False
 
@@ -1786,80 +1822,93 @@ async def _reloads_as_login(
     return False if _EXPIRED_RE.search(head) else None
 
 
+#: How a published URL is known to work. `judge_student_login` publishes
+#: nothing without one of these.
+SEEN, RELOADED = "seen", "reloaded"
+
+
 async def publishable_login_url(
     requested_url: str, found_url: str, *, country_hint: str = "",
     timeout_seconds: int = 15, use_proxy: bool = True, must_reload: bool = False,
 ) -> tuple[str, str]:
-    """The address to publish for a login found at ``found_url``.
+    """The address to publish for a login found at ``found_url``: ``(url, note)``,
+    ``url`` "" when nothing reusable was seen. See `_publishable_with_proof`."""
+    url, note, _proof = await _publishable_with_proof(
+        requested_url, found_url, country_hint=country_hint,
+        timeout_seconds=timeout_seconds, use_proxy=use_proxy, must_reload=must_reload)
+    return url, note
 
-    Returns ``(url, note)``; ``url`` is "" when nothing reusable was seen.
 
-    * Return targets and session ids are always dropped (`canonical_portal_url`).
+async def _publishable_with_proof(
+    requested_url: str, found_url: str, *, country_hint: str = "",
+    timeout_seconds: int = 15, use_proxy: bool = True, must_reload: bool = False,
+) -> tuple[str, str, str]:
+    """``(url, note, proof)``: the address to publish and how it is known to work.
+
+    ``proof`` is `SEEN` when ``url`` is exactly the address the verifier
+    loaded (minus click tracking, language switches and in-page anchors, none
+    of which reach the login), `RELOADED` when a fresh, cookie-less reload
+    showed the login at ``url``, and "" when nothing can be published.
+
+    * A URL carrying a credential or a session id is never published as it is.
     * An identity-provider screen is replaced by the portal URL that sent the
-      student there (``requested_url``).
-    * A URL with one-time-looking parameters is kept as it is only when a
-      fresh, cookie-less reload still shows the login; otherwise the same URL
-      without them, then the requested URL, each only after the same test.
+      student there, after a reload.
+    * Return targets and one-time parameters are dropped only when the URL
+      without them reloads as a login.
+    * ``must_reload``: the verifier handed back a URL in place of a one-time
+      one it was on, so even an unchanged ``found_url`` needs the reload.
     """
     raw_found = _as_url(found_url or requested_url)
     raw_entry = _as_url(requested_url)
     found = canonical_portal_url(raw_found)
     entry = canonical_portal_url(raw_entry)
+
+    async def reloads(url: str) -> bool:
+        return bool(await _reloads_as_login(url, country_hint=country_hint,
+                                            timeout_seconds=timeout_seconds,
+                                            use_proxy=use_proxy))
+
     if _PER_PERSON_URL_RE.search(found):
         if entry and not _PER_PERSON_URL_RE.search(entry) and not is_identity_provider_url(entry) \
-                and await _reloads_as_login(entry, country_hint=country_hint,
-                                            timeout_seconds=timeout_seconds, use_proxy=use_proxy):
-            return entry, "personal or auto-login URL; published the URL that leads to it"
-        return "", "only a personal or auto-login URL was seen"
+                and not _has_credential(entry) and await reloads(entry):
+            return entry, "personal or auto-login URL; published the URL that leads to it", RELOADED
+        return "", "only a personal or auto-login URL was seen", ""
     if is_identity_provider_url(found):
         if not entry or is_identity_provider_url(entry) \
                 or portal_dedupe_key(entry) == portal_dedupe_key(found):
-            return "", "only an identity-provider sign-in URL was seen"
-        # The portal URL that sent the student to the IdP was never loaded on
-        # its own: it is published only after a fresh reload (below) shows a
-        # sign-in, its own or the IdP's.
-        raw_found, found = raw_entry, entry
-        must_reload = True
-    # Only what was seen is proven. When the URL carried a session or one-time
-    # part, even one `canonical_portal_url` already dropped, every address
-    # published in its place must pass a fresh, cookie-less reload first.
-    # ``must_reload``: the verifier already swapped a one-time URL it was on
-    # for this one, which nobody has loaded in a fresh session yet.
-    if not _carries_session(raw_found) and not must_reload:
-        # The verifier loaded this very URL. Drop return targets only when a
-        # fresh reload shows the login without them; otherwise publish it as
-        # it was seen.
-        clean = _strip_session_ids(found)
-        if clean == found:
-            return found, ""
-        if await _reloads_as_login(clean, country_hint=country_hint,
-                                   timeout_seconds=timeout_seconds, use_proxy=use_proxy):
-            return clean, "return target removed; a fresh reload shows the login"
-        return found, ""
+            return "", "only an identity-provider sign-in URL was seen", ""
+        raw_found, found, must_reload = raw_entry, entry, True
 
-    # Every candidate is published only after a fresh, cookie-less reload
-    # shows the login: the session-free URL first, then the URL as seen (its
-    # remaining "one-time" parts may be static), then without any of them,
-    # then the portal URL the student started from.
-    clean = _strip_session_ids(found)
-    candidates = ((clean if clean != found else "", "session id removed"),
+    if not must_reload and not _carries_session(raw_found):
+        # The verifier loaded this very URL. Return targets go only when the
+        # URL reloads as a login without them.
+        clean = _strip_session_ids(found)
+        if clean != found and await reloads(clean):
+            return clean, "return target removed; a fresh reload shows the login", RELOADED
+        return found, "", SEEN
+
+    # One-time state, a session id, or a replacement nobody has loaded fresh:
+    # every candidate must reload as a login, and none may carry a credential.
+    candidates = ((_strip_session_ids(found), "session id removed"),
                   (found, "one-time-looking parameters kept"),
                   (_strip_volatile_params(found), "one-time parameters removed"),
                   (entry, "published the portal URL that leads to it"))
     tried: set[str] = set()
     for candidate, why in candidates:
-        if not candidate or candidate in tried or is_identity_provider_url(candidate):
+        if (not candidate or candidate in tried or is_identity_provider_url(candidate)
+                or _has_credential(candidate)):
             continue
         tried.add(candidate)
-        if await _reloads_as_login(candidate, country_hint=country_hint,
-                                   timeout_seconds=timeout_seconds, use_proxy=use_proxy):
-            return candidate, f"{why}; a fresh reload shows the login"
-    return "", "only a one-time sign-in URL was seen; no reusable address reloaded"
+        if await reloads(candidate):
+            if candidate == found and why == "session id removed":
+                why = "one-time-looking parameters kept"
+            return candidate, f"{why}; a fresh reload shows the login", RELOADED
+    return "", "only a one-time sign-in URL was seen; no reusable address reloaded", ""
 
 
 def _carries_session(raw_url: str) -> bool:
     """Whether a URL, as seen (before canonicalising), carries one-time or
-    per-visit state: a volatile query key or a session id in the path."""
+    per-visit state: a volatile query or fragment key, or a path session id."""
     try:
         path = urlsplit(raw_url).path or ""
     except ValueError:
@@ -2111,12 +2160,17 @@ async def judge_student_login(
             return GateResult(REVIEW, "login_unseen", note, "", requested)
         return GateResult(REJECT, "not_login", note, "", requested)
 
-    published, publish_note = await publishable_login_url(
+    published, publish_note, proof = await _publishable_with_proof(
         requested, found or requested, country_hint=country_hint,
         timeout_seconds=timeout_seconds, use_proxy=use_proxy,
         must_reload=REPLACED_ONE_TIME_NOTE in note)
-    if not published:
-        return GateResult(REVIEW, "volatile", f"{note}; {publish_note}", "", requested)
+    # The one publish gate: whatever path produced the URL, it is published
+    # only when it is exactly what was loaded or a fresh reload proved it,
+    # and it never carries a credential, a session id or an IdP transaction.
+    if not published or proof not in (SEEN, RELOADED) or _has_credential(published) \
+            or is_identity_provider_url(published) or _PER_PERSON_URL_RE.search(published):
+        return GateResult(REVIEW, "volatile",
+                          f"{note}; {publish_note or 'no reusable address proven'}", "", requested)
     allowed, why = portal_url_allowed(published)
     if not allowed:
         return GateResult(REJECT, "not_login", f"final URL: {why}", "", requested)

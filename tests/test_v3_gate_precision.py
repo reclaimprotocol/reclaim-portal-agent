@@ -564,3 +564,61 @@ def test_a_kept_one_time_url_is_not_labelled_as_cleaned(monkeypatch) -> None:
     _pages(monkeypatch, {url: (200, FORM)})
     published, note = asyncio.run(publishable_login_url(url, url))
     assert published == url and note.startswith("one-time-looking parameters kept")
+
+
+# --------------------------------------------------------------------------- #
+#  The one publish gate                                                        #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("key", ["access_token", "id_token", "jwt", "token", "ticket"])
+def test_a_credential_in_the_url_is_never_published_even_when_it_reloads(monkeypatch, key) -> None:
+    """PR review: a working reload does not make a token safe to hand out."""
+    seen = f"https://portal.example.edu/login?{key}=SECRET"
+    _pages(monkeypatch, {seen: (200, FORM)})          # only the token URL works
+    assert asyncio.run(publishable_login_url(seen, seen))[0] == ""
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.reason == "volatile"
+    # Without the token it works: that address is published instead.
+    _pages(monkeypatch, {seen: (200, FORM), "https://portal.example.edu/login": (200, FORM)})
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == ACCEPT and result.url == "https://portal.example.edu/login"
+
+
+def test_one_time_state_in_a_fragment_counts_as_one_time() -> None:
+    """PR review: `#access_token=` is OAuth state even though it is not in the query."""
+    url = "https://portal.example.edu/callback#access_token=SECRET&state=x"
+    assert G._has_volatile_auth_state(url) and G._has_credential(url)
+    assert G._has_volatile_auth_state("https://app.example.edu/#/cb?code=abc")
+    assert not G._has_volatile_auth_state("https://app.example.edu/#/auth/login")
+    assert not G._has_volatile_auth_state("https://lms.example.edu/login#main")
+
+
+def test_a_click_landing_on_a_fragment_token_publishes_the_link_after_a_reload(monkeypatch) -> None:
+    from agent.click_through import decide, publishable_destination
+    link = "https://portal.example.edu/sso"
+    landed = "https://portal.example.edu/callback#access_token=SECRET"
+    assert publishable_destination(link, landed) == link
+    found = decide([{"control": "Student Login", "href": link, "dest": landed,
+                     "verdict": "student", "reason": "form", "url_changed": True}],
+                   "https://www.example.edu/")
+    assert found.url == link and G.REPLACED_ONE_TIME_NOTE in found.note
+    verdict = (True, f"{found.note}; click-through", link)
+    _pages(monkeypatch, {})
+    assert judge("https://www.example.edu/", verdict,
+                 official_domain="example.edu").decision == REVIEW
+    _pages(monkeypatch, {link: (200, FORM)})
+    assert judge("https://www.example.edu/", verdict,
+                 official_domain="example.edu").url == link
+
+
+def test_the_publish_gate_holds_whatever_the_verifier_returns(monkeypatch) -> None:
+    """Defence in depth: even a verifier that hands back a credential URL as a
+    plain accepted login cannot get it published."""
+    bad = "https://portal.example.edu/login;jsessionid=ABC?sid=1"
+    _pages(monkeypatch, {bad: (200, FORM)})
+    result = judge(bad, (True, "password, identifier, and sign-in control", bad),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.url == ""
