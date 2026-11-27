@@ -207,9 +207,13 @@ _CREDENTIAL_PARAMS = frozenset({
 # Servlet and Jacad/ULICORI session ids written into the path.
 # Session ids written into the path (`;jsessionid=`, `;PHPSESSID=`, ...): the
 # same names as `_SESSION_ID_PARAMS`, plus Classic ASP's ASPSESSIONID<suffix>.
+# ASP.NET's cookieless mode writes it as a path segment instead:
+# `/(S(abc))/` (session), `/(A(...))/` and `/(F(...))/` (anonymous id, forms
+# ticket).
 _PATH_SESSION_RE = re.compile(
     r";(?:jsessionid|jacamsysid|phpsessid|sessionid|sessid|session|sesskey|sid|"
-    r"cookietime|aspsessionid\w*)=[^/?#;]*", re.I)
+    r"cookietime|asp\.net_sessionid|aspsessionid\w*)=[^/?#;]*"
+    r"|/\((?:[ASF]\([^()/]*\))+\)(?=/|$)", re.I)
 
 
 def _has_path_session(url: str) -> bool:
@@ -238,7 +242,7 @@ def _is_volatile_auth_param(key: str) -> bool:
     """Whether a query key belongs to a one-time authentication transaction."""
     lower = (key or "").lower()
     return (lower in _VOLATILE_AUTH_PARAMS or lower in _CREDENTIAL_PARAMS
-            or lower.startswith(("openid.", "aspsessionid")))
+            or lower.startswith("openid.") or _is_session_id_param(key))
 _render_sems: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, asyncio.Semaphore
 ] = weakref.WeakKeyDictionary()
@@ -1755,7 +1759,7 @@ _IDP_HOST_RE = re.compile(
 # Self-hosted identity-provider transactions: SimpleSAML `AuthState`, Keycloak
 # `openid-connect`, WSO2 `authenticationendpoint`, OAuth2 hand-offs.
 _IDP_URL_RE = re.compile(
-    r"[?&]authstate=|/protocol/openid-connect/|/authenticationendpoint/|"
+    r"[?&#]authstate=|/protocol/openid-connect/|/authenticationendpoint/|"
     r"/oauth2/|/oauth2(?:[?#]|$)", re.I)
 
 
@@ -1779,8 +1783,11 @@ _SESSION_ID_PARAMS = frozenset({"sesskey", "sid", "sessid", "session", "sessioni
 
 def _is_session_id_param(key: str) -> bool:
     lower = (key or "").lower()
-    # Classic ASP names its session cookie ASPSESSIONID<suffix>.
-    return lower in _SESSION_ID_PARAMS or lower.startswith("aspsessionid")
+    # Classic ASP names its session cookie ASPSESSIONID<suffix>; ASP.NET names
+    # it ASP.NET_SessionId (matched with the dot and underscore removed).
+    squeezed = re.sub(r"[._-]", "", lower)
+    return (lower in _SESSION_ID_PARAMS or lower.startswith("aspsessionid")
+            or squeezed == "aspnetsessionid")
 
 
 def _strip_params(url: str, drop) -> str:
@@ -1901,8 +1908,10 @@ async def _publishable_with_proof(
                 and not _has_credential(entry) and await reloads(entry):
             return entry, "personal or auto-login URL; published the URL that leads to it", RELOADED
         return "", "only a personal or auto-login URL was seen", ""
-    if is_identity_provider_url(found):
-        if not entry or is_identity_provider_url(entry) \
+    # Checked on the URL as seen: canonicalising drops a non-route fragment,
+    # and with it a `#AuthState=` transaction.
+    if is_identity_provider_url(raw_found) or is_identity_provider_url(found):
+        if not entry or is_identity_provider_url(raw_entry) or is_identity_provider_url(entry) \
                 or portal_dedupe_key(entry) == portal_dedupe_key(found):
             return "", "only an identity-provider sign-in URL was seen", ""
         raw_found, found, must_reload = raw_entry, entry, True

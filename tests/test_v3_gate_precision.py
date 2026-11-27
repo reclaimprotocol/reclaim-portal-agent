@@ -649,7 +649,9 @@ def test_cleaning_a_hash_routed_url_keeps_its_route(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("part", [";PHPSESSID=SECRET", ";sessionid=SECRET", ";sid=SECRET",
-                                  ";ASPSESSIONIDQAQRBCRB=SECRET", ";jsessionid=SECRET"])
+                                  ";ASPSESSIONIDQAQRBCRB=SECRET", ";jsessionid=SECRET",
+                                  ";ASP.NET_SessionId=SECRET", "?ASP.NET_SessionId=SECRET",
+                                  "?asp_net_sessionid=SECRET"])
 def test_every_path_session_id_is_caught_and_never_published(monkeypatch, part) -> None:
     """PR review: `;PHPSESSID=` in the path was neither detected nor stripped."""
     seen = f"https://portal.example.edu/login{part}"
@@ -686,3 +688,30 @@ def test_a_session_id_inside_a_hash_route_is_caught_and_never_published(monkeypa
     result = judge(seen, (True, "password, identifier, and sign-in control", seen),
                    official_domain="example.edu")
     assert result.decision == ACCEPT and result.url == clean
+
+
+def test_aspnet_cookieless_session_segment_is_caught_and_stripped(monkeypatch) -> None:
+    """PR review: ASP.NET writes cookieless sessions as `/(S(...))/` in the path."""
+    seen = "https://portal.example.edu/(S(abc123secret))/Login.aspx"
+    clean = "https://portal.example.edu/Login.aspx"
+    assert G._has_credential(seen) and G._carries_session(seen)
+    assert portal_dedupe_key(seen) == portal_dedupe_key(clean)
+    _pages(monkeypatch, {seen: (200, FORM)})          # only the session URL works
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.url == ""
+    _pages(monkeypatch, {clean: (200, FORM)})
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == ACCEPT and result.url == clean
+
+
+def test_authstate_after_a_hash_is_an_identity_provider_transaction(monkeypatch) -> None:
+    """PR review: `#AuthState=` (not a route) slipped past the IdP check."""
+    seen = "https://idp.example.edu/simplesaml/module.php/core/loginuserpass.php#AuthState=SECRET"
+    assert is_identity_provider_url(seen)
+    _pages(monkeypatch, {seen: (200, FORM),
+                         "https://idp.example.edu/simplesaml/module.php/core/loginuserpass.php": (200, FORM)})
+    result = judge(seen, (True, "password, identifier, and sign-in control", seen),
+                   official_domain="example.edu")
+    assert result.decision == REVIEW and result.url == ""
